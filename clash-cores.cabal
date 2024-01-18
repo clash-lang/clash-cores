@@ -146,6 +146,7 @@ library
     Clash.Cores.Sgmii.PcsTransmit.OrderedSet
     Clash.Cores.Sgmii.RateAdapt
     Clash.Cores.Sgmii.Sync
+    Clash.Cores.SigmaDeltaADC
     Clash.Cores.Spi
     Clash.Cores.Uart
     Clash.Cores.Xilinx.BlockRam
