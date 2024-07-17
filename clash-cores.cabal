@@ -178,6 +178,19 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
 
+  if !flag(clash-18)
+    exposed-modules:
+      Clash.Cores.Sgmii
+      Clash.Cores.Sgmii.AutoNeg
+      Clash.Cores.Sgmii.BitSlip
+      Clash.Cores.Sgmii.Common
+      Clash.Cores.Sgmii.PcsReceive
+      Clash.Cores.Sgmii.PcsTransmit
+      Clash.Cores.Sgmii.PcsTransmit.CodeGroup
+      Clash.Cores.Sgmii.PcsTransmit.OrderedSet
+      Clash.Cores.Sgmii.RateAdapt
+      Clash.Cores.Sgmii.Sync
+
   other-modules:
     Data.Text.Extra
 
@@ -218,6 +231,14 @@ test-suite unit-tests
     Test.Cores.Xilinx.BlockRam
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
+
+  if !flag(clash-18)
+    other-modules:
+      Test.Cores.Sgmii.AutoNeg
+      Test.Cores.Sgmii.BitSlip
+      Test.Cores.Sgmii.RateAdapt
+      Test.Cores.Sgmii.Sgmii
+      Test.Cores.Sgmii.Sync
 
   build-depends:
     clash-cores,
