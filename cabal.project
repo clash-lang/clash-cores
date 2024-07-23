@@ -1,0 +1,10 @@
+packages:
+  clash-cores.cabal
+
+package clash-cores
+  ghc-options: +RTS -qn4 -A128M -RTS -j4
+
+write-ghc-environment-files: always
+
+-- Eliminates the need for `--enable-tests`, which is needed for HLS.
+tests: true
