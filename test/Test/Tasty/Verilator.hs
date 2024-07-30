@@ -3,6 +3,8 @@
 
 module Test.Tasty.Verilator where
 
+import Prelude
+
 import Control.Monad (filterM, forM_)
 import Data.Coerce (coerce)
 import Data.Proxy

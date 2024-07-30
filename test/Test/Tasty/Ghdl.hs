@@ -4,6 +4,8 @@
 
 module Test.Tasty.Ghdl where
 
+import Prelude
+
 import           Clash.Driver.Manifest     (Manifest(..), manifestFilename)
 import           Control.Monad             (foldM, forM_)
 import           Data.Char                 (toLower)

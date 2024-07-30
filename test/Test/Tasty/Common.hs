@@ -1,5 +1,7 @@
 module Test.Tasty.Common where
 
+import Prelude
+
 import           Control.Monad.Extra       (forM_, ifM)
 import           Clash.Driver.Manifest     (readManifest, Manifest(..))
 import           Data.Default              (Default, def)

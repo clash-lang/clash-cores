@@ -4,6 +4,8 @@
 
 module Test.Tasty.Modelsim where
 
+import Prelude
+
 import           Control.Monad             (forM_)
 import           Data.Coerce               (coerce)
 import qualified Data.List                 as List

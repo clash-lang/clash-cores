@@ -59,6 +59,7 @@
 -}
 
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
@@ -72,6 +73,8 @@ module Test.Tasty.Program (
  , TestProgram(..)
  , TestFailingProgram(..)
  ) where
+
+import Prelude
 
 import qualified Clash.Util.Interpolate  as I
 import qualified Data.List as List
