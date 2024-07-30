@@ -4,6 +4,8 @@
 
 module Test.Tasty.SymbiYosys(SbyVerificationTest(..)) where
 
+import Prelude
+
 import           Clash.Driver.Manifest     (Manifest(..), manifestFilename)
 import           Data.Coerce               (coerce)
 import           Data.Proxy

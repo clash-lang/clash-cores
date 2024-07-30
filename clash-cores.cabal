@@ -243,25 +243,43 @@ test-suite clash-testsuite
   main-is: clash-testsuite.hs
 
   other-modules:
+    Test.Tasty.Clash.CollectSimResults
+    Test.Tasty.Clash.CoreTest
+    Test.Tasty.Clash.NetlistTest
     Test.Tasty.Common
     Test.Tasty.Clash
+    Test.Tasty.Ghdl
+    Test.Tasty.Iverilog
+    Test.Tasty.Modelsim
+    Test.Tasty.Program
+    Test.Tasty.SymbiYosys
+    Test.Tasty.Verilator
+    Test.Tasty.Vivado
 
   build-depends:
-    clash-cores,
-    clash-lib,
-    clash-prelude-hedgehog,
+    base,
+    aeson,
     data-default,
-    deepseq,
     directory,
     extra,
-    process,
-    tasty        >= 1.2 && < 1.6,
-    tasty-hunit,
-    tasty-quickcheck,
-    tasty-th,
-    text,
-    hedgehog,
-    tasty-hedgehog >= 1.2.0,
-    infinite-list,
     filepath,
-    Glob
+    ghc,
+    Glob,
+    ieee754,
+    string-interpolate,
+    optparse-applicative,
+    process,
+    random >= 1.2,
+    regex-tdfa,
+    tagged,
+    tasty >= 1.5,
+    tasty-hunit,
+    temporary,
+    text,
+    deepseq,
+    ordered-containers,
+    concurrent-supply,
+    clash-cores,
+    clash-ghc,
+    clash-lib,
+    clash-prelude

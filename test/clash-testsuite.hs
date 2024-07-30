@@ -1,14 +1,13 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
-import qualified Clash.Util.Interpolate    as I
+import Prelude
 
 import           Clash.Annotations.Primitive (HDL(..))
-import qualified Data.Text                 as Text
 import           Data.Default              (def)
-import           Data.List                 ((\\), intercalate)
+import           Data.List                 (intercalate)
 import           Data.List.Extra           (trim)
 import           Data.Version              (versionBranch)
 import           System.Directory
@@ -22,7 +21,6 @@ import           GHC.IO.Unsafe             (unsafePerformIO)
 import           Text.Printf               (printf)
 
 import           Test.Tasty
-import           Test.Tasty.Common
 import           Test.Tasty.Clash
 
 -- | GHC version as major.minor.patch1. For example: 8.10.2.
@@ -130,193 +128,193 @@ clashTestGroup testName testTrees =
 runClashTest :: IO ()
 runClashTest = defaultMain $ clashTestRoot
   [ clashTestGroup "test"
-    [ clashTestGroup "shouldfail"
+    [ clashTestGroup "Test"
       [ clashTestGroup "Cores"
-        [ clashTestGroup "Xilinx"
-          [ clashTestGroup "VIO"
-            [ runTest "DuplicateOutputNames" def{
-                hdlTargets=[VHDL]
-              , expectClashFail=Just (def, "Tried create a signal called 'a', but identifier generation returned")
-              }
-            , runTest "DuplicateInputNames" def{
-                hdlTargets=[VHDL]
-              , expectClashFail=Just (def, "Tried create a signal called 'a', but identifier generation returned")
-              }
-            , runTest "DuplicateInputOutputNames" def{
-                hdlTargets=[VHDL]
-              , expectClashFail=Just (def, "Tried create a signal called 'a', but identifier generation returned")
-              }
-            , runTest "OutputBusWidthExceeded" def{
-                hdlTargets=[VHDL, Verilog, SystemVerilog]
-              , expectClashFail=Just (def, "Probe signals must be been between 1 and 256 bits wide.")
-              }
-            , runTest "OutputProbesExceeded" def{
-                hdlTargets=[VHDL, Verilog, SystemVerilog]
-              , expectClashFail=Just (def, "At most 256 input/output probes are supported.")
-              }
-            , runTest "InputBusWidthExceeded" def{
-                hdlTargets=[VHDL, Verilog, SystemVerilog]
-              , expectClashFail=Just (def, "Probe signals must be been between 1 and 256 bits wide.")
-              }
-            , runTest "InputProbesExceeded" def{
-                hdlTargets=[VHDL, Verilog, SystemVerilog]
-              , expectClashFail=Just (def, "At most 256 input/output probes are supported.")
-              }
+        [ clashTestGroup "shouldfail"
+          [ clashTestGroup "Xilinx"
+            [ clashTestGroup "VIO"
+              [ runTest "DuplicateOutputNames" def{
+                  hdlTargets=[VHDL]
+                , expectClashFail=Just (def, "Tried create a signal called 'a', but identifier generation returned")
+                }
+              , runTest "DuplicateInputNames" def{
+                  hdlTargets=[VHDL]
+                , expectClashFail=Just (def, "Tried create a signal called 'a', but identifier generation returned")
+                }
+              , runTest "DuplicateInputOutputNames" def{
+                  hdlTargets=[VHDL]
+                , expectClashFail=Just (def, "Tried create a signal called 'a', but identifier generation returned")
+                }
+              , runTest "OutputBusWidthExceeded" def{
+                  hdlTargets=[VHDL, Verilog, SystemVerilog]
+                , expectClashFail=Just (def, "Probe signals must be been between 1 and 256 bits wide.")
+                }
+              , runTest "OutputProbesExceeded" def{
+                  hdlTargets=[VHDL, Verilog, SystemVerilog]
+                , expectClashFail=Just (def, "At most 256 input/output probes are supported.")
+                }
+              , runTest "InputBusWidthExceeded" def{
+                  hdlTargets=[VHDL, Verilog, SystemVerilog]
+                , expectClashFail=Just (def, "Probe signals must be been between 1 and 256 bits wide.")
+                }
+              , runTest "InputProbesExceeded" def{
+                  hdlTargets=[VHDL, Verilog, SystemVerilog]
+                , expectClashFail=Just (def, "At most 256 input/output probes are supported.")
+                }
+              ]
             ]
           ]
-        ]
-      ]
-    , clashTestGroup "shouldwork"
-      [ clashTestGroup "Cores"
-        [ clashTestGroup "Xilinx"
-          [ runTest "TdpBlockRam" def
-            { -- Compiling with VHDL gives:
-              --   https://github.com/clash-lang/clash-compiler/issues/2446
-              hdlTargets = [Verilog]
-            , hdlLoad = [Vivado]
-            , hdlSim = [Vivado]
-            , clashFlags=["-fclash-hdlsyn", "Vivado"]
-            , buildTargets=BuildSpecific [ "normalWritesTB", "writeEnableWritesTB" ]
-            }
-          , let _opts = def{ hdlTargets=[VHDL, Verilog]
-                           , hdlLoad=[Vivado]
-                           , hdlSim=[Vivado]
-                             -- addShortPLTB now segfaults :-(
-                           , buildTargets=BuildSpecific [ "addBasicTB"
-                                                        , "addEnableTB"
-                                                        -- , "addShortPLTB"
-                                                        , "subBasicTB"
-                                                        , "mulBasicTB"
-                                                        , "divBasicTB"
-                                                        , "compareBasicTB"
-                                                        , "compareEnableTB"
-                                                        , "fromUBasicTB"
-                                                        , "fromUEnableTB"
-                                                        , "fromSBasicTB"
-                                                        , "fromSEnableTB"
-                                                        ]
-                           }
-            in runTest "Floating" _opts
-          , runTest "XpmCdcArraySingle" $ def
-              { hdlTargets=[VHDL, Verilog]
-              , hdlLoad=[Vivado]
-              , hdlSim=[Vivado]
-              , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
+        , clashTestGroup "shouldwork"
+          [ clashTestGroup "Xilinx"
+            [ runTest "TdpBlockRam" def
+              { -- Compiling with VHDL gives:
+                --   https://github.com/clash-lang/clash-compiler/issues/2446
+                hdlTargets = [Verilog]
+              , hdlLoad = [Vivado]
+              , hdlSim = [Vivado]
+              , clashFlags=["-fclash-hdlsyn", "Vivado"]
+              , buildTargets=BuildSpecific [ "normalWritesTB", "writeEnableWritesTB" ]
               }
-          , runTest "XpmCdcGray" $ def
-              { hdlTargets=[VHDL, Verilog]
-              , hdlLoad=[Vivado]
-              , hdlSim=[Vivado]
-              , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
-              }
-          , runTest "XpmCdcHandshake" $ def
-              { hdlTargets=[VHDL, Verilog]
-              , hdlLoad=[Vivado]
-              , hdlSim=[Vivado]
-              , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..6]]
-              }
-          , runTest "XpmCdcPulse" $ def
-              { hdlTargets=[VHDL, Verilog]
-              , hdlLoad=[Vivado]
-              , hdlSim=[Vivado]
-              , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
-              }
-          , runTest "XpmCdcSingle" $ def
-              { hdlTargets=[VHDL, Verilog]
-              , hdlLoad=[Vivado]
-              , hdlSim=[Vivado]
-              , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
-              }
-          , runTest "XpmCdcSyncRst" $ def
-              { hdlTargets=[VHDL, Verilog]
-              , hdlLoad=[Vivado]
-              , hdlSim=[Vivado]
-              , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
-              }
-          , runTest "DnaPortE2" def
-              { hdlTargets=[VHDL, Verilog]
-              , hdlLoad=[Vivado]
-              , hdlSim=[Vivado]
-              }
-          , clashTestGroup "DcFifo"
-            [ let _opts =
-                    def{ hdlTargets=[VHDL, Verilog]
-                       , hdlLoad=[Vivado]
-                       , hdlSim=[Vivado]
-                       }
-              in runTest "Basic" _opts
             , let _opts = def{ hdlTargets=[VHDL, Verilog]
-                             , hdlLoad=[Vivado]
-                             , hdlSim=[Vivado]
-                             , buildTargets=BuildSpecific [ "testBench_17_2"
-                                                          , "testBench_2_17"
-                                                          , "testBench_2_2"
+                              , hdlLoad=[Vivado]
+                              , hdlSim=[Vivado]
+                                -- addShortPLTB now segfaults :-(
+                              , buildTargets=BuildSpecific [ "addBasicTB"
+                                                          , "addEnableTB"
+                                                          -- , "addShortPLTB"
+                                                          , "subBasicTB"
+                                                          , "mulBasicTB"
+                                                          , "divBasicTB"
+                                                          , "compareBasicTB"
+                                                          , "compareEnableTB"
+                                                          , "fromUBasicTB"
+                                                          , "fromUEnableTB"
+                                                          , "fromSBasicTB"
+                                                          , "fromSEnableTB"
                                                           ]
-                             }
-              in runTest "Lfsr" _opts
+                              }
+              in runTest "Floating" _opts
+            , runTest "XpmCdcArraySingle" $ def
+                { hdlTargets=[VHDL, Verilog]
+                , hdlLoad=[Vivado]
+                , hdlSim=[Vivado]
+                , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
+                }
+            , runTest "XpmCdcGray" $ def
+                { hdlTargets=[VHDL, Verilog]
+                , hdlLoad=[Vivado]
+                , hdlSim=[Vivado]
+                , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
+                }
+            , runTest "XpmCdcHandshake" $ def
+                { hdlTargets=[VHDL, Verilog]
+                , hdlLoad=[Vivado]
+                , hdlSim=[Vivado]
+                , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..6]]
+                }
+            , runTest "XpmCdcPulse" $ def
+                { hdlTargets=[VHDL, Verilog]
+                , hdlLoad=[Vivado]
+                , hdlSim=[Vivado]
+                , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
+                }
+            , runTest "XpmCdcSingle" $ def
+                { hdlTargets=[VHDL, Verilog]
+                , hdlLoad=[Vivado]
+                , hdlSim=[Vivado]
+                , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
+                }
+            , runTest "XpmCdcSyncRst" $ def
+                { hdlTargets=[VHDL, Verilog]
+                , hdlLoad=[Vivado]
+                , hdlSim=[Vivado]
+                , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
+                }
+            , runTest "DnaPortE2" def
+                { hdlTargets=[VHDL, Verilog]
+                , hdlLoad=[Vivado]
+                , hdlSim=[Vivado]
+                }
+            , clashTestGroup "DcFifo"
+              [ let _opts =
+                      def{ hdlTargets=[VHDL, Verilog]
+                          , hdlLoad=[Vivado]
+                          , hdlSim=[Vivado]
+                          }
+                in runTest "Basic" _opts
+              , let _opts = def{ hdlTargets=[VHDL, Verilog]
+                                , hdlLoad=[Vivado]
+                                , hdlSim=[Vivado]
+                                , buildTargets=BuildSpecific [ "testBench_17_2"
+                                                            , "testBench_2_17"
+                                                            , "testBench_2_2"
+                                                            ]
+                                }
+                in runTest "Lfsr" _opts
+              ]
+            , let _opts =
+                    def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
+                        , hdlLoad=[Vivado]
+                        , hdlSim=[Vivado]
+                        , buildTargets=BuildSpecific [ "noInputTrue"
+                                                    , "noInputFalse"
+                                                    , "noInputLow"
+                                                    , "noInputHigh"
+                                                    , "noInputSigned"
+                                                    , "noInputUnsigned"
+                                                    , "noInputBitVector"
+                                                    , "noInputPair"
+                                                    , "noInputVec"
+                                                    , "noInputCustom"
+                                                    , "noInputNested"
+                                                    , "singleInputBool"
+                                                    , "singleInputBit"
+                                                    , "singleInputSigned"
+                                                    , "singleInputUnsigned"
+                                                    , "singleInputBitVector"
+                                                    , "singleInputPair"
+                                                    , "singleInputVec"
+                                                    , "singleInputCustom"
+                                                    , "singleInputNested"
+                                                    , "multipleInputs"
+                                                    , "inputsAndOutputs"
+                                                    , "withSetName"
+                                                    , "withSetNameNoResult"
+                                                    ]
+                        }
+              in runTest "VIO" _opts
+            , let _opts =
+                    def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
+                        , hdlLoad=[Vivado]
+                        , hdlSim=[Vivado]
+                        , buildTargets=BuildSpecific [ "testWithDefaultsOne"
+                                                    , "testWithDefaultsThree"
+                                                    , "testWithLefts"
+                                                    , "testWithRights"
+                                                    , "testWithRightsSameCu"
+                                                    ]
+                        }
+              in runTest "Ila" _opts
+            , let _opts =
+                    def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
+                        , buildTargets=BuildSpecific [ "testWithDefaultsOne"
+                                                    , "testWithDefaultsThree"
+                                                    , "testWithLefts"
+                                                    , "testWithRights"
+                                                    , "testWithRightsSameCu"
+                                                    ]
+                        }
+              in outputTest "Ila" _opts
+            , outputTest "VIO" def{
+                hdlTargets=[VHDL]
+              , buildTargets=BuildSpecific ["withSetName", "withSetNameNoResult"]
+              }
+            , runTest "T2549" def{hdlTargets=[Verilog],hdlSim=[]}
             ]
-          , let _opts =
-                  def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
-                     , hdlLoad=[Vivado]
-                     , hdlSim=[Vivado]
-                     , buildTargets=BuildSpecific [ "noInputTrue"
-                                                  , "noInputFalse"
-                                                  , "noInputLow"
-                                                  , "noInputHigh"
-                                                  , "noInputSigned"
-                                                  , "noInputUnsigned"
-                                                  , "noInputBitVector"
-                                                  , "noInputPair"
-                                                  , "noInputVec"
-                                                  , "noInputCustom"
-                                                  , "noInputNested"
-                                                  , "singleInputBool"
-                                                  , "singleInputBit"
-                                                  , "singleInputSigned"
-                                                  , "singleInputUnsigned"
-                                                  , "singleInputBitVector"
-                                                  , "singleInputPair"
-                                                  , "singleInputVec"
-                                                  , "singleInputCustom"
-                                                  , "singleInputNested"
-                                                  , "multipleInputs"
-                                                  , "inputsAndOutputs"
-                                                  , "withSetName"
-                                                  , "withSetNameNoResult"
-                                                  ]
-                     }
-            in runTest "VIO" _opts
-          , let _opts =
-                  def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
-                     , hdlLoad=[Vivado]
-                     , hdlSim=[Vivado]
-                     , buildTargets=BuildSpecific [ "testWithDefaultsOne"
-                                                  , "testWithDefaultsThree"
-                                                  , "testWithLefts"
-                                                  , "testWithRights"
-                                                  , "testWithRightsSameCu"
-                                                  ]
-                     }
-            in runTest "Ila" _opts
-          , let _opts =
-                  def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
-                     , buildTargets=BuildSpecific [ "testWithDefaultsOne"
-                                                  , "testWithDefaultsThree"
-                                                  , "testWithLefts"
-                                                  , "testWithRights"
-                                                  , "testWithRightsSameCu"
-                                                  ]
-                     }
-            in outputTest "Ila" _opts
-          , outputTest "VIO" def{
-              hdlTargets=[VHDL]
-            , buildTargets=BuildSpecific ["withSetName", "withSetNameNoResult"]
-            }
-          , runTest "T2549" def{hdlTargets=[Verilog],hdlSim=[]}
-          ]
+          ] -- end shouldwork
         ]
-      ] -- end shouldwork
-    ] -- end tests
+      ] -- end tests
+    ]
   ] -- end .
 
 main :: IO ()

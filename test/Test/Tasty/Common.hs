@@ -2,12 +2,12 @@ module Test.Tasty.Common where
 
 import           Control.Monad.Extra       (forM_, ifM)
 import           Clash.Driver.Manifest     (readManifest, Manifest(..))
-import           Data.Default              (Default, def)
 import           Data.Maybe                (fromMaybe)
 import           System.Directory
   (copyFile, createDirectory, doesDirectoryExist, listDirectory)
 import           System.FilePath           ((</>))
 import           System.FilePath.Glob      (glob)
+import Clash.Explicit.Prelude
 
 data TestExitCode
   = TestExitCode

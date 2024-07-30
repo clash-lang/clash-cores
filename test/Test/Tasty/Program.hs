@@ -58,6 +58,7 @@
   Program's output and error streams are ignored.
 -}
 
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
@@ -73,6 +74,7 @@ module Test.Tasty.Program (
  , TestFailingProgram(..)
  ) where
 
+import Prelude
 import qualified Clash.Util.Interpolate  as I
 import qualified Data.List as List
 

@@ -4,6 +4,8 @@
 
 module Test.Tasty.Iverilog where
 
+import Prelude
+
 import           Control.Monad             (forM_)
 import           Data.Coerce               (coerce)
 import           Data.Proxy

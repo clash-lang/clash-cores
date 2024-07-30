@@ -10,6 +10,8 @@ module Test.Tasty.Clash.CoreTest
   , findBinding
   ) where
 
+import Prelude
+
 import Control.Concurrent.Supply
 import qualified Data.List as List (find)
 

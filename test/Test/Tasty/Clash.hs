@@ -1,12 +1,15 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Test.Tasty.Clash where
+
+import Prelude
 
 import           Clash.Annotations.Primitive (HDL(..))
 import           Data.Coerce               (coerce)

@@ -1,8 +1,11 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Test.Tasty.Vivado where
+
+import Prelude
 
 import Data.Coerce (coerce)
 import Data.String.Interpolate (__i)
