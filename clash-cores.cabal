@@ -235,3 +235,33 @@ test-suite doctests
       clash-cores,
       doctest-parallel >= 0.2 && < 0.4,
       filepath
+
+test-suite clash-testsuite
+  import: basic-config
+  hs-source-dirs: test
+  type: exitcode-stdio-1.0
+  main-is: clash-testsuite.hs
+
+  other-modules:
+    Test.Tasty.Common
+    Test.Tasty.Clash
+
+  build-depends:
+    clash-cores,
+    clash-lib,
+    clash-prelude-hedgehog,
+    data-default,
+    deepseq,
+    directory,
+    extra,
+    process,
+    tasty        >= 1.2 && < 1.6,
+    tasty-hunit,
+    tasty-quickcheck,
+    tasty-th,
+    text,
+    hedgehog,
+    tasty-hedgehog >= 1.2.0,
+    infinite-list,
+    filepath,
+    Glob
