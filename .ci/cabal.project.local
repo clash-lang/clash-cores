@@ -1,0 +1,2 @@
+package clash-cores
+  ghc-options: -Werror
