@@ -23,6 +23,10 @@ let
     # Haskell overrides
     haskellPackages = pkgs.haskell.packages.${haskell_compiler}.override {
       overrides = self: super: {
+        cabal2nix = pkgs.haskell.lib.doJailbreak super.cabal2nix;
+        quickcheck-instances = pkgs.haskell.lib.doJailbreak super.quickcheck-instances;
+        aeson = pkgs.haskell.lib.doJailbreak super.aeson;
+        tasty = super.tasty_1_5;
         # Add overrides here
         circuit-notation =
           self.callCabal2nix "circuit-notation" sources.circuit-notation {};
@@ -36,10 +40,13 @@ let
           self.callCabal2nix "clash-ghc" (sources.clash-compiler + "/clash-ghc") {};
         clash-prelude-hedgehog =
           self.callCabal2nix "clash-prelude" (sources.clash-compiler + "/clash-prelude-hedgehog") {};
+        clash-testsuite =
+          self.callCabal2nix "clash-testsuite" (sources.clash-compiler + "/tests") {};
         tasty-hedgehog =
           self.callCabal2nix "tasty-hedgehog" sources.tasty-hedgehog {};
         hedgehog =
           self.callCabal2nix "hedgehog" (sources.haskell-hedgehog + "/hedgehog") {};
+        
       };
     };
   };

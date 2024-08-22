@@ -236,7 +236,7 @@ test-suite doctests
       doctest-parallel >= 0.2 && < 0.4,
       filepath
 
-test-suite clash-testsuite
+test-suite clash-cores-testsuite
   import: basic-config
   hs-source-dirs: test
   type: exitcode-stdio-1.0

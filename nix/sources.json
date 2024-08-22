@@ -1,14 +1,14 @@
 {
     "clash-compiler": {
-        "branch": "master",
+        "branch": "remove-clash-cores-from-testsuite",
         "description": "Haskell to VHDL/Verilog/SystemVerilog compiler",
         "homepage": "https://clash-lang.org/",
-        "owner": "clash-lang",
+        "owner": "t-wallet",
         "repo": "clash-compiler",
-        "rev": "aba55fed9f45711c8336935721a43d243f7f78c1",
-        "sha256": "1hrzp8g189v46qfr9ds7w6w0yj5w8y4im1pa3lf5vjx3z64v26qv",
+        "rev": "cf82ab4bcd29d4eda118501dcbf50a460a0ac568",
+        "sha256": "cf82ab4bcd29d4eda118501dcbf50a460a0ac568",
         "type": "tarball",
-        "url": "https://github.com/clash-lang/clash-compiler/archive/aba55fed9f45711c8336935721a43d243f7f78c1.tar.gz",
+        "url": "https://github.com/t-wallet/clash-compiler/archive/cf82ab4bcd29d4eda118501dcbf50a460a0ac568.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "1.8.1"
     },
@@ -75,16 +75,16 @@
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "nixpkgs": {
-        "branch": "nixpkgs-unstable",
+        "branch": "nixos-24.05",
         "description": "Nix Packages collection",
         "homepage": "",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "e2dd4e18cc1c7314e24154331bae07df76eb582f",
-        "sha256": "19zbxf7rb787jvyrfhl4z9sn3aisd6xvx6ikybbi75ym9sy39jds",
+        "rev": "24.05",
+        "sha256": "1lr1h35prqkd1mkmzriwlpvxcb34kmhc9dnr48gkm8hh089hifmx",
         "type": "tarball",
-        "url": "https://github.com/NixOS/nixpkgs/archive/e2dd4e18cc1c7314e24154331bae07df76eb582f.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+        "url": "https://github.com/NixOS/nixpkgs/archive/refs/tags/24.05.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/refs/tags/<rev>.tar.gz"
     },
     "tasty-hedgehog": {
         "branch": "master",
