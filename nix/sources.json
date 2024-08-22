@@ -6,7 +6,7 @@
         "owner": "t-wallet",
         "repo": "clash-compiler",
         "rev": "cf82ab4bcd29d4eda118501dcbf50a460a0ac568",
-        "sha256": "cf82ab4bcd29d4eda118501dcbf50a460a0ac568",
+        "sha256": "16m02s3qhvjgc2g8ym6d5ff468fwapafvdwm5nq605n44r7x9ajd",
         "type": "tarball",
         "url": "https://github.com/t-wallet/clash-compiler/archive/cf82ab4bcd29d4eda118501dcbf50a460a0ac568.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",

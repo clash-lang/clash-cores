@@ -23,9 +23,14 @@ let
     # Haskell overrides
     haskellPackages = pkgs.haskell.packages.${haskell_compiler}.override {
       overrides = self: super: {
+
+        # Ignore dependency bounds for tasty < 1.5
         cabal2nix = pkgs.haskell.lib.doJailbreak super.cabal2nix;
         quickcheck-instances = pkgs.haskell.lib.doJailbreak super.quickcheck-instances;
         aeson = pkgs.haskell.lib.doJailbreak super.aeson;
+        time-compat = pkgs.haskell.lib.doJailbreak super.time-compat;
+        indexed-traversable-instances = pkgs.haskell.lib.doJailbreak super.indexed-traversable-instances;
+
         tasty = super.tasty_1_5;
         # Add overrides here
         circuit-notation =
@@ -46,7 +51,7 @@ let
           self.callCabal2nix "tasty-hedgehog" sources.tasty-hedgehog {};
         hedgehog =
           self.callCabal2nix "hedgehog" (sources.haskell-hedgehog + "/hedgehog") {};
-        
+
       };
     };
   };
