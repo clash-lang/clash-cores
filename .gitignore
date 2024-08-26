@@ -5,6 +5,7 @@ dist-newstyle/
 stack.yaml.lock
 cabal-dev
 /cabal.project.local
+haddock_log
 .ghc.environment.*
 *.o
 *.o-boot
@@ -32,7 +33,6 @@ cabal.config
 *.bin
 *.log
 *.tar.gz
-stack.yaml.lock
 
 *~
 *.DS_Store
