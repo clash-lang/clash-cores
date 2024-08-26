@@ -105,7 +105,7 @@ jobs:
       - name: Use CI specific settings
         run: |
           cp .ci/cabal.project.local .
-      - build: Build
+      - name: Build
         run: |
           .ci/build_docs.sh
   linting:
