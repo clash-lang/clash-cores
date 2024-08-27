@@ -108,6 +108,7 @@ common basic-config
   build-depends:
     base                      >= 4.10  && < 5,
     clash-prelude,
+    clash-protocols,
     constraints,
     containers                >=0.5    && <0.8,
     ghc-typelits-extra        >= 0.3.2,
@@ -133,6 +134,7 @@ library
     Clash.Cores.LineCoding8b10b
     Clash.Cores.LineCoding8b10b.Decoder
     Clash.Cores.LineCoding8b10b.Encoder
+    Clash.Cores.Rgmii
     Clash.Cores.SPI
     Clash.Cores.UART
     Clash.Cores.Xilinx.BlockRam
