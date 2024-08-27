@@ -6,3 +6,4 @@
 * Add Lattice Semi SB_IO primitive
 * Add UART core
 * Add CRC core
+* Add RGMII core

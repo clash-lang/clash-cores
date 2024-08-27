@@ -129,6 +129,7 @@ library
     Clash.Cores.LineCoding.Lc8b10b
     Clash.Cores.LineCoding.Lc8b10b.Decoder
     Clash.Cores.LineCoding.Lc8b10b.Encoder
+    Clash.Cores.Rgmii
     Clash.Cores.Sgmii
     Clash.Cores.Sgmii.AutoNeg
     Clash.Cores.Sgmii.BitSlip
