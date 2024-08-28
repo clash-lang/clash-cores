@@ -1,3 +1,5 @@
+{-# OPTIONS_HADDOCK hide #-}
+
 {-|
 Module      : Clash.Cores.Ethernet.Mac.PaddingInserter
 Description : Provides paddingInserterC for padding ethernet frames to a customizable amount of bytes.
@@ -17,8 +19,8 @@ import Data.Maybe.Extra ( toMaybe )
 
 
 -- | State of the paddingInserter circuit.
--- Counts up to ceil(`padBytes`/`dataWidth`) packets, which is
--- the amount of packets needed to fill `padBytes` bytes.
+-- Counts up to @ceil(padBytes / dataWidth)@ packets, which is
+-- the amount of packets needed to fill @padBytes@ bytes.
 data PaddingInserterState (dataWidth :: Nat) (padBytes :: Nat)
   = Filling { count :: Index (DivRU padBytes dataWidth) }
   | Full
@@ -77,9 +79,11 @@ paddingInserter _ = mealyB go (Filling 0)
         -- and the _last of fwdIn
         fwdOut = fwdIn {_last = guard done >> max lastIdx <$> _last fwdIn}
 
--- | Pads ethernet frames to a minimum of `padBytes` bytes.
--- Assumes that all invalid bytes are set to 0.
--- Sends bytes the same clock cycle as they are received.
+{- |
+Pads ethernet frames to a minimum of @padBytes@ bytes.
+Requires that all invalid bytes are set to 0x00, otherwise
+Sends bytes the same clock cycle as they are received.
+-}
 paddingInserterC
   :: forall (dataWidth :: Nat) (padBytes :: Nat) (dom :: Domain)
    . HiddenClockResetEnable dom
@@ -87,6 +91,7 @@ paddingInserterC
   => 1 <= padBytes
   => KnownNat dataWidth
   => KnownNat padBytes
+  -- | The minimum size out output packets
   => SNat padBytes
   -> Circuit (PacketStream dom dataWidth ()) (PacketStream dom dataWidth ())
 paddingInserterC padBytes = fromSignals (paddingInserter padBytes)

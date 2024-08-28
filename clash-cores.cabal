@@ -133,6 +133,7 @@ library
     Clash.Cores.Ethernet.IP.InternetChecksum
     Clash.Cores.Ethernet.IP.IPPacketizers
     Clash.Cores.Ethernet.IP.IPv4Types
+    Clash.Cores.Ethernet.Mac
     Clash.Cores.Ethernet.Mac.EthernetTypes
     Clash.Cores.Ethernet.Mac.FrameCheckSequence
     Clash.Cores.Ethernet.Mac.InterpacketGapInserter
