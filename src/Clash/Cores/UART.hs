@@ -32,7 +32,6 @@ module Clash.Cores.UART
   ) where
 
 import Clash.Prelude
-import Clash.Class.HasDomain (TryDomain, TryDomainResult(Found))
 import Data.Maybe (isJust)
 
 -- | Division that rounds the result
@@ -40,9 +39,6 @@ type DivRound (a :: Nat) (b :: Nat) = Div (a + (Div b 2)) b
 
 -- | UART baud generator
 newtype BaudGenerator (dom :: Domain) = BaudGenerator (Signal dom Bool)
-
--- | Find clock domain for BaudGenerator
-type instance TryDomain t (BaudGenerator dom) = 'Found dom
 
 -- | The width of the counter used for baud generation
 type BaudGenCounterWidth = 16

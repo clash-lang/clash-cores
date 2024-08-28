@@ -23,7 +23,6 @@ rewritten directly from their sources.
 module Clash.Cores.Crc.Internal where
 
 import           Clash.Prelude
-import           Clash.Class.HasDomain       (TryDomain, TryDomainResult(NotFound))
 import qualified Clash.Sized.Vector as V     (toList)
 
 import qualified Data.List as L
@@ -67,9 +66,6 @@ data CrcParams (crcWidth :: Nat)
       }
   deriving (Generic, Show, ShowX, Lift)
 
--- | No domain in 'CrcParams'
-type instance TryDomain t (CrcParams crcWidth) = 'NotFound
-
 -- | This class is used to define CRCs
 --
 -- First make a data declaration without constructors for your CRC and then
@@ -106,9 +102,6 @@ data SoftwareCrc (crcWidth :: Nat) (dataWidth :: Nat)
       , _crcCurrent     :: BitVector (crcWidth + dataWidth)
       }
   deriving (Generic, Show, ShowX)
-
--- | No domain in 'SoftwareCrc'
-type instance TryDomain t (SoftwareCrc crcWidth dataWidth) = 'NotFound
 
 -- | Apply function only when bool is True
 applyWhen :: Bool -> (a -> a) -> a -> a
@@ -324,9 +317,6 @@ data FGMatrices (crcWidth :: Nat) (dataWidth :: Nat)
       }
   deriving (Show, Lift)
 
--- | No domain in 'FGMatrices'
-type instance TryDomain t (FGMatrices crcWidth dataWidth) = 'NotFound
-
 -- | Compute the 'FGMatrices' from 'CrcParams'
 mkFGMatrices
   :: forall (crc :: Type) (dataWidth :: Nat)
@@ -387,9 +377,6 @@ deriving instance (KnownNat crcWidth, KnownNat dataWidth, KnownNat nLanes)
 deriving instance (KnownNat crcWidth, KnownNat dataWidth, KnownNat nLanes)
   => Show (CrcLaneParams crcWidth dataWidth nLanes)
 
--- | No domain in 'CrcLaneParams'
-type instance TryDomain t (CrcLaneParams crcWidth dataWidth nLanes) = 'NotFound
-
 -- | Contains all necessary parameters for the hardware CRC implementation
 data CrcHardwareParams (crcWidth :: Nat) (dataWidth :: Nat) (nLanes :: Nat)
   = CrcHardwareParams
@@ -400,9 +387,6 @@ data CrcHardwareParams (crcWidth :: Nat) (dataWidth :: Nat) (nLanes :: Nat)
       , _crcResidues :: Vec nLanes (BitVector crcWidth)
       }
   deriving (Show, Lift)
-
--- | No domain in 'CrcHardwareParams'
-type instance TryDomain t (CrcHardwareParams crcWidth dataWidth nLanes) = 'NotFound
 
 -- | This class is used to indicate a CRC has a derived hardware implementation
 --
@@ -430,9 +414,6 @@ data SNatOrdering a b where
   SNatLT2 :: forall a b. a <= (b - 1) => SNatOrdering a b
   SNatEQ2 :: forall a b. a ~ b => SNatOrdering a b
   SNatGT2 :: forall a b. (b + 1) <= a => SNatOrdering a b
-
--- | No domain in 'SNatOrdering'
-type instance TryDomain t (SNatOrdering a b) = 'NotFound
 
 -- | Get an ordering relation between two SNats
 compareSNat2 :: forall a b . SNat a -> SNat b -> SNatOrdering a b
