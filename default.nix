@@ -3,4 +3,10 @@
 with nixpkgs.pkgs;
 with gitignore;
 
-haskellPackages.callCabal2nix "clash-cores" (gitignoreSource ./.) {}
+let
+  clash-cores = haskellPackages.callCabal2nix "clash-cores" (gitignoreSource ./.) {};
+in
+  clash-cores.overrideAttrs (final: prev: {
+    buildInputs = prev.buildInputs ++ [ pkgs.git ];
+  })
+

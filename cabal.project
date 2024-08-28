@@ -8,3 +8,35 @@ write-ghc-environment-files: always
 
 -- Eliminates the need for `--enable-tests`, which is needed for HLS.
 tests: true
+
+-- Bleeding edge Clash libraries.
+source-repository-package
+  type: git
+  location: https://github.com/clash-lang/clash-compiler.git
+  tag: f946617561565440d82f67747acb2486f6526a66
+  subdir: clash-prelude
+
+source-repository-package
+  type: git
+  location: https://github.com/clash-lang/clash-compiler.git
+  tag: f946617561565440d82f67747acb2486f6526a66
+  subdir: clash-ghc
+
+source-repository-package
+  type: git
+  location: https://github.com/clash-lang/clash-compiler.git
+  tag: f946617561565440d82f67747acb2486f6526a66
+  subdir: clash-lib
+
+-- clash-testsuite
+source-repository-package
+  type: git
+  location: https://github.com/clash-lang/clash-compiler.git
+  tag: f946617561565440d82f67747acb2486f6526a66
+  subdir: tests
+
+source-repository-package
+  type: git
+  location: https://github.com/clash-lang/clash-compiler.git
+  tag: f946617561565440d82f67747acb2486f6526a66
+  subdir: clash-prelude-hedgehog
