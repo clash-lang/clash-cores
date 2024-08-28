@@ -109,6 +109,7 @@ common basic-config
     clash-protocols,
     constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.8,
+    deepseq,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
@@ -135,6 +136,26 @@ library
     Clash.Cores.Crc
     Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
+    Clash.Cores.Ethernet.Arp
+    Clash.Cores.Ethernet.Arp.ArpManager
+    Clash.Cores.Ethernet.Arp.ArpTable
+    Clash.Cores.Ethernet.Arp.ArpTypes
+    Clash.Cores.Ethernet.Examples.ArpStack
+    Clash.Cores.Ethernet.Examples.FullUdpStack
+    Clash.Cores.Ethernet.Examples.RxStacks
+    Clash.Cores.Ethernet.Examples.TxStacks
+    Clash.Cores.Ethernet.Icmp
+    Clash.Cores.Ethernet.IP.EthernetStream
+    Clash.Cores.Ethernet.IP.InternetChecksum
+    Clash.Cores.Ethernet.IP.IPPacketizers
+    Clash.Cores.Ethernet.IP.IPv4Types
+    Clash.Cores.Ethernet.Mac.EthernetTypes
+    Clash.Cores.Ethernet.Mac.FrameCheckSequence
+    Clash.Cores.Ethernet.Mac.InterpacketGapInserter
+    Clash.Cores.Ethernet.Mac.MacPacketizers
+    Clash.Cores.Ethernet.Mac.PaddingInserter
+    Clash.Cores.Ethernet.Mac.Preamble
+    Clash.Cores.Ethernet.Udp
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
@@ -187,6 +208,9 @@ library
       Clash.Cores.Sgmii.Sync
 
   other-modules:
+    Clash.Signal.Extra
+    Clash.Sized.Vector.Extra
+    Data.Maybe.Extra
     Data.Text.Extra
 
   ghc-options:
@@ -214,6 +238,15 @@ test-suite unit-tests
 
   other-modules:
     Test.Cores.Crc
+    Test.Cores.Ethernet
+    Test.Cores.Ethernet.Arp.ArpManager
+    Test.Cores.Ethernet.Icmp
+    Test.Cores.Ethernet.IP.EthernetStream
+    Test.Cores.Ethernet.IP.InternetChecksum
+    Test.Cores.Ethernet.IP.IPPacketizers
+    Test.Cores.Ethernet.Mac.FrameCheckSequence
+    Test.Cores.Ethernet.Mac.InterpacketGapInserter
+    Test.Cores.Ethernet.Mac.PaddingInserter
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
