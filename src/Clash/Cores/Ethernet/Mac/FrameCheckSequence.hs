@@ -3,6 +3,7 @@
 {-# language MultiParamTypeClasses #-}
 {-# language RecordWildCards #-}
 {-# language ScopedTypeVariables #-}
+{-# OPTIONS_HADDOCK hide #-}
 
 {-|
 Module      : Clash.Cores.Ethernet.Mac.FrameCheckSequence
@@ -151,8 +152,10 @@ fcsInserter (fwdIn, bwdIn) = (bwdOut, fwdOut)
     (fwdOut, ready) = mealyB fcsInserterT (FcsCopy Nothing) (ethCrcBytes, fwdIn, bwdIn)
 
 
--- | Computes the Crc-32 of the packets in the stream and inserts these as four (4) bytes at the end of each
--- packet in the stream.
+{- |
+Computes the Ethernet CRC (4 bytes) of each packet in the input stream and
+appends this CRC to the corresponding packet in the output stream.
+-}
 fcsInserterC
   :: forall (dom :: Domain) (dataWidth :: Nat)
   .  KnownDomain dom
