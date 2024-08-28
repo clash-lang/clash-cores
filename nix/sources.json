@@ -5,12 +5,24 @@
         "homepage": "https://clash-lang.org/",
         "owner": "clash-lang",
         "repo": "clash-compiler",
-        "rev": "3f5dc67c0e526e43a4dd88eb3902e39ed512c166",
-        "sha256": "022rwif8xkaabw0j3arhyj0hswmh3vq2nx1bbz8rbkp05jm4psgg",
+        "rev": "f946617561565440d82f67747acb2486f6526a66",
+        "sha256": "0924xzzwzrpjb1yid9mvy2imxwrzyxfdmkd2l1wfrsdwgrc53dpg",
         "type": "tarball",
-        "url": "https://github.com/clash-lang/clash-compiler/archive/3f5dc67c0e526e43a4dd88eb3902e39ed512c166.tar.gz",
+        "url": "https://github.com/clash-lang/clash-compiler/archive/f946617561565440d82f67747acb2486f6526a66.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "1.8.1"
+    },
+    "clash-protocols": {
+        "branch": "packetstream",
+        "description": "a battery-included library for dataflow protocols",
+        "homepage": null,
+        "owner": "clash-lang",
+        "repo": "clash-protocols",
+        "rev": "3c88c305668b08671e7ea7fbc1f88633388d85d2",
+        "sha256": "167is7j8x55sqdwwln1ysv4m2b94lh46ks9v699rrqb2li6ybhj4",
+        "type": "tarball",
+        "url": "https://github.com/clash-lang/clash-protocols/archive/3c88c305668b08671e7ea7fbc1f88633388d85d2.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "doctest-parallel": {
         "branch": "main",
