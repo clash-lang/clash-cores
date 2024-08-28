@@ -1,18 +1,19 @@
+{-# OPTIONS_HADDOCK hide #-}
+
 {-|
 Module      : Clash.Cores.Ethernet.Mac.InterpacketGapInserter
 Description : Provides a circuit which inserts a configurable-length interpacket gap between packets.
 -}
-module Clash.Cores.Ethernet.Mac.InterpacketGapInserter
-  ( interpacketGapInserterC
-  ) where
+module Clash.Cores.Ethernet.Mac.InterpacketGapInserter (
+  interpacketGapInserterC,
+) where
 
 import Clash.Prelude
 
+import Protocols (Circuit, fromSignals)
 import Protocols.PacketStream
-import Protocols ( Circuit, fromSignals )
 
-import Data.Maybe
-
+import Data.Maybe (isJust)
 
 data InterpacketGapInserterState gapSize
   = -- | Assert backpressure for @gapSize@ cycles.
@@ -24,12 +25,12 @@ data InterpacketGapInserterState gapSize
 -- | State transition function of the interpacket gap inserter, in mealy form.
 gapInserterT ::
   forall (gapSize :: Nat).
-  1 <= gapSize =>
-  KnownNat gapSize =>
+  (KnownNat gapSize) =>
+  (1 <= gapSize) =>
   InterpacketGapInserterState gapSize ->
   (Maybe (PacketStreamM2S 1 ()), PacketStreamS2M) ->
-  ( InterpacketGapInserterState gapSize,
-    (PacketStreamS2M, Maybe (PacketStreamM2S 1 ()))
+  ( InterpacketGapInserterState gapSize
+  , (PacketStreamS2M, Maybe (PacketStreamM2S 1 ()))
   )
 gapInserterT Insert{_counter = c} _ = (nextSt, (PacketStreamS2M False, Nothing))
  where
@@ -48,8 +49,8 @@ with `_last` set. During these cycles, the output of this component is
 -}
 interpacketGapInserterC ::
   forall (gapSize :: Nat) (dom :: Domain).
-  HiddenClockResetEnable dom =>
-  1 <= gapSize =>
+  (HiddenClockResetEnable dom) =>
+  (1 <= gapSize) =>
   -- | The amount of clock cycles this component will stall after each packet boundary
   SNat gapSize ->
   Circuit (PacketStream dom 1 ()) (PacketStream dom 1 ())
