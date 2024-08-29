@@ -1,0 +1,19 @@
+resolver: nightly-2024-09-24
+
+ghc-options:
+  "$locals": -Wall -Wcompat
+
+packages:
+  - .
+  - hdl-tests
+
+extra-deps:
+  - # clash-testsuite
+    git: https://github.com/clash-lang/clash-compiler.git
+    commit: '3f5dc67c0e526e43a4dd88eb3902e39ed512c166' # v1.8.1
+    subdirs:
+      - tests
+  - # TODO: Remove this workaround. See:
+    #
+    # https://github.com/clash-lang/clash-compiler/pull/2665#issuecomment-1939044550
+    Cabal-3.10.3.0
