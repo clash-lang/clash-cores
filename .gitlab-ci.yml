@@ -1,0 +1,129 @@
+#include:
+#  - '/.ci/gitlab/common.yml'
+
+variables:
+  # Default GHC version
+  GHC_VERSION: 9.6.4
+
+  # https://docs.gitlab.com/runner/executors/custom.html#system-failure
+  GET_SOURCES_ATTEMPTS: 5
+  RESTORE_CACHE_ATTEMPTS: 5
+  ARTIFACT_DOWNLOAD_ATTEMPTS: 5
+
+  # We test all GHC version we support, so there is no use to fail if Clash
+  # detects a known-to-be-broken compiler.
+  CLASH_IGNORE_BROKEN_GHCS: "True"
+
+stages:
+  - pre
+  - test
+  - post
+
+# tests:
+#   stage: test
+#   needs: []
+#   trigger:
+#     include: .ci/gitlab/test.yml
+#     strategy: depend
+#   variables:
+#     CI_PARENT_PIPELINE_SOURCE: $CI_PIPELINE_SOURCE
+#   parallel:
+#     matrix:
+#       - GHC_VERSION: 9.8.2
+#
+#       - GHC_VERSION: 9.6.4
+#
+#       - GHC_VERSION: [9.8.2, 9.6.4, 9.4.8, 9.2.8]
+#
+#       - GHC_VERSION: 9.0.2
+#         WORKAROUND_GHC_MMAP_CRASH: "yes"
+#
+#       - GHC_VERSION: [8.10.7]
+#         WORKAROUND_GHC_MMAP_CRASH: "yes"
+
+#stack-build:
+#  extends: .common-local
+#  needs: []
+#  stage: test
+#  variables:
+#    GHC_VERSION: 8.10.7
+#  script:
+#    - .ci/stack_build.sh
+
+#nix-build:
+#  image: nixos/nix:2.10.1
+#  needs: []
+#  stage: test
+#  before_script:
+#   - nix-env -i gawk
+#  script:
+#    - nix-build -j$(./.ci/effective_cpus.sh) --log-format raw --max-silent-time 3600
+#  tags:
+#    - local
+
+#haddock:
+#  extends: .common-local
+#  needs: []
+#  stage: test
+#  variables:
+#    GHC_VERSION: 9.6.4
+#  artifacts:
+#    paths:
+#      - hadocs/*/*
+#    expire_in: 1 month
+#  script:
+#    - .ci/build_docs.sh
+
+# We manually report status to GitHub to work around
+# <https://gitlab.com/gitlab-org/gitlab/-/issues/216629>.
+#
+# If we ever remove this manual GitHub reporting, we may have to rethink the
+# use of the interruptible flag: see <https://github.com/clash-lang/clash-compiler/pull/2616#discussion_r1409429185>
+.report_status:
+  # interruptible: false
+  image: curlimages/curl
+  dependencies: []
+
+set_pending:
+  extends: .report_status
+  stage: pre
+  script:
+    - .ci/report_status.sh pending
+
+set_success:
+  extends: .report_status
+  stage: post
+  when: on_success
+  script:
+    - .ci/report_status.sh success
+
+set_failure:
+  extends: .report_status
+  stage: post
+  when: on_failure
+  script:
+    - .ci/report_status.sh failure
+
+experiment:
+  image: ghcr.io/clash-lang/clash-ci:$GHC_VERSION-20240721
+  variables:
+    # Note that we copy+paste the image name into CACHE_FALLBACK_KEY. If we don't,
+    # $GHC_VERSION gets inserted at verbatim, instead of resolving to some ghc version.
+    CACHE_FALLBACK_KEY: $CI_JOB_NAME-main-ghcr.io/clash-lang/clash-ci:$GHC_VERSION-20240721-3-3-non_protected
+    TERM: xterm-color
+  cache:
+    key: $CI_JOB_NAME-$CI_COMMIT_REF_SLUG-$CI_JOB_IMAGE-3
+    when: always
+    paths:
+      - cache.tar.zst
+  timeout: 2 hours
+  tags:
+    - local
+  script:
+    - export
+    - tar -xvf cache.tar.zst -C / || true
+    - cat /etc/os-release
+    - cat /root/ci-job-id || true
+    - echo $CI_JOB_ID >/root/ci-job-id
+    - export THREADS=$(./.ci/effective_cpus.sh)
+    - tar -cf - /root/ci-job-id | zstd -T$THREADS -3 > cache.tar.zst
