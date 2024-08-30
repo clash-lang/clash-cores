@@ -153,7 +153,6 @@ library
     Clash.Cores.Ethernet.Arp.ArpManager
     Clash.Cores.Ethernet.Arp.ArpTable
     Clash.Cores.Ethernet.Arp.ArpTypes
-    Clash.Cores.Ethernet.Examples.ArpStack
     Clash.Cores.Ethernet.Examples.FullUdpStack
     Clash.Cores.Ethernet.Examples.RxStacks
     Clash.Cores.Ethernet.Examples.TxStacks
