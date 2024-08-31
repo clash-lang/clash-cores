@@ -27,10 +27,10 @@ default:
     - export CABAL_DIR=$HOME/.cabal
     - export
     - tar -xf cache.tar.zst -C / || true
-    # - .ci/setup.sh
+    - .ci/setup.sh
   after_script:
     - export THREADS=$(./.ci/effective_cpus.sh)
-    - tar -cf - $(ls -d /root/.cabal /root/.stack || true) | zstd -T${THREADS} -3 > cache.tar.zst
+    - tar -cf - $(ls -d /root/.cabal /root/.stack) | zstd -T${THREADS} -3 > cache.tar.zst
 
 # We run tests on local machines if:
 #

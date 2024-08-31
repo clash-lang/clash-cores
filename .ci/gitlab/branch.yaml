@@ -12,6 +12,8 @@ tests:
   trigger:
     include: .ci/gitlab/test.yaml
     strategy: depend
+  variables:
+    CLASH_BRANCH: "$CLASH_BRANCH"
   parallel:
     matrix:
       - GHC_VERSION: [9.8.2, 9.6.4, 9.4.8, 9.2.8]
