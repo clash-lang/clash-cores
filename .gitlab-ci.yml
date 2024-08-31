@@ -20,4 +20,5 @@ branches:
     include: .ci/gitlab/branch.yaml
   parallel:
     matrix:
-      - CLASH_BRANCH: [release, master]
+      # - CLASH_BRANCH: [release, master]
+      - CLASH_BRANCH: [master]

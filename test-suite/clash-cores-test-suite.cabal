@@ -1,0 +1,88 @@
+cabal-version:       2.4
+
+name:                clash-cores-test-suite
+version:             0.0.0
+synopsis:            Clash cores test suite
+-- description:
+homepage:            https://clash-lang.org/
+license:             BSD-2-Clause
+license-file:        LICENSE
+author:              The Clash Authors
+Maintainer:          QBayLogic B.V. <devops@qbaylogic.com>
+copyright:           Copyright © 2022-2024 QBayLogic B.V.
+category:            Testing
+build-type:          Simple
+
+common basic-config
+  default-language: Haskell2010
+  ghc-options: -Wall -Wcompat
+
+  default-extensions:
+    DeriveDataTypeable
+    OverloadedStrings
+    ViewPatterns
+
+  ghc-options:
+    -fexpose-all-unfoldings
+    -fno-worker-wrapper
+
+  build-depends:
+    base,
+    aeson,
+    data-default,
+    directory,
+    filepath,
+    ghc,
+    Glob,
+    ieee754,
+    string-interpolate,
+    optparse-applicative,
+    process,
+    tagged,
+    tasty >= 1.5,
+    tasty-hunit,
+    temporary,
+    text,
+    clash-cores,
+    clash-ghc,
+    clash-lib,
+    clash-prelude
+
+  -- See https://github.com/clash-lang/clash-compiler/pull/2511
+  if impl(ghc >= 9.4)
+    CPP-Options: -DCLASH_OPAQUE=OPAQUE
+  else
+    CPP-Options: -DCLASH_OPAQUE=NOINLINE
+
+executable clash-cores-test-suite
+  import:              basic-config
+  main-is:             Main.hs
+
+  build-tool-depends:
+    clash-ghc:clash
+
+  build-depends:
+    base,
+    data-default,
+    directory,
+    extra,
+    filepath,
+    ghc,
+    process,
+    tasty >= 1.5,
+    tasty-hunit,
+    text,
+    clash-cores,
+    clash-ghc,
+    clash-lib,
+    clash-prelude,
+    clash-testsuite
+
+  if impl(ghc >= 9.0.0)
+    build-depends:
+      singletons,
+      singletons-base,
+      singletons-th
+  else
+    build-depends:
+      singletons < 3.0

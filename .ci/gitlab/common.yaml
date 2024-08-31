@@ -30,8 +30,7 @@ default:
     # - .ci/setup.sh
   after_script:
     - export THREADS=$(./.ci/effective_cpus.sh)
-    # XXX: Remove temporary experiment
-    - tar -cf - $(ls -d /root/ci-job-id /root/.cabal /root/.stack || true) | zstd -T${THREADS} -3 > cache.tar.zst
+    - tar -cf - $(ls -d /root/.cabal /root/.stack || true) | zstd -T${THREADS} -3 > cache.tar.zst
 
 # We run tests on local machines if:
 #
