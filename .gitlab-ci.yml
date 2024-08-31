@@ -18,6 +18,7 @@ branches:
   stage: trigger
   trigger:
     include: .ci/gitlab/branch.yaml
+    strategy: depend
   parallel:
     matrix:
       # - CLASH_BRANCH: [release, master]
