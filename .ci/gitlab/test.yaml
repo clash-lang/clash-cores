@@ -5,11 +5,6 @@ stages:
   - build
   - test
 
-.master-rules:
-  rules:
-    - if: $CLASH_BRANCH == "release"
-    - if: $RUN_ON_MASTER == "yes"
-
 .test-nocache:
   extends: .common
   needs: ["build"]
@@ -66,9 +61,7 @@ stages:
 # 'build' publishes its build files as an artifact. These build files are reused
 # by the tests below.
 build:
-  extends:
-    - .common-local
-    - .master-rules
+  extends: .common-local
   artifacts:
     when: always
     name: "$CI_JOB_NAME-clash-$CLASH_BRANCH-$CI_COMMIT_SHA-$GHC_VERSION"
