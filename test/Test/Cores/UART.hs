@@ -7,7 +7,9 @@
   UART transmitter and receiver tests
 -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE NumericUnderscores #-}
+
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Test.Cores.UART where
@@ -21,6 +23,12 @@ import           Clash.Prelude (exposeClockResetEnable)
 import           Clash.Explicit.Prelude hiding (interleave)
 
 import           Clash.Cores.UART
+
+#if !MIN_VERSION_clash_prelude(1,9,0)
+-- | Number of clock cycles required at the clock frequency of @dom@ before a minimum
+-- @period@ has passed
+type PeriodToCycles (dom :: Domain) (period :: Nat) =  period `DivRU` DomainPeriod dom
+#endif
 
 -- | Create a 100 MHz domain instead of relying on the default period of System.
 createDomain vSystem{vName="System100", vPeriod=10000}
