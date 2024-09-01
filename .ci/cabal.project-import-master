@@ -1,0 +1,2 @@
+import: cabal.project-common
+import: cabal.project-master

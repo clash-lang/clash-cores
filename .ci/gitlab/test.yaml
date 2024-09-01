@@ -5,9 +5,13 @@ stages:
   - build
   - test
 
+.master-rules:
+  rules:
+    - if: $CLASH_BRANCH == "release"
+    - if: $RUN_ON_MASTER == "yes"
+
 .test-nocache:
-  extends:
-    - .common
+  extends: .common
   needs: ["build"]
   stage: test
   cache:
@@ -33,8 +37,7 @@ stages:
   after_script:
 
 .test-cache-local:
-  extends:
-    - .common-local
+  extends: .common-local
   needs: ["build"]
   stage: test
   before_script:
@@ -63,7 +66,9 @@ stages:
 # 'build' publishes its build files as an artifact. These build files are reused
 # by the tests below.
 build:
-  extends: .common-local
+  extends:
+    - .common-local
+    - .master-rules
   artifacts:
     when: always
     name: "$CI_JOB_NAME-clash-$CLASH_BRANCH-$CI_COMMIT_SHA-$GHC_VERSION"
@@ -80,19 +85,25 @@ build:
 # Tests run on shared runners:
 
 cores:doctests:
-  extends: .test-nocache
+  extends:
+    - .test-nocache
+    - .master-rules
   script:
     - bin/clash-cores:doctests -j$THREADS
 
 cores:unittests:
-  extends: .test-nocache
+  extends:
+    - .test-nocache
+    - .master-rules
   script:
     - bin/clash-cores:unittests -j$THREADS --hide-successes
 
 # Tests run on local fast machines:
 
 suite:cores:
-  extends: .test-cache-local
+  extends:
+    - .test-cache-local
+    - .master-rules
   script:
     - source /opt/tools/Xilinx/Vivado/2022.1/settings64.sh
     - bin/clash-cores-test-suite:clash-cores-test-suite -j$THREADS --hide-successes

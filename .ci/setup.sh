@@ -16,6 +16,10 @@ ghc --version
 # This might happen during tags on GitLab CI
 CI_COMMIT_BRANCH=${CI_COMMIT_BRANCH:-no_branch_set_by_ci}
 
+if [[ "$CLASH_BRANCH" == "master" ]]; then
+  cp .ci/cabal.project-import-master cabal.project
+fi
+
 cabal v2-update | tee cabal_update_output
 
 # File may exist as part of a dist.tar.zst
@@ -26,6 +30,7 @@ if [ ! -f cabal.project.local ]; then
   if [[ "$WORKAROUND_GHC_MMAP_CRASH" == "yes" ]]; then
     sed -i 's/-workaround-ghc-mmap-crash/+workaround-ghc-mmap-crash/g' cabal.project.local
   fi
+  set -u
 
   # Fix index-state to prevent rebuilds if Hackage changes between build -> test.
   # Note we can't simply set it to a timestamp of "now", as Cabal will error out
@@ -34,6 +39,7 @@ if [ ! -f cabal.project.local ]; then
   sed -i "s/HEAD/${most_recent_index_state}/g" cabal.project.local
 fi
 
+cat cabal.project
 cat cabal.project.local
 
 rm -f ${HOME}/.cabal/config

@@ -16,13 +16,18 @@ tests:
     CLASH_BRANCH: "$CLASH_BRANCH"
   parallel:
     matrix:
-      - GHC_VERSION: [9.8.2, 9.6.4, 9.4.8, 9.2.8]
+      - GHC_VERSION: [9.8.2, 9.4.8, 9.2.8]
+
+      - GHC_VERSION: 9.6.4
+        RUN_ON_MASTER: "yes"
 
       - GHC_VERSION: 9.0.2
         WORKAROUND_GHC_MMAP_CRASH: "yes"
+        RUN_ON_MASTER: "yes"
 
       - GHC_VERSION: 8.10.7
         WORKAROUND_GHC_MMAP_CRASH: "yes"
+        RUN_ON_MASTER: "yes"
 
 #stack-build:
 #  extends: .common-local

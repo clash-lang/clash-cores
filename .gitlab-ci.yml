@@ -21,5 +21,4 @@ branches:
     strategy: depend
   parallel:
     matrix:
-      # - CLASH_BRANCH: [release, master]
-      - CLASH_BRANCH: [master]
+      - CLASH_BRANCH: [release, master]
