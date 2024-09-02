@@ -168,19 +168,12 @@ arpReceiverC myIP = circuit $ \ethStream -> do
   -- before `depacketizetoDfC` should work, as depacketizeToDfC already
   -- implements dropping of
   arpDf <- depacketizeToDfC const -< ethStream
-  arpDf' <- Df.filterS (validArp <$> myIP) -< arpDf
+  arpDf' <- Df.filterS (isValidArp <$> myIP) -< arpDf
   (arpRequests, arpEntries) <- partitionS (isRequest <$> myIP) -< arpDf'
   lites <- Df.map (\p -> ArpLite (_sha p) (_spa p) False) -< arpRequests
   entries <- Df.map (\p -> ArpEntry (_sha p) (_spa p)) -< arpEntries
   idC -< (entries, lites)
   where
-    validArp ip ArpPacket{..} =
-            _htype == 1
-          && _ptype == 0x0800
-          && _hlen  == 6
-          && _plen  == 4
-          &&(_oper == 1 && (_tpa == ip || _tpa == _spa) || _oper == 2)
-
     isRequest ip ArpPacket{..} = _oper == 1 && _tpa == ip
 
 -- TODO upstream to clash-protocols

@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 {-|
 Module      : Clash.Cores.Ethernet.Arp.ArpTypes
 Description : Provides various data types, aliases, constructors and constants for the Address Resolution Protocol. This module only provides the most common use case of ARP, which is mapping IPv4 addresses to MAC addresses.
@@ -95,3 +97,41 @@ newArpPacket myMac myIP targetMac targetIP isRequest
       _tha = targetMac,
       _tpa = targetIP
     }
+
+
+-- | Construct a link-layer `EthernetHeader` from an ARP packet.
+arpToEthernetHeader :: ArpPacket -> EthernetHeader
+arpToEthernetHeader ArpPacket{..} =
+  EthernetHeader
+    { _macDst = _tha
+    , _macSrc = _sha
+    , _etherType = arpEtherType
+    }
+
+-- | Construct a link-layer `EthernetHeader` from a reduced ARP packet.
+arpLiteToEthernetHeader ::
+  -- | Our MAC address
+  MacAddress ->
+  ArpLite ->
+  EthernetHeader
+arpLiteToEthernetHeader ourMac ArpLite{..} =
+  EthernetHeader
+    { _macDst = _targetMac
+    , _macSrc = ourMac
+    , _etherType = arpEtherType
+    }
+
+-- | Whether we should accept an incoming ARP packet or not.
+isValidArp ::
+  -- | Our IPv4 address
+  IPv4Address ->
+  -- | Incoming ARP packet
+  ArpPacket ->
+  Bool
+isValidArp ourIPv4 ArpPacket{..} =
+  _htype == 1 &&
+  _ptype == 0x0800 &&
+  _hlen  == 6 &&
+  _plen  == 4 &&
+  -- If TPA == SPA, the ARP packet is gratuitous.
+  (_oper == 1 && (_tpa == ourIPv4 || _tpa == _spa) || _oper == 2)
