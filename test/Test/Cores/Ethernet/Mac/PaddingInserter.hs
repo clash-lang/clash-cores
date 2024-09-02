@@ -1,79 +1,89 @@
-{-# language FlexibleContexts #-}
-{-# language NumericUnderscores #-}
-{-# language RecordWildCards #-}
+{-# LANGUAGE NumericUnderscores #-}
 
-module Test.Cores.Ethernet.Mac.PaddingInserter where
-
-import Prelude
-
-import Clash.Prelude ( type (<=) )
-import qualified Clash.Prelude as C
-
-import Hedgehog
-import qualified Hedgehog.Range as Range
-
-import Test.Tasty
-import Test.Tasty.Hedgehog ( HedgehogTestLimit(HedgehogTestLimit) )
-import Test.Tasty.Hedgehog.Extra ( testProperty )
-import Test.Tasty.TH ( testGroupGenerator )
-
-import Protocols
-import Protocols.PacketStream
-import Protocols.Hedgehog
-import Protocols.PacketStream.Hedgehog
+module Test.Cores.Ethernet.Mac.PaddingInserter (
+  tests,
+) where
 
 import Clash.Cores.Ethernet.Mac.PaddingInserter
 
+import Clash.Prelude
 
-model
-  :: forall (dataWidth :: C.Nat)
-   . C.KnownNat dataWidth
-  => 1 <= dataWidth
-  => Int
-  -> [PacketStreamM2S dataWidth ()]
-  -> [PacketStreamM2S dataWidth ()]
-model padBytes fragments = concatMap (upConvert . setLasts . insertPadding) $ chunkByPacket $ downConvert fragments
-  where
-    insertPadding pkts = pkts ++ replicate (paddingNeeded pkts) padding
-    paddingNeeded pkts = max 0 (padBytes - length pkts)
-    padding = PacketStreamM2S {_data = C.repeat 0, _last = Nothing, _meta = (), _abort = False}
-    setLasts pkts = map (\pkt -> pkt{_last = Nothing}) (init pkts) ++ [(last pkts){_last = Just 0}]
+import qualified Data.List as L
+
+import Hedgehog (Property)
+import qualified Hedgehog.Range as Range
+
+import Protocols.Hedgehog
+import Protocols.PacketStream
+import Protocols.PacketStream.Hedgehog
+
+import Test.Tasty
+import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit))
+import Test.Tasty.Hedgehog.Extra (testProperty)
+import Test.Tasty.TH (testGroupGenerator)
+
+paddingInserterModel ::
+  forall (dataWidth :: Nat).
+  (KnownNat dataWidth) =>
+  (1 <= dataWidth) =>
+  Int ->
+  [PacketStreamM2S dataWidth ()] ->
+  [PacketStreamM2S dataWidth ()]
+paddingInserterModel padBytes fragments =
+  L.concatMap
+    (upConvert . fullPackets . insertPadding)
+    (chunkByPacket $ downConvert fragments)
+ where
+  padding =
+    PacketStreamM2S
+      { _data = repeat 0x00
+      , _last = Nothing
+      , _meta = ()
+      , _abort = False
+      }
+
+  insertPadding xs =
+    L.init xs
+      L.++ ( (L.last xs){_last = Nothing}
+              : L.replicate (max 0 (padBytes - L.length xs)) padding
+           )
 
 -- | Test the padding inserter.
-paddingInserterTest
-  :: forall dataWidth padBytes
-   . C.KnownNat padBytes
-  => 1 <= dataWidth
-  => 1 <= padBytes
-  => C.SNat dataWidth
-  -> C.SNat padBytes
-  -> Property
-paddingInserterTest C.SNat padBytes =
-  propWithModelSingleDomain
-    @C.System
+paddingInserterTest ::
+  forall dataWidth padBytes.
+  (KnownNat padBytes) =>
+  (1 <= dataWidth) =>
+  (1 <= padBytes) =>
+  SNat dataWidth ->
+  SNat padBytes ->
+  Property
+paddingInserterTest SNat padBytes =
+  idWithModelSingleDomain
+    @System
     defExpectOptions
-    (genValidPackets (Range.linear 1 10) (Range.linear 0 10) Abort)
-    (C.exposeClockResetEnable (model $ C.natToNum @padBytes))
-    (C.exposeClockResetEnable @C.System ckt)
-    (===)
-  where
-    ckt :: forall (dom :: C.Domain)
-      . C.HiddenClockResetEnable dom
-      => Circuit (PacketStream dom dataWidth ()) (PacketStream dom dataWidth ())
-    ckt = paddingInserterC padBytes
+    (genPackets (Range.linear 1 10) Abort (genValidPacket (pure ()) (Range.linear 0 10)))
+    (exposeClockResetEnable (paddingInserterModel $ natToNum @padBytes))
+    (exposeClockResetEnable (paddingInserterC @dataWidth padBytes))
 
--- We test the edge case dataWidth = padBytes = 1,
--- a case where dataWidth divides padBytes,
--- a case where dataWidth does not divide padBytes, and
--- a case where dataWidth is more than padBytes.
-prop_paddinginserter_d1, prop_paddinginserter_d2, prop_paddinginserter_d5, prop_paddinginserter_d50 :: Property
-prop_paddinginserter_d1  = paddingInserterTest C.d1  C.d1
-prop_paddinginserter_d2  = paddingInserterTest C.d2  C.d46
-prop_paddinginserter_d5  = paddingInserterTest C.d5  C.d46
-prop_paddinginserter_d50 = paddingInserterTest C.d50 C.d46
+-- | dataWidth ~ padBytes
+prop_paddinginserter_d1 :: Property
+prop_paddinginserter_d1 = paddingInserterTest d1 d1
+
+-- | dataWidth % padBytes ~ 0
+prop_paddinginserter_d2 :: Property
+prop_paddinginserter_d2 = paddingInserterTest d2 d26
+
+-- | dataWidth % padBytes > 0
+prop_paddinginserter_d7 :: Property
+prop_paddinginserter_d7 = paddingInserterTest d7 d26
+
+-- | dataWidth > padBytes
+prop_paddinginserter_d20 :: Property
+prop_paddinginserter_d20 = paddingInserterTest d20 d10
 
 tests :: TestTree
 tests =
-    localOption (mkTimeout 12_000_000 {- 12 seconds -})
-  $ localOption (HedgehogTestLimit (Just 1_000))
-  $(testGroupGenerator)
+  localOption (mkTimeout 20_000_000 {- 20 seconds -}) $
+    localOption
+      (HedgehogTestLimit (Just 1_000))
+      $(testGroupGenerator)
