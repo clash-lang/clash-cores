@@ -307,7 +307,7 @@ arpIcmpUdpStackC macAddressS ipS udpCkt = circuit $ \ethIn -> do
   where
     icmpUdpStack = circuit $ \ipIn -> do
       [icmpIn, udpIn] <- packetDispatcherC (routeBy _ipv4lProtocol $ 0x0001 :> 0x0011 :> Nil) -< ipIn
-      icmpOut <- icmpEchoResponderC @dom @dataWidth (fst <$> ipS) -< icmpIn
+      icmpOut <- icmpEchoResponderC (fst <$> ipS) -< icmpIn
       udpInParsed <- udpDepacketizerC -< udpIn
       udpOutParsed <- udpPacketizerC (fst <$> ipS) <| udpCkt -< udpInParsed
       packetArbiterC RoundRobin -< [icmpOut, udpOutParsed]

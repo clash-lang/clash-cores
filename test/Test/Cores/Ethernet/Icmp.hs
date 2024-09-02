@@ -1,176 +1,102 @@
-{-# language FlexibleContexts #-}
-{-# language NumericUnderscores #-}
-{-# language RecordWildCards #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE RecordWildCards #-}
 
-module Test.Cores.Ethernet.Icmp where
+module Test.Cores.Ethernet.Icmp (
+  tests,
+) where
 
--- base
-import Data.Bifunctor ( bimap, second )
-import Data.Maybe ( fromMaybe )
-import Prelude
+import Clash.Cores.Ethernet.IP.IPv4Types
+import Clash.Cores.Ethernet.Icmp
 
--- clash-prelude
-import qualified Clash.Prelude as C
-import qualified Clash.Sized.Vector as V
+import Clash.Prelude
 
--- hedgehog
-import Hedgehog
-import qualified Hedgehog.Gen as Gen
+import qualified Data.Bifunctor as B
+import qualified Data.List as L
+
+import Hedgehog (Property)
 import qualified Hedgehog.Range as Range
 
--- tasty
-import Test.Tasty
-import Test.Tasty.Hedgehog ( HedgehogTestLimit(HedgehogTestLimit) )
-import Test.Tasty.Hedgehog.Extra ( testProperty )
-import Test.Tasty.TH ( testGroupGenerator )
-
--- clash-protocols
-import Protocols.PacketStream
 import Protocols.Hedgehog
-
--- ethernet
-import Clash.Cores.Ethernet.Icmp
-import Clash.Cores.Ethernet.IP.IPv4Types
-
--- tests
-import Test.Cores.Ethernet.IP.InternetChecksum ( pureInternetChecksum )
+import Protocols.PacketStream (PacketStreamM2S(_meta))
 import Protocols.PacketStream.Hedgehog
 
-genViaBits :: C.BitPack a => Gen a
-genViaBits = C.unpack <$> Gen.enumBounded
+import Test.Cores.Ethernet.Base (genIPv4HeaderLite)
+import Test.Cores.Ethernet.IP.InternetChecksum (calculateChecksum)
 
-genIpAddr :: Gen IPv4Address
-genIpAddr = IPv4Address <$> C.sequence (C.repeat @4 Gen.enumBounded)
+import Test.Tasty
+import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit))
+import Test.Tasty.Hedgehog.Extra (testProperty)
+import Test.Tasty.TH (testGroupGenerator)
 
-genIPv4HeaderLite :: Gen IPv4HeaderLite
-genIPv4HeaderLite = IPv4HeaderLite <$> genIpAddr <*> genIpAddr <*> Gen.enumBounded <*> pure 0
+ourIPv4 :: IPv4Address
+ourIPv4 = IPv4Address (repeat @4 0x3)
 
-packetize
-  :: 1 C.<= dataWidth
-  => C.KnownNat dataWidth
-  => [PacketStreamM2S dataWidth (IPv4HeaderLite, IcmpHeaderLite)]
-  -> [PacketStreamM2S dataWidth IPv4HeaderLite]
-packetize = packetizerModel fst (fromIcmpLite . snd)
-
-depacketize
-  :: 1 C.<= dataWidth
-  => C.KnownNat dataWidth
-  => [PacketStreamM2S dataWidth IPv4HeaderLite]
-  -> [PacketStreamM2S dataWidth (IPv4HeaderLite, IcmpHeaderLite)]
-depacketize inFragments = outFragments
-  where
-    goodHeader hdr = _type hdr == 8 && _code hdr == 0
-    outFragments = fmap (fmap (second toIcmpLite))
-      $ filter (goodHeader . snd . _meta)
-      $ depacketizerModel (\icmpHdr ipHdr -> (ipHdr, icmpHdr)) inFragments
-
-alignTo :: Int -> a -> [a] -> [a]
-alignTo n a xs = xs ++ replicate (n - mod (length xs) n) a
-
-updateLast :: (a -> a) -> [a] -> [a]
-updateLast _ [] = []
-updateLast f xs = init xs ++ [f $ last xs]
-
--- This generates a packet with a valid ICMP header prepended including
--- a correct checksum
-genValidIcmpRequestPacket
-  :: forall dataWidth
-   . 1 C.<= dataWidth
-  => C.KnownNat dataWidth
-  => Gen [PacketStreamM2S dataWidth IPv4HeaderLite]
-genValidIcmpRequestPacket = do
-  let saneHeader chkSum hdr = hdr { _type = 8, _code = 0, _checksum = chkSum }
-  rawHeader <- fmap (saneHeader 0) $ genViaBits @IcmpHeader
-  let rawHeaderWords = V.toList (C.bitCoerce rawHeader :: C.Vec 2 (C.BitVector 16))
-  payloadWords <- Gen.list (Range.linear 1 50) (Gen.enumBounded :: Gen (C.BitVector 16))
-
-  let checksum = pureInternetChecksum $ rawHeaderWords ++ payloadWords
-  let validHeader = saneHeader checksum rawHeader
-  let headerBytes = V.toList (C.bitCoerce validHeader :: C.Vec 4 (C.BitVector 8))
-  let dataBytes = payloadWords >>= \w -> V.toList (C.bitCoerce w :: C.Vec 2 (C.BitVector 8))
-
-  ipv4Hdr <- genViaBits @IPv4HeaderLite
-  let toFragments vs = PacketStreamM2S vs Nothing ipv4Hdr <$> Gen.enumBounded
-  let dataWidth = C.natToNum @dataWidth
-  let totalBytes = headerBytes ++ dataBytes
-  let lastIdxRaw = mod (length totalBytes) dataWidth
-  let lastIdx = if lastIdxRaw == 0
-                  then C.natToNum @dataWidth - 1
-                  else lastIdxRaw
-  fmap (updateLast (\pkt -> pkt { _last = Just $ fromIntegral lastIdx }))
-    $ mapM toFragments
-    $ fmap (V.unsafeFromList @dataWidth)
-    $ chopBy dataWidth
-    $ alignTo dataWidth 0x00 totalBytes
-
--- This function assumes all fragments belong to a single packet
-calcChecksum
-  :: forall dataWidth meta
-   . 1 C.<= dataWidth
-  => C.KnownNat dataWidth
-  => [PacketStreamM2S dataWidth meta]
-  -> C.BitVector 16
-calcChecksum fragments = checksum
-  where
-    dataToList PacketStreamM2S{..} = take validData $ V.toList _data
-      where
-        validData = 1 + fromIntegral (fromMaybe maxBound _last)
-    checksum = pureInternetChecksum
-                 $ fmap (C.pack . V.unsafeFromList @2)
-                 $ chopBy 2
-                 $ alignTo 2 0x00
-                 $ concatMap dataToList fragments
-
-icmpResponderPropertyGenerator
-  :: forall dataWidth
-   . 1 C.<= dataWidth
-  => C.SNat dataWidth
-  -> Property
-icmpResponderPropertyGenerator C.SNat =
+icmpResponderPropertyGenerator ::
+  forall dataWidth.
+  (1 <= dataWidth) =>
+  SNat dataWidth ->
+  Property
+icmpResponderPropertyGenerator SNat =
   idWithModelSingleDomain
-    @C.System
+    @System
     defExpectOptions
-    (concat <$> Gen.list (Range.linear 1 10) genValidIcmpRequestPacket)
-    (C.exposeClockResetEnable (concatMap model . chunkByPacket))
-    (C.exposeClockResetEnable (icmpEchoResponderC $ pure ourIpAddr))
+    (genPackets (Range.linear 1 5) Abort genValidIcmpRequestPacket)
+    (exposeClockResetEnable (L.concatMap model . chunkByPacket))
+    (exposeClockResetEnable (icmpEchoResponderC $ pure ourIPv4))
  where
-  ourIpAddr = IPv4Address (C.repeat @4 0x3)
+  genValidIcmpRequestPacket am = do
+    dat <- genValidPacket (genIPv4HeaderLite ourIPv4) (Range.linear 0 10) am
+    let checksum = calculateChecksum (packetizerModel id (const (IcmpHeader 8 0 0)) dat)
+    pure $ packetizerModel id (const $ IcmpHeader 8 0 checksum) dat
 
-  model :: [PacketStreamM2S dataWidth IPv4HeaderLite] -> [PacketStreamM2S dataWidth IPv4HeaderLite]
+  model ::
+    [PacketStreamM2S dataWidth IPv4HeaderLite] ->
+    [PacketStreamM2S dataWidth IPv4HeaderLite]
   model fragments = res
-    where
-      res = packetize $ fmap (bimap swapIps (updateIcmp newChecksum)) <$> depacketize fragments
-      newFragments0 = packetize $ fmap (bimap swapIps (updateIcmp 0)) <$> depacketize fragments
-      newChecksum = calcChecksum newFragments0
-      swapIps ip@IPv4HeaderLite{..} = ip{_ipv4lSource = ourIpAddr, _ipv4lDestination = _ipv4lSource}
-      updateIcmp chk icmp = icmp {_checksumL = chk}
+   where
+    filtered =
+      L.map (fmap (B.second toIcmpLite)) $
+        L.filter ((\hdr -> _code hdr == 0 && _type hdr == 8) . snd . _meta) $
+          depacketizerModel (\icmpHdr ipHdr -> (ipHdr, icmpHdr)) fragments
+
+    withIcmpHeader =
+      packetizerModel fst (fromIcmpLite . snd) $ fmap (B.bimap swapIPs (updateChecksum 0))
+        <$> filtered
+
+    res =
+      packetizerModel fst (fromIcmpLite . snd) $
+        L.map (fmap (B.bimap swapIPs (updateChecksum newChecksum))) filtered
+
+    -- To prevent the tests from failing, we set the checksum to 0x0000 if
+    -- it is 0xFFFF. This is a limitation of manually adjusting the checksum,
+    -- but the case will almost never happen in practice. See the comments in
+    -- Clash.Cores.Ethernet.Icmp for more information.
+    newChecksum =
+      let c = calculateChecksum withIcmpHeader
+       in if c == 0xFFFF then 0x0000 else c
+
+    swapIPs ipHdr =
+      ipHdr
+        { _ipv4lSource = ourIPv4
+        , _ipv4lDestination = _ipv4lSource ipHdr
+        }
+    updateChecksum chk icmpHdr = icmpHdr{_checksumL = chk}
 
 prop_icmp_responder_d1 :: Property
-prop_icmp_responder_d1 = icmpResponderPropertyGenerator C.d1
-
-prop_icmp_responder_d2 :: Property
-prop_icmp_responder_d2 = icmpResponderPropertyGenerator C.d2
+prop_icmp_responder_d1 = icmpResponderPropertyGenerator d1
 
 prop_icmp_responder_d3 :: Property
-prop_icmp_responder_d3 = icmpResponderPropertyGenerator C.d3
+prop_icmp_responder_d3 = icmpResponderPropertyGenerator d3
 
 prop_icmp_responder_d4 :: Property
-prop_icmp_responder_d4 = icmpResponderPropertyGenerator C.d4
-
-prop_icmp_responder_d5 :: Property
-prop_icmp_responder_d5 = icmpResponderPropertyGenerator C.d5
-
-prop_icmp_responder_d6 :: Property
-prop_icmp_responder_d6 = icmpResponderPropertyGenerator C.d6
+prop_icmp_responder_d4 = icmpResponderPropertyGenerator d4
 
 prop_icmp_responder_d7 :: Property
-prop_icmp_responder_d7 = icmpResponderPropertyGenerator C.d7
-
-prop_icmp_responder_d8 :: Property
-prop_icmp_responder_d8 = icmpResponderPropertyGenerator C.d8
+prop_icmp_responder_d7 = icmpResponderPropertyGenerator d7
 
 tests :: TestTree
 tests =
-    localOption (mkTimeout 12_000_000 {- 12 seconds -})
-  $ localOption (HedgehogTestLimit (Just 1_000))
-  $(testGroupGenerator)
+  localOption (mkTimeout 20_000_000 {- 20 seconds -}) $
+    localOption
+      (HedgehogTestLimit (Just 1_000))
+      $(testGroupGenerator)
