@@ -1,187 +1,128 @@
-{-# language FlexibleContexts #-}
-{-# language NumericUnderscores #-}
-{-# language RecordWildCards #-}
+{-# LANGUAGE NumericUnderscores #-}
 
-module Test.Cores.Ethernet.IP.IPPacketizers where
+module Test.Cores.Ethernet.IP.IPPacketizers (
+  tests,
+) where
 
--- base
-import Control.Monad
-import Prelude
+import Clash.Cores.Ethernet.IP.IPPacketizers
+import Clash.Cores.Ethernet.IP.IPv4Types
 
--- clash
-import qualified Clash.Prelude as C
-import qualified Clash.Sized.Vector as C
+import Clash.Prelude
 
--- hedgehog
-import Hedgehog
+import qualified Data.List as L
+
+import Hedgehog (Property)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
--- tasty
-import Test.Tasty
-import Test.Tasty.Hedgehog ( HedgehogTestLimit(HedgehogTestLimit) )
-import Test.Tasty.Hedgehog.Extra ( testProperty )
-import Test.Tasty.TH ( testGroupGenerator )
-
--- clash-protocols
-import Protocols.PacketStream
 import Protocols.Hedgehog
-
--- ethernet
-import Clash.Cores.Ethernet.IP.IPPacketizers ( ipDepacketizerC, ipPacketizerC )
-import Clash.Cores.Ethernet.IP.IPv4Types
-import Clash.Cores.Ethernet.Mac.EthernetTypes
-
--- tests
-import Test.Cores.Ethernet.IP.InternetChecksum ( pureInternetChecksum )
+import Protocols.PacketStream
 import Protocols.PacketStream.Hedgehog
 
+import Test.Cores.Ethernet.Base
+import Test.Cores.Ethernet.IP.InternetChecksum (pureInternetChecksum)
 
-genVec :: (C.KnownNat n, 1 C.<= n) => Gen a -> Gen (C.Vec n a)
-genVec gen = sequence (C.repeat gen)
+import Test.Tasty
+import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit))
+import Test.Tasty.Hedgehog.Extra (testProperty)
+import Test.Tasty.TH (testGroupGenerator)
 
-genPackets :: 1 C.<= n => C.KnownNat n => Gen a -> Gen (PacketStreamM2S n a)
-genPackets genMeta =
-  PacketStreamM2S <$>
-  genVec Gen.enumBounded <*>
-  Gen.maybe Gen.enumBounded <*>
-  genMeta <*>
-  Gen.enumBounded
+testIPPacketizer ::
+  forall (dataWidth :: Nat).
+  (1 <= dataWidth) =>
+  SNat dataWidth ->
+  Property
+testIPPacketizer SNat =
+  idWithModelSingleDomain
+    @System
+    defExpectOptions{eoSampleMax = 400, eoStopAfterEmpty = 400}
+    (genPackets (Range.linear 1 4) Abort (genValidPacket genIPv4Header (Range.linear 0 30)))
+    (exposeClockResetEnable (packetizerModel _ipv4Destination id . setChecksums))
+    (exposeClockResetEnable (ipPacketizerC @_ @dataWidth))
+ where
+  setChecksums ps = L.concatMap setChecksum (chunkByPacket ps)
+  setChecksum xs = L.map (\x -> x{_meta = (_meta x){_ipv4Checksum = checksum}}) xs
+   where
+    checksum = (pureInternetChecksum @(Vec 10) . bitCoerce . _meta) (L.head xs)
 
--- | Tests the IP packetizer for arbitrary packets
-testSetChecksumC
-  :: forall (dataWidth :: C.Nat)
-   . ( C.KnownNat dataWidth
-     , 1 C.<= dataWidth
-     , 20 `C.Mod` dataWidth C.<= dataWidth
-     )
-  => C.SNat dataWidth
-  -> Property
-testSetChecksumC _ = idWithModelSingleDomain
-  @C.System defExpectOptions
-  gen
-  (C.exposeClockResetEnable $ packetizerModel _ipv4Destination id . model)
-  (C.exposeClockResetEnable (ipPacketizerC @C.System @dataWidth))
-  where
-    fragments = fmap fullPackets (Gen.list (Range.linear 1 100) (genPackets (pure ())))
+testIPDepacketizer ::
+  forall (dataWidth :: Nat).
+  (1 <= dataWidth) =>
+  SNat dataWidth ->
+  Property
+testIPDepacketizer SNat =
+  idWithModelSingleDomain
+    @System
+    defExpectOptions{eoStopAfterEmpty = 400}
+    (genPackets (Range.linear 1 10) Abort genPkt)
+    (exposeClockResetEnable model)
+    (exposeClockResetEnable (ipDepacketizerC @_ @dataWidth))
+ where
+  validPkt = genValidPacket genEthernetHeader (Range.linear 0 10)
+  genPkt am =
+    Gen.choice
+      [ -- Random packet: extremely high chance to get aborted.
+        validPkt am
+      , -- Packet with valid header: should not get aborted.
+        do
+          hdr <- genIPv4Header
+          packetizerModel
+            id
+            (const hdr{_ipv4Checksum = pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16))})
+            <$> validPkt am
+      , -- Packet with valid header apart from (most likely) the checksum.
+        do
+          hdr <- genIPv4Header
+          packetizerModel id (const hdr{_ipv4Checksum = 0xABCD}) <$> validPkt am
+      ]
 
-    gen = do
-      packets <- chunkByPacket <$> fragments
-      headers <- replicateM (length packets) genIPv4Header
-      return $ concat $ zipWith (\ps h -> (h <$) <$> ps) packets headers
+  model fragments = L.concat $ L.zipWith setAbort packets aborts
+   where
+    setAbort packet abort = (\f -> f{_abort = _abort f || abort}) <$> packet
+    validateHeader hdr =
+      pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16)) /= 0
+        || _ipv4Ihl hdr /= 5
+        || _ipv4Version hdr /= 4
+        || _ipv4FlagReserved hdr
+        || _ipv4FlagMF hdr
+    packets = chunkByPacket $ depacketizerModel const fragments
+    aborts = validateHeader . _meta . L.head <$> packets
 
-    geb :: forall x . (Enum x, Bounded x) => Gen x
-    geb = Gen.enumBounded
-    genIpAddr = IPv4Address <$> genVec geb
-    genIPv4Header = IPv4Header
-      <$> pure 4 <*> pure 5 <*> geb <*> geb   --version, ihl, dscp, ecn
-      <*> geb <*> geb <*> geb <*> geb <*> geb --length, identification, flags
-      <*> geb <*> geb <*> geb <*> pure 0      --fragment-offset, protocol, ttl, checksum
-      <*> genIpAddr <*> genIpAddr             --source, destination
+-- | 20 % dataWidth ~ 0
+prop_ip_ip_packetizer_d1 :: Property
+prop_ip_ip_packetizer_d1 = testIPPacketizer d1
 
-    model ps = withChecksum
-      where
-        checksums = pureInternetChecksum @(C.Vec 10) . C.bitCoerce . _meta <$> ps
-        withChecksum = zipWith (\c p -> p {_meta = (_meta p) {_ipv4Checksum = c}}) checksums ps
+-- | dataWidth < 20
+prop_ip_ip_packetizer_d7 :: Property
+prop_ip_ip_packetizer_d7 = testIPPacketizer d7
 
--- Odd data widths
-prop_ip_set_checksum_d8 :: Property
-prop_ip_set_checksum_d8 = testSetChecksumC C.d8
+-- | dataWidth ~ 20
+prop_ip_ip_packetizer_d20 :: Property
+prop_ip_ip_packetizer_d20 = testIPPacketizer d20
 
--- | Tests the IP depacketizer for arbitrary packets
-testIPDepacketizer
-  :: forall (dataWidth :: C.Nat)
-   . ( C.KnownNat dataWidth
-     , 1 C.<= dataWidth
-     , 20 `C.Mod` dataWidth C.<= dataWidth
-     )
-  => C.SNat dataWidth
-  -> Property
-testIPDepacketizer _ = idWithModelSingleDomain
-  @C.System defExpectOptions
-  gen
-  (C.exposeClockResetEnable model)
-  (C.exposeClockResetEnable (ipDepacketizerC @C.System @dataWidth))
-  where
-    gen = Gen.choice [genGarbage, genValidHeaders]
+-- | dataWidth > 20
+prop_ip_ip_packetizer_d23 :: Property
+prop_ip_ip_packetizer_d23 = testIPPacketizer d23
 
-    genGarbage = genValidPackets (Range.linear 1 10) (Range.linear 0 10) Abort
-    geb :: forall x . (Enum x, Bounded x) => Gen x
-    geb = Gen.enumBounded
-    genIpAddr = IPv4Address <$> genVec geb
-    genIPv4Header = IPv4Header <$> pure 4 <*> pure 5 <*> geb <*> geb <*> geb <*> geb <*> geb <*> geb <*> geb <*> geb <*> geb <*> geb <*> pure 0 <*> genIpAddr <*> genIpAddr
-    genValidHeaderPacket = do
-      ethernetHeader :: EthernetHeader <- C.unpack <$> Gen.enumBounded
-      rawHeader <- genIPv4Header
-      let checksum = pureInternetChecksum (C.bitCoerce rawHeader :: C.Vec 10 (C.BitVector 16))
-          header = rawHeader {_ipv4Checksum = checksum}
-          headerBytes = C.toList (C.bitCoerce header :: C.Vec 20 (C.BitVector 8))
-      dataBytes :: [C.BitVector 8] <- Gen.list (Range.linear 0 (5 * C.natToNum @dataWidth)) geb
-      let dataFragments = chopBy (C.natToNum @dataWidth) (headerBytes ++ dataBytes)
-          fragments = (\x -> PacketStreamM2S x Nothing ethernetHeader False) <$> (C.unsafeFromList @dataWidth <$> (++ repeat 0xAA) <$> dataFragments)
-          fragments' = init fragments ++ [(last fragments) {_last = Just (fromIntegral (length (last dataFragments) - 1))}]
-      aborts <- sequence (Gen.bool <$ fragments)
-      let fragments'' = zipWith (\p abort -> p {_abort = abort}) fragments' aborts
-      return fragments''
-
-    genValidHeaders = concat <$> Gen.list (Range.linear 1 50) genValidHeaderPacket
-
-    model fragments = concat $ zipWith setAbort packets aborts
-      where
-        setAbort packet abort = (\f -> f {_abort = _abort f || abort}) <$> packet
-        validateHeader hdr =
-          pureInternetChecksum (C.bitCoerce hdr :: C.Vec 10 (C.BitVector 16)) /= 0 ||
-          _ipv4Ihl hdr /= 5 ||
-          _ipv4Version hdr /= 4 ||
-          _ipv4FlagReserved hdr ||
-          _ipv4FlagMF hdr
-        packets = chunkByPacket $ depacketizerModel const fragments
-        aborts = validateHeader . _meta . head <$> packets
-
-
--- Odd data widths
+-- | 20 % dataWidth ~ 0
 prop_ip_depacketizer_d1 :: Property
-prop_ip_depacketizer_d1 = testIPDepacketizer C.d1
+prop_ip_depacketizer_d1 = testIPDepacketizer d1
 
-prop_ip_depacketizer_d3 :: Property
-prop_ip_depacketizer_d3 = testIPDepacketizer C.d3
-
-prop_ip_depacketizer_d5 :: Property
-prop_ip_depacketizer_d5 = testIPDepacketizer C.d5
-
+-- | dataWidth < 20
 prop_ip_depacketizer_d7 :: Property
-prop_ip_depacketizer_d7 = testIPDepacketizer C.d7
+prop_ip_depacketizer_d7 = testIPDepacketizer d7
 
-prop_ip_depacketizer_d19 :: Property
-prop_ip_depacketizer_d19 = testIPDepacketizer C.d19
-
-prop_ip_depacketizer_d21 :: Property
-prop_ip_depacketizer_d21 = testIPDepacketizer C.d21
-
-prop_ip_depacketizer_d23 :: Property
-prop_ip_depacketizer_d23 = testIPDepacketizer C.d23
-
--- Even data widths
-prop_ip_depacketizer_d2 :: Property
-prop_ip_depacketizer_d2 = testIPDepacketizer C.d2
-
-prop_ip_depacketizer_d4 :: Property
-prop_ip_depacketizer_d4 = testIPDepacketizer C.d4
-
-prop_ip_depacketizer_d6 :: Property
-prop_ip_depacketizer_d6 = testIPDepacketizer C.d6
-
-prop_ip_depacketizer_d18 :: Property
-prop_ip_depacketizer_d18 = testIPDepacketizer C.d18
-
+-- | dataWidth ~ 20
 prop_ip_depacketizer_d20 :: Property
-prop_ip_depacketizer_d20 = testIPDepacketizer C.d20
+prop_ip_depacketizer_d20 = testIPDepacketizer d20
 
-prop_ip_depacketizer_d28 :: Property
-prop_ip_depacketizer_d28 = testIPDepacketizer C.d28
+-- | dataWidth > 20
+prop_ip_depacketizer_d23 :: Property
+prop_ip_depacketizer_d23 = testIPDepacketizer d23
 
 tests :: TestTree
 tests =
-    localOption (mkTimeout 20_000_000 {- 20 seconds -})
-  $ localOption (HedgehogTestLimit (Just 1_000))
-  $(testGroupGenerator)
+  localOption (mkTimeout 20_000_000 {- 20 seconds -}) $
+    localOption
+      (HedgehogTestLimit (Just 1_000))
+      $(testGroupGenerator)
