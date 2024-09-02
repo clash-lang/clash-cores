@@ -28,6 +28,11 @@ import Test.Tasty.TH ( testGroupGenerator )
 -- ethernet
 import Clash.Cores.Ethernet.IP.InternetChecksum
 
+import Protocols.PacketStream
+import Protocols.PacketStream.Hedgehog
+
+import qualified Clash.Sized.Vector as Vec
+
 
 uncurryS ::
   (Signal dom a -> Signal dom b -> Signal dom c)
@@ -87,6 +92,31 @@ pureInternetChecksum = complement . fromInteger . L.foldr (pureOnesComplementAdd
 -- large enough integers. Use something like `Int`, not `BitVector 16`.
 pureOnesComplementAdd :: Integral a => a -> a -> a
 pureOnesComplementAdd a b = (a + b) `mod` 65_536 + (a + b) `div` 65_536
+
+alignTo :: Int -> a -> [a] -> [a]
+alignTo n a xs = xs L.++ L.replicate (n - mod (L.length xs) n) a
+
+{- |
+Like 'pureInternetChecksum', but over a packet stream.
+Assumes that there is only one packet in the input stream.
+-}
+calculateChecksum ::
+  forall dataWidth meta.
+  (KnownNat dataWidth) =>
+  (1 <= dataWidth) =>
+  [PacketStreamM2S dataWidth meta] ->
+  BitVector 16
+calculateChecksum fragments = checksum
+ where
+  dataToList PacketStreamM2S{..} = L.take validData $ Vec.toList _data
+   where
+    validData = 1 + fromIntegral (fromMaybe maxBound _last)
+  checksum =
+    pureInternetChecksum $
+      fmap (pack . Vec.unsafeFromList @2) $
+        chopBy 2 $
+          alignTo 2 0x00 $
+            L.concatMap dataToList fragments
 
 -- Tests the one's complement sum
 prop_onescomplementadd :: Property
