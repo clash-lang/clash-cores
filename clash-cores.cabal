@@ -231,6 +231,7 @@ test-suite unit-tests
     Test.Cores.Etherbone.RecordProcessor
     Test.Cores.Ethernet
     Test.Cores.Ethernet.Arp.ArpManager
+    Test.Cores.Ethernet.Base
     Test.Cores.Ethernet.Icmp
     Test.Cores.Ethernet.IP.EthernetStream
     Test.Cores.Ethernet.IP.InternetChecksum
