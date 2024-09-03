@@ -121,6 +121,7 @@ library
     Clash.Cores.Ethernet.Mac.MacPacketizers
     Clash.Cores.Ethernet.Mac.PaddingInserter
     Clash.Cores.Ethernet.Mac.Preamble
+    Clash.Cores.Ethernet.Rgmii
     Clash.Cores.Ethernet.Udp
     Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO
     Clash.Cores.LatticeSemi.Ecp5.IO
@@ -129,7 +130,6 @@ library
     Clash.Cores.LineCoding.Lc8b10b
     Clash.Cores.LineCoding.Lc8b10b.Decoder
     Clash.Cores.LineCoding.Lc8b10b.Encoder
-    Clash.Cores.Rgmii
     Clash.Cores.Sgmii
     Clash.Cores.Sgmii.AutoNeg
     Clash.Cores.Sgmii.BitSlip
