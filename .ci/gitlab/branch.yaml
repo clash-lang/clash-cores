@@ -58,18 +58,17 @@ tests-release:
 #  tags:
 #    - local
 
-#haddock:
-#  extends: .common-local
-#  needs: []
-#  stage: test
-#  variables:
-#    GHC_VERSION: 9.6.4
-#  artifacts:
-#    paths:
-#      - hadocs/*/*
-#    expire_in: 1 month
-#  script:
-#    - .ci/build_docs.sh
+haddock:
+  extends: .common-local
+  needs: []
+  stage: test
+  artifacts:
+    paths:
+      - hadocs/*/*
+    expire_in: 1 month
+  script:
+    - .ci/build_docs.sh
+
 # We manually report status to GitHub to work around
 # <https://gitlab.com/gitlab-org/gitlab/-/issues/216629>.
 #

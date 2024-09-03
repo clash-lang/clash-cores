@@ -1,6 +1,6 @@
 variables:
   # Default GHC version
-  GHC_VERSION: 9.6.4
+  GHC_VERSION: 9.6.6
 
   # https://docs.gitlab.com/runner/executors/custom.html#system-failure
   GET_SOURCES_ATTEMPTS: 5
