@@ -31,42 +31,42 @@ import Protocols.PacketStream
 import Data.Maybe (isJust)
 
 -- | RX channel from the RGMII PHY
-data RgmiiRxChannel dom ddrDom = RgmiiRxChannel
+data RgmiiRxChannel dom domDdr = RgmiiRxChannel
   { rgmiiRxClk :: "rx_clk" ::: Clock dom
-  , rgmiiRxCtl :: "rx_ctl" ::: Signal ddrDom Bit
-  , rgmiiRxData :: "rx_data" ::: Signal ddrDom (BitVector 4)
+  , rgmiiRxCtl :: "rx_ctl" ::: Signal domDdr Bit
+  , rgmiiRxData :: "rx_data" ::: Signal domDdr (BitVector 4)
   }
 
-instance Protocol (RgmiiRxChannel dom ddrDom) where
-  type Fwd (RgmiiRxChannel dom ddrDom) = RgmiiRxChannel dom ddrDom
-  type Bwd (RgmiiRxChannel dom ddrDom) = Signal dom ()
+instance Protocol (RgmiiRxChannel dom domDdr) where
+  type Fwd (RgmiiRxChannel dom domDdr) = RgmiiRxChannel dom domDdr
+  type Bwd (RgmiiRxChannel dom domDdr) = Signal dom ()
 
 -- | TX channel to the RGMII PHY
-data RgmiiTxChannel ddrDom = RgmiiTxChannel
-  { rgmiiTxClk :: "tx_clk" ::: Signal ddrDom Bit
-  , rgmiiTxCtl :: "tx_ctl" ::: Signal ddrDom Bit
-  , rgmiiTxData :: "tx_data" ::: Signal ddrDom (BitVector 4)
+data RgmiiTxChannel domDdr = RgmiiTxChannel
+  { rgmiiTxClk :: "tx_clk" ::: Signal domDdr Bit
+  , rgmiiTxCtl :: "tx_ctl" ::: Signal domDdr Bit
+  , rgmiiTxData :: "tx_data" ::: Signal domDdr (BitVector 4)
   }
 
-instance Protocol (RgmiiTxChannel ddrDom) where
-  type Fwd (RgmiiTxChannel ddrDom) = RgmiiTxChannel ddrDom
-  type Bwd (RgmiiTxChannel ddrDom) = Signal ddrDom ()
+instance Protocol (RgmiiTxChannel domDdr) where
+  type Fwd (RgmiiTxChannel domDdr) = RgmiiTxChannel domDdr
+  type Bwd (RgmiiTxChannel domDdr) = Signal domDdr ()
 
 -- | RGMII receiver.
 rgmiiReceiver ::
-  forall dom ddrDom.
-  (DomainPeriod dom ~ 2 * DomainPeriod ddrDom) =>
+  forall dom domDdr.
+  (DomainPeriod dom ~ 2 * DomainPeriod domDdr) =>
   (KnownDomain dom) =>
   -- | RX channel from the RGMII PHY
-  RgmiiRxChannel dom ddrDom ->
+  RgmiiRxChannel dom domDdr ->
   -- | RX delay function
-  (forall a. Signal ddrDom a -> Signal ddrDom a) ->
+  (forall a. Signal domDdr a -> Signal domDdr a) ->
   -- | iddr function
   ( forall a.
     (NFDataX a, BitPack a) =>
     Clock dom ->
     Reset dom ->
-    Signal ddrDom a ->
+    Signal domDdr a ->
     Signal dom (a, a)
   ) ->
   -- | (Error bit, Received data)
@@ -93,12 +93,12 @@ rgmiiReceiver RgmiiRxChannel{..} rxdelay iddr = bundle (ethRxErr, ethRxData)
 
 -- | RGMII transmitter. Does not consider transmission error.
 rgmiiTransmitter ::
-  forall dom ddrDom.
-  (DomainPeriod dom ~ 2 * DomainPeriod ddrDom) =>
+  forall dom domDdr.
+  (DomainPeriod dom ~ 2 * DomainPeriod domDdr) =>
   Clock dom ->
   Reset dom ->
   -- | TX delay function
-  (forall a. Signal ddrDom a -> Signal ddrDom a) ->
+  (forall a. Signal domDdr a -> Signal domDdr a) ->
   -- | oddr function
   ( forall a.
     (NFDataX a, BitPack a) =>
@@ -106,14 +106,14 @@ rgmiiTransmitter ::
     Reset dom ->
     Signal dom a ->
     Signal dom a ->
-    Signal ddrDom a
+    Signal domDdr a
   ) ->
   -- | Maybe the byte we have to send
   Signal dom (Maybe (BitVector 8)) ->
   -- | Error signal indicating whether the current packet is corrupt
   Signal dom Bool ->
   -- | TX channel to the RGMII PHY
-  RgmiiTxChannel ddrDom
+  RgmiiTxChannel domDdr
 rgmiiTransmitter txClk rst txdelay oddr input err = channel
  where
   txEn, txErr :: Signal dom Bit
@@ -132,11 +132,11 @@ rgmiiTransmitter txClk rst txdelay oddr input err = channel
   -- The TXCTL signal at the falling edge is the XOR of TXEN and TXERR
   -- meaning that TXERR is the XOR of it and TXEN.
   -- See RGMII interface documentation.
-  txCtl :: Signal ddrDom Bit
+  txCtl :: Signal domDdr Bit
   txCtl = oddr txClk rst txEn (liftA2 xor txEn txErr)
 
   -- LSB first! See RGMII interface documentation.
-  txData :: Signal ddrDom (BitVector 4)
+  txData :: Signal domDdr (BitVector 4)
   txData = oddr txClk rst ethTxData2 ethTxData1
 
   channel =
@@ -156,20 +156,20 @@ invalid, we set `_last`. If the RGMII receiver gives an error, we set `_abort`.
 __UNSAFE__: ignores backpressure, because the RGMII PHY is unable to handle that.
 -}
 unsafeRgmiiRxC ::
-  forall dom ddrDom.
+  forall dom domDdr.
   (HiddenClockResetEnable dom) =>
-  (DomainPeriod dom ~ 2 * DomainPeriod ddrDom) =>
+  (DomainPeriod dom ~ 2 * DomainPeriod domDdr) =>
   -- | RX delay function
-  (forall a. Signal ddrDom a -> Signal ddrDom a) ->
+  (forall a. Signal domDdr a -> Signal domDdr a) ->
   -- | iddr function
   ( forall a.
     (NFDataX a, BitPack a) =>
     Clock dom ->
     Reset dom ->
-    Signal ddrDom a ->
+    Signal domDdr a ->
     Signal dom (a, a)
   ) ->
-  Circuit (RgmiiRxChannel dom ddrDom) (PacketStream dom 1 ())
+  Circuit (RgmiiRxChannel dom domDdr) (PacketStream dom 1 ())
 unsafeRgmiiRxC rxDelay iddr = fromSignals ckt
  where
   ckt (fwdIn, _) = (pure (), fwdOut)
@@ -198,11 +198,11 @@ Circuit that adapts a `PacketStream` to an `RgmiiTxChannel`.
 Never asserts backpressure.
 -}
 rgmiiTxC ::
-  forall dom ddrDom.
+  forall dom domDdr.
   (HiddenClockResetEnable dom) =>
-  (DomainPeriod dom ~ 2 * DomainPeriod ddrDom) =>
+  (DomainPeriod dom ~ 2 * DomainPeriod domDdr) =>
   -- | TX delay function
-  (forall a. Signal ddrDom a -> Signal ddrDom a) ->
+  (forall a. Signal domDdr a -> Signal domDdr a) ->
   -- | oddr function
   ( forall a.
     (NFDataX a, BitPack a) =>
@@ -210,9 +210,9 @@ rgmiiTxC ::
     Reset dom ->
     Signal dom a ->
     Signal dom a ->
-    Signal ddrDom a
+    Signal domDdr a
   ) ->
-  Circuit (PacketStream dom 1 ()) (RgmiiTxChannel ddrDom)
+  Circuit (PacketStream dom 1 ()) (RgmiiTxChannel domDdr)
 rgmiiTxC txDelay oddr = fromSignals ckt
  where
   ckt (fwdIn, _) = (pure (PacketStreamS2M True), fwdOut)
