@@ -185,17 +185,12 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
-
--- "Unmatchable constant as case subject"
-#if MIN_VERSION_clash_lib(1,9,0)
         , runTest "XpmCdcArraySingle" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
-#endif
-
         , runTest "XpmCdcGray" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
@@ -203,23 +198,11 @@ runClashTest = defaultMain $ clashTestRoot
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
         , runTest "XpmCdcHandshake" $ def
-            { hdlTargets=
-                [
-
--- (Vivado) ERROR: [VRFC 10-2989] 'tuple3_0_sel0_std_logic_vector' is not declared [/tmp/clash-test_XpmCdcHandshake-71223bd02c6e132d/vivado-tb0/XpmCdcHandshake.tb0/top_4.vhdl:122]
-#if MIN_VERSION_clash_lib(1,9,0)
-                  VHDL,
-#endif
-
-                  Verilog
-                ]
+            { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..6]]
             }
-
--- "Unmatchable constant as case subject"
-#if MIN_VERSION_clash_lib(1,9,0)
         , runTest "XpmCdcPulse" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
@@ -238,8 +221,6 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
-#endif
-
         , runTest "DnaPortE2" def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
@@ -305,8 +286,6 @@ runClashTest = defaultMain $ clashTestRoot
                                                 ]
                     }
           in runTest "Ila" _opts
--- Pattern match failure in 'do' block at /home/peter/src/clash/clash-cores/test-suite/shouldwork/Xilinx/Ila.hs:103:3-8
-#if MIN_VERSION_clash_lib(1,9,0)
         , let _opts =
                 def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
                     , buildTargets=BuildSpecific [ "testWithDefaultsOne"
@@ -317,7 +296,6 @@ runClashTest = defaultMain $ clashTestRoot
                                                 ]
                     }
           in outputTest "Ila" _opts
-#endif
         , outputTest "VIO" def{
             hdlTargets=[VHDL]
           , buildTargets=BuildSpecific ["withSetName", "withSetNameNoResult"]
