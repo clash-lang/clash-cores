@@ -94,7 +94,8 @@ the input packet is @0xABCD@:
 >>> import Clash.Prelude
 >>> import Clash.Cores.Ethernet.IP.InternetChecksum (onesComplementAdd)
 
-We adjust the checksum in the following way:
+We adjust the checksum as specified by
+[IETF RFC 1624](https://datatracker.ietf.org/doc/html/rfc1624):
 
 >>> :{
 adjustChecksum :: BitVector 16 -> BitVector 16
@@ -114,7 +115,7 @@ and we will adjust it to @0x0000@:
 Recalculating it from scratch yields @0xFFFF@, and your operating system will
 reject the packet because @0xFFFF@ is not @0x0000@. This is a limitation of one's
 complement, because @0x0000@ and @0xFFFF@ both represent the number zero.
-Because this case rarely happens in practice and because a losing a single
+Because this case rarely happens in practice and because losing a single
 echo reply packet is not a big deal, this should not be a problem.
 -}
 icmpEchoResponderC ::
