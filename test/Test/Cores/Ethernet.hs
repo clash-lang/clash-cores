@@ -11,6 +11,7 @@ import qualified Test.Cores.Ethernet.IP.IPPacketizers
 import qualified Test.Cores.Ethernet.Mac.FrameCheckSequence
 import qualified Test.Cores.Ethernet.Mac.InterpacketGapInserter
 import qualified Test.Cores.Ethernet.Mac.PaddingInserter
+import qualified Test.Cores.Ethernet.Mac.Preamble
 
 tests :: TestTree
 tests =
@@ -24,4 +25,5 @@ tests =
     , Test.Cores.Ethernet.Mac.FrameCheckSequence.tests
     , Test.Cores.Ethernet.Mac.InterpacketGapInserter.tests
     , Test.Cores.Ethernet.Mac.PaddingInserter.tests
+    , Test.Cores.Ethernet.Mac.Preamble.tests
     ]

@@ -53,4 +53,3 @@ arpTable SNat = fromSignals ckt
               if timeLeft == 0 || _arpIP entry /= ipAddr
               then Just ArpEntryNotFound
               else Just (ArpEntryFound (_arpMac entry))
-  
