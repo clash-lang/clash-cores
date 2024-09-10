@@ -1,6 +1,7 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_HADDOCK hide #-}
 
-{-|
+{- |
 Module      : Clash.Cores.Ethernet.Mac.Preamble
 Description : Provides components which insert and strip the Ethernet preamble.
 -}
@@ -11,7 +12,9 @@ module Clash.Cores.Ethernet.Mac.Preamble (
 
 import Clash.Prelude
 
-import Protocols ((|>), Circuit)
+import Data.Maybe (isJust, isNothing)
+
+import Protocols (Circuit, fromSignals, (|>))
 import Protocols.PacketStream
 
 -- | Ethernet start frame delimiter (SFD), least significant bit first.
@@ -28,6 +31,8 @@ preamble = replicate d7 0x55 :< 0xD5
 {- |
 Prepends the Ethernet preamble and SFD to each packet in the packet stream.
 The bytes are ordered least significant bit first:
+
+>>> import Clash.Prelude
 >>> preamble = 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0xD5 :> Nil
 
 Inherits latency and throughput from `packetizerC`.
@@ -40,21 +45,36 @@ preambleInserterC ::
   Circuit (PacketStream dom dataWidth ()) (PacketStream dom dataWidth ())
 preambleInserterC = packetizerC id (const preamble)
 
-{- |
-Strips the incoming packet stream of the Ethernet preamble and SFD (Start Frame
-Delimiter), 8 bytes in total. Drops a packet if the SFD is not correct.
-Does not check if the preamble itself matches for efficiency reasons.
+-- | State of 'preambleStripperC'.
+data PreambleStripperState
+  = ValidateSfd
+  | Forward
+  deriving (Generic, NFDataX, Show, ShowX)
 
-Inherits latency and throughput from `depacketizerC`.
+{- |
+Strips each packet in the incoming packet stream of the preamble and SFD.
+After a valid SFD has been detected, all incoming transfers are forwarded
+until '_last' is asserted.
+
+This component provides zero latency and full throughput.
+
+__NB__: assumes that the SFD is byte-aligned.
 -}
 preambleStripperC ::
-  forall dataWidth dom.
+  forall dom.
   (HiddenClockResetEnable dom) =>
-  (KnownNat dataWidth) =>
-  (1 <= dataWidth) =>
-  Circuit (PacketStream dom dataWidth ()) (PacketStream dom dataWidth ())
-preambleStripperC =
-  -- Only put the SFD in the metadata for efficiency reasons.
-  depacketizerC (\(p :: Preamble) _ -> last p)
-    |> filterMeta (== startFrameDelimiter)
-    |> mapMeta (const ())
+  Circuit (PacketStream dom 1 ()) (PacketStream dom 1 ())
+preambleStripperC = forceResetSanity |> fromSignals (mealyB go ValidateSfd)
+ where
+  go ValidateSfd (Just PacketStreamM2S{..}, _) =
+    (nextSt, (PacketStreamS2M True, Nothing))
+   where
+    nextSt
+      | isNothing _last && head _data == startFrameDelimiter = Forward
+      | otherwise = ValidateSfd
+  go Forward (Just transferIn, bwdIn) = (nextSt, (bwdIn, Just transferIn))
+   where
+    nextSt
+      | isJust (_last transferIn) && _ready bwdIn = ValidateSfd
+      | otherwise = Forward
+  go st (Nothing, _) = (st, (PacketStreamS2M True, Nothing))
