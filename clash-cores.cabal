@@ -218,6 +218,7 @@ test-suite unit-tests
     Test.Cores.Ethernet.Mac.FrameCheckSequence
     Test.Cores.Ethernet.Mac.InterpacketGapInserter
     Test.Cores.Ethernet.Mac.PaddingInserter
+    Test.Cores.Ethernet.Mac.Preamble
     Test.Cores.Internal.SampleSpi
     Test.Cores.Internal.Signals
     Test.Cores.LineCoding.Lc8b10b
