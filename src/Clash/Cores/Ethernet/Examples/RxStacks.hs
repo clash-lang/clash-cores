@@ -40,9 +40,9 @@ macRxStack
   -> Signal dom MacAddress
   -> Circuit (PacketStream domEth 1 ()) (PacketStream dom dataWidth EthernetHeader)
 macRxStack ethClk ethRst ethEn macAddressS =
-    upConverterC'
+    exposeClockResetEnable preambleStripperC ethClk ethRst ethEn
+    |> upConverterC'
     |> asyncFifoC'
-    |> preambleStripperC
     |> fcsValidatorC
     |> macDepacketizerC
     |> filterMetaS (isForMyMac <$> macAddressS)
