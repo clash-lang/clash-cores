@@ -235,26 +235,3 @@ test-suite doctests
       clash-cores,
       doctest-parallel >= 0.2 && < 0.4,
       filepath
-
-test-suite cores-testsuite
-  import: basic-config
-  hs-source-dirs: test
-  type: exitcode-stdio-1.0
-  main-is: cores-testsuite.hs
-
-  build-depends:
-    base,
-    data-default,
-    directory,
-    extra,
-    filepath,
-    ghc,
-    process,
-    tasty >= 1.5,
-    tasty-hunit,
-    text,
-    clash-cores,
-    clash-ghc,
-    clash-lib,
-    clash-prelude,
-    clash-testsuite

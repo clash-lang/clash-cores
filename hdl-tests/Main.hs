@@ -127,7 +127,7 @@ clashTestGroup testName testTrees =
 
 runClashTest :: IO ()
 runClashTest = defaultMain $ clashTestRoot
-  [ clashTestGroup "test"
+  [ clashTestGroup "hdl-tests"
     [ clashTestGroup "shouldfail"
       [ clashTestGroup "Xilinx"
         [ clashTestGroup "VIO"
