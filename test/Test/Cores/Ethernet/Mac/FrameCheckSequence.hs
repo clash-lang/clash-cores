@@ -1,6 +1,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
 
 module Test.Cores.Ethernet.Mac.FrameCheckSequence (
   tests,
@@ -30,7 +32,9 @@ import Test.Tasty.TH (testGroupGenerator)
 
 $(deriveHardwareCrc Crc32_ethernet d8 d1)
 $(deriveHardwareCrc Crc32_ethernet d8 d2)
+$(deriveHardwareCrc Crc32_ethernet d8 d3)
 $(deriveHardwareCrc Crc32_ethernet d8 d4)
+$(deriveHardwareCrc Crc32_ethernet d8 d7)
 $(deriveHardwareCrc Crc32_ethernet d8 d8)
 
 packetToCrcInp ::
@@ -94,7 +98,7 @@ fcsinserterTest SNat =
     defExpectOptions
     (genPackets (Range.linear 1 4) Abort (genValidPacket (pure ()) (Range.linear 0 20)))
     (exposeClockResetEnable modelInsert)
-    (exposeClockResetEnable (fcsInserterC @_ @dataWidth))
+    (exposeClockResetEnable (fcsInserterC @dataWidth))
  where
   modelInsert packets = L.concatMap insertCrc (chunkByPacket packets)
 
@@ -111,7 +115,7 @@ fcsvalidatorTest SNat =
     defExpectOptions
     (genPackets (Range.linear 1 4) Abort genPkt)
     (exposeClockResetEnable modelValidate)
-    (exposeClockResetEnable (fcsValidatorC @_ @dataWidth))
+    (exposeClockResetEnable (fcsValidatorC @dataWidth))
  where
   genPkt am =
     Gen.choice
@@ -120,7 +124,7 @@ fcsvalidatorTest SNat =
       , -- Packet with valid CRC
         insertCrc <$> genValidPacket (pure ()) (Range.linear 0 20) am
       ]
-  
+
   modelValidate packets = validateCrc =<< chunkByPacket packets
 
 prop_fcsinserter_d1 :: Property
@@ -138,14 +142,14 @@ prop_fcsinserter_d8 = fcsinserterTest d8
 prop_fcsvalidator_d1 :: Property
 prop_fcsvalidator_d1 = fcsvalidatorTest d1
 
-prop_fcsvalidator_d2 :: Property
-prop_fcsvalidator_d2 = fcsvalidatorTest d2
+prop_fcsvalidator_d3 :: Property
+prop_fcsvalidator_d3 = fcsvalidatorTest d3
 
 prop_fcsvalidator_d4 :: Property
 prop_fcsvalidator_d4 = fcsvalidatorTest d4
 
-prop_fcsvalidator_d8 :: Property
-prop_fcsvalidator_d8 = fcsvalidatorTest d8
+prop_fcsvalidator_d7 :: Property
+prop_fcsvalidator_d7 = fcsvalidatorTest d7
 
 tests :: TestTree
 tests =
