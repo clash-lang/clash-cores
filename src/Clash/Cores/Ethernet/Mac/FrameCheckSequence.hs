@@ -1,45 +1,46 @@
-{-# language DuplicateRecordFields #-}
-{-# language FlexibleContexts #-}
-{-# language MultiParamTypeClasses #-}
-{-# language RecordWildCards #-}
-{-# language ScopedTypeVariables #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_HADDOCK hide #-}
 
 {-|
 Module      : Clash.Cores.Ethernet.Mac.FrameCheckSequence
-Description : Provides circuits to insert and validate the FCS of an ethernet frame.
+Description : Provides circuits to insert, validate and strip the FCS of an Ethernet frame.
 -}
-module Clash.Cores.Ethernet.Mac.FrameCheckSequence
-  ( fcsInserterC
-  , fcsValidatorC
-  ) where
+module Clash.Cores.Ethernet.Mac.FrameCheckSequence (
+  fcsInserterC,
+  fcsValidatorC,
+  fcsStripperC,
+) where
 
 -- crc
-import Clash.Cores.Crc
-import Clash.Cores.Crc.Catalog
+import Clash.Cores.Crc (crcEngine, crcValidator, HardwareCrc)
+import Clash.Cores.Crc.Catalog (Crc32_ethernet(..))
+
+-- vector
+import Clash.Sized.Vector.Extra (appendVec)
 
 -- prelude
 import Clash.Prelude
 
 -- maybe
 import Data.Maybe
-
--- vector
-import Clash.Sized.Vector.Extra
+import Data.Maybe.Extra
 
 -- protocols
 import Protocols
 import Protocols.PacketStream
 
-import Data.Maybe.Extra
-
-
-toCRCInput
-  :: KnownNat dataWidth
-  => Bool
-  -> PacketStreamM2S dataWidth ()
-  -> (Bool, Index dataWidth, Vec dataWidth (BitVector 8))
-toCRCInput isFirst (PacketStreamM2S{..}) = (isFirst, fromMaybe maxBound _last, _data)
+toCrcInput ::
+  (KnownNat dataWidth) =>
+  -- | Enable
+  Bool ->
+  -- | Start of new CRC
+  Bool ->
+  -- | Transaction to feed
+  PacketStreamM2S dataWidth () ->
+  Maybe (Bool, Index dataWidth, Vec dataWidth (BitVector 8))
+toCrcInput en isFirst PacketStreamM2S{..} =
+  toMaybe en (isFirst, fromMaybe maxBound _last, _data)
 
 fcsInserterT
   :: forall dataWidth
@@ -127,7 +128,7 @@ data FcsInserterState dataWidth
 
 -- | fcsInserter
 fcsInserter
-  :: forall (dom :: Domain) (dataWidth :: Nat)
+  :: forall (dataWidth :: Nat) (dom :: Domain)
   .  HiddenClockResetEnable dom
   => KnownNat dataWidth
   => HardwareCrc Crc32_ethernet 8 dataWidth
@@ -141,7 +142,7 @@ fcsInserter (fwdIn, bwdIn) = (bwdOut, fwdOut)
   where
     fwdInX = fromJustX <$> fwdIn
     transferOccured = ready .&&. isJust <$> fwdIn
-    crcIn = toMaybe <$> transferOccured <*> liftA2 toCRCInput isFirst fwdInX
+    crcIn = liftA3 toCrcInput transferOccured isFirst fwdInX
 
     isFirst = regEn True transferOccured $ isJust . _last <$> fwdInX
     ethCrc = crcEngine Crc32_ethernet crcIn
@@ -151,13 +152,12 @@ fcsInserter (fwdIn, bwdIn) = (bwdOut, fwdOut)
 
     (fwdOut, ready) = mealyB fcsInserterT (FcsCopy Nothing) (ethCrcBytes, fwdIn, bwdIn)
 
-
 {- |
 Computes the Ethernet CRC (4 bytes) of each packet in the input stream and
 appends this CRC to the corresponding packet in the output stream.
 -}
 fcsInserterC
-  :: forall (dom :: Domain) (dataWidth :: Nat)
+  :: forall (dataWidth :: Nat) (dom :: Domain)
   .  KnownDomain dom
   => KnownNat dataWidth
   => HiddenClockResetEnable dom
@@ -167,67 +167,95 @@ fcsInserterC
     (PacketStream dom dataWidth ())
 fcsInserterC = forceResetSanity |> fromSignals fcsInserter
 
-fcsValidatorT
-  :: forall dataWidth
-  . KnownNat dataWidth
-  => FcsValidatorState dataWidth
-  -> ( Bool
-     , Maybe (PacketStreamM2S dataWidth ())
-     , PacketStreamS2M)
-  -> ( FcsValidatorState dataWidth
-     , ( Maybe (PacketStreamM2S dataWidth ())
-       , Bool))
-fcsValidatorT (FcsValidatorState Nothing validated) ( _, fwdIn, _) = (FcsValidatorState fwdIn validated, (Nothing, True))
-
-fcsValidatorT st@(FcsValidatorState (Just cache) validated) (valid, fwdIn, PacketStreamS2M readyIn)
-  = (nextSt, (Just fwdOut, readyIn))
-  where
-    outValid = if isJust (_last cache) then valid || validated else valid
-    fwdOut = if isJust (_last cache) then cache { _abort = _abort cache|| not outValid } else cache
-    nextStIfReady = FcsValidatorState fwdIn False
-    nextSt = if readyIn then nextStIfReady else st {_validated = outValid}
-
-data FcsValidatorState dataWidth =
-    FcsValidatorState
-    { _cachedFwd :: Maybe (PacketStreamM2S dataWidth ())
-    , _validated :: Bool
-    }
+-- | State of 'fcsValidatorT'.
+newtype FcsValidatorState dataWidth = FcsValidatorState
+  { _cachedFwd :: Maybe (PacketStreamM2S dataWidth ())
+  }
   deriving (Show, Generic, NFDataX)
 
+-- | State transition function of 'fcsValidator'.
+fcsValidatorT ::
+  forall (dataWidth :: Nat).
+  FcsValidatorState dataWidth ->
+  ( Bool
+  , Maybe (PacketStreamM2S dataWidth ())
+  , PacketStreamS2M
+  ) ->
+  ( FcsValidatorState dataWidth
+  , (Bool, Maybe (PacketStreamM2S dataWidth ()))
+  )
+fcsValidatorT st@FcsValidatorState{..} (valid, fwdIn, bwdIn) =
+  (nextSt, (readyOut, fwdOut))
+ where
+  fwdOut =
+    ( \pkt ->
+        if isJust (_last pkt)
+          then pkt{_abort = _abort pkt || not valid}
+          else pkt
+    )
+      <$> _cachedFwd
 
-fcsValidator
-  :: forall (dom :: Domain) (dataWidth :: Nat)
-  .  HiddenClockResetEnable dom
-  => KnownNat dataWidth
-  => HardwareCrc Crc32_ethernet 8 dataWidth
-  => ( Signal dom (Maybe (PacketStreamM2S dataWidth ()))
-     , Signal dom PacketStreamS2M
-     )
-  -> ( Signal dom PacketStreamS2M
-     , Signal dom (Maybe (PacketStreamM2S dataWidth ()))
-     )
-fcsValidator (fwdIn, bwdIn) = (bwdOut, fwdOut)
-  where
-    fwdInX = fromJustX <$> fwdIn
-    transferOccured = ready .&&. isJust <$> fwdIn
-    crcIn = toMaybe <$> transferOccured <*> liftA2 toCRCInput isFirst fwdInX
+  readyOut = isNothing _cachedFwd || _ready bwdIn
 
-    isFirst = regEn True transferOccured $ isJust . _last <$> fwdInX
-    valid = crcValidator Crc32_ethernet crcIn
+  nextSt
+    | isNothing fwdOut || _ready bwdIn = FcsValidatorState fwdIn
+    | otherwise = st
 
-    bwdOut = PacketStreamS2M <$> ready
+fcsValidator ::
+  forall (dataWidth :: Nat) (dom :: Domain).
+  (HiddenClockResetEnable dom) =>
+  (KnownNat dataWidth) =>
+  (HardwareCrc Crc32_ethernet 8 dataWidth) =>
+  ( Signal dom (Maybe (PacketStreamM2S dataWidth ()))
+  , Signal dom PacketStreamS2M
+  ) ->
+  ( Signal dom PacketStreamS2M
+  , Signal dom (Maybe (PacketStreamM2S dataWidth ()))
+  )
+fcsValidator (fwdIn, bwdIn) = (PacketStreamS2M <$> ready, fwdOut)
+ where
+  fwdInX = fromJustX <$> fwdIn
+  crcEnable = isJust <$> fwdIn .&&. ready
+  valid = crcValidator Crc32_ethernet crcIn
+  crcIn = liftA3 toCrcInput crcEnable isFirst fwdInX
+  isFirst = regEn True crcEnable (isJust . _last <$> fwdInX)
 
-    (fwdOut, ready) = mealyB fcsValidatorT (FcsValidatorState Nothing False) (valid, fwdIn, bwdIn)
+  (ready, fwdOut) =
+    mealyB
+      fcsValidatorT
+      (FcsValidatorState Nothing)
+      (valid, fwdIn, bwdIn)
 
--- | Validates a packet which contains the Crc-32 in its final four (4) bytes. Asserts abort signal
--- in the last fragment of this packet if invalid, else it does not change the abort.
-fcsValidatorC
-  :: forall (dom :: Domain) (dataWidth :: Nat)
-  .  KnownDomain dom
-  => KnownNat dataWidth
-  => HiddenClockResetEnable dom
-  => HardwareCrc Crc32_ethernet 8 dataWidth
-  => Circuit
+{- |
+Computes the Ethernet CRC ('Crc32_ethernet') over each packet in the stream
+and asserts '_abort' on the last transfer of the packet if the computed CRC
+did not match the last 4 bytes of the stream.
+
+__NB__: does not remove the FCS field (last 4 bytes of the stream).
+Use 'fcsStripperC' for that.
+-}
+fcsValidatorC ::
+  forall (dataWidth :: Nat) (dom :: Domain).
+  (HiddenClockResetEnable dom) =>
+  (KnownNat dataWidth) =>
+  (HardwareCrc Crc32_ethernet 8 dataWidth) =>
+  Circuit
     (PacketStream dom dataWidth ())
     (PacketStream dom dataWidth ())
 fcsValidatorC = forceResetSanity |> fromSignals fcsValidator
+
+{- |
+Removes the last 4 bytes of each packet in the stream, the width of the
+Ethernet FCS field. This is just a specialized version of 'dropTailC'.
+
+__NB__: does not validate the FCS field. Use 'fcsValidatorC' for that.
+-}
+fcsStripperC ::
+  forall (dataWidth :: Nat) (dom :: Domain).
+  (HiddenClockResetEnable dom) =>
+  (KnownNat dataWidth) =>
+  (1 <= dataWidth) =>
+  Circuit
+    (PacketStream dom dataWidth ())
+    (PacketStream dom dataWidth ())
+fcsStripperC = dropTailC d4
