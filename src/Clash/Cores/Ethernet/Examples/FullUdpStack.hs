@@ -254,6 +254,7 @@ fullStackC
    . KnownDomain dom
   => KnownDomain domEthRx
   => KnownDomain domEthTx
+  => HardwareCrc Crc32_ethernet 8 1
   => HardwareCrc Crc32_ethernet 8 4
   => 1 <= DomainPeriod dom
   => DomainPeriod dom <= 5 * 10^11

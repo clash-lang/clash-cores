@@ -23,9 +23,6 @@ import Clash.Cores.Ethernet.Arp.ArpTypes
 import Clash.Cores.Ethernet.IP.IPv4Types
 import Clash.Cores.Ethernet.Mac.EthernetTypes
 
-import qualified Data.Bifunctor as B
-
-
 -- | State of the ARP manager.
 data ArpManagerState maxWaitSeconds
   = AwaitLookup {
@@ -169,19 +166,9 @@ arpReceiverC myIP = circuit $ \ethStream -> do
   -- implements dropping of
   arpDf <- depacketizeToDfC const -< ethStream
   arpDf' <- Df.filterS (isValidArp <$> myIP) -< arpDf
-  (arpRequests, arpEntries) <- partitionS (isRequest <$> myIP) -< arpDf'
+  (arpRequests, arpEntries) <- Df.partitionS (isRequest <$> myIP) -< arpDf'
   lites <- Df.map (\p -> ArpLite (_sha p) (_spa p) False) -< arpRequests
   entries <- Df.map (\p -> ArpEntry (_sha p) (_spa p)) -< arpEntries
   idC -< (entries, lites)
   where
     isRequest ip ArpPacket{..} = _oper == 1 && _tpa == ip
-
--- TODO upstream to clash-protocols
--- | Like 'partition', but can reason over signals.
-partitionS ::  forall dom a. Signal dom (a -> Bool) -> Circuit (Df dom a) (Df dom a, Df dom a)
-partitionS fS = Circuit (B.second unbundle . unbundle . liftA2 go fS . bundle . B.second bundle)
- where
-  go f (Df.Data a, (ackT, ackF))
-    | f a = (ackT, (Df.Data a, Df.NoData))
-    | otherwise = (ackF, (Df.NoData, Df.Data a))
-  go _ _ = (Ack False, (Df.NoData, Df.NoData))
