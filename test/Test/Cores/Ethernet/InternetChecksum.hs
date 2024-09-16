@@ -3,7 +3,7 @@
 {-# language RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
-module Test.Cores.Ethernet.IP.InternetChecksum where
+module Test.Cores.Ethernet.InternetChecksum where
 
 -- base
 import Data.Maybe
@@ -26,7 +26,7 @@ import Test.Tasty.Hedgehog.Extra ( testProperty )
 import Test.Tasty.TH ( testGroupGenerator )
 
 -- ethernet
-import Clash.Cores.Ethernet.IP.InternetChecksum
+import Clash.Cores.Ethernet.InternetChecksum
 
 import Protocols.PacketStream
 import Protocols.PacketStream.Hedgehog

@@ -128,8 +128,9 @@ library
     Clash.Cores.Ethernet.Examples.RxStacks
     Clash.Cores.Ethernet.Examples.TxStacks
     Clash.Cores.Ethernet.Icmp
+    Clash.Cores.Ethernet.InternetChecksum
+    Clash.Cores.Ethernet.IPv4
     Clash.Cores.Ethernet.IP.EthernetStream
-    Clash.Cores.Ethernet.IP.InternetChecksum
     Clash.Cores.Ethernet.IP.IPPacketizers
     Clash.Cores.Ethernet.IP.IPv4Types
     Clash.Cores.Ethernet.Mac
@@ -232,9 +233,9 @@ test-suite unit-tests
     Test.Cores.Ethernet
     Test.Cores.Ethernet.Arp.ArpManager
     Test.Cores.Ethernet.Base
+    Test.Cores.Ethernet.InternetChecksum
     Test.Cores.Ethernet.Icmp
     Test.Cores.Ethernet.IP.EthernetStream
-    Test.Cores.Ethernet.IP.InternetChecksum
     Test.Cores.Ethernet.IP.IPPacketizers
     Test.Cores.Ethernet.Mac.FrameCheckSequence
     Test.Cores.Ethernet.Mac.InterpacketGapInserter
