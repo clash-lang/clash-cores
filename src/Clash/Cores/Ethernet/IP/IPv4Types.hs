@@ -1,4 +1,5 @@
 {-# language RecordWildCards #-}
+{-# OPTIONS_HADDOCK hide #-}
 
 {-|
 Module      : Clash.Cores.Ethernet.IP.IPv4Types

@@ -1,4 +1,6 @@
 {-# language RecordWildCards #-}
+{-# OPTIONS_HADDOCK hide #-}
+
 module Clash.Cores.Ethernet.IP.EthernetStream
   (toEthernetStreamC) where
 
