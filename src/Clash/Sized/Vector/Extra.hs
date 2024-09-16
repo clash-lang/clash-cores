@@ -41,7 +41,7 @@ takeLe
   -> Vec n a
 takeLe SNat vs = leToPlus @n @m $ takeI vs
 
--- | Take the first 'valid' elements of 'xs', append 'ys', then pad with 0s
+-- | Take the first @valid@ elements of @xs@, append @ys@, then pad with zeroes.
 appendVec
   :: forall n m a
    . KnownNat n
@@ -61,7 +61,7 @@ appendVec valid xs ys = results !! valid
                   _ -> error "appendVec: Absurd"
     results = smap (\s _ -> go s) xs
 
--- | Fold a vector of 'n' elements into a single element using a binary function.
+-- | Fold a vector of @n@ elements into a single element using a binary function.
 -- | Between every "layer" of the fold, there is a register
 -- | This means there is a latency between input and output of 'PipelineDelay width' cycles.
 -- | This is equal to CLog2(width) + 1
