@@ -1,16 +1,19 @@
 {-# LANGUAGE ViewPatterns #-}
 
 {-|
-Module      : Clash.Cores.Ethernet.InternetChecksum
-Description : Functions for computing the RFC1071 internet checksum.
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Functions for computing the RFC1071 internet checksum.
 -}
-module Clash.Cores.Ethernet.InternetChecksum
-  ( internetChecksum
-  , reduceToInternetChecksum
-  , pipelinedInternetChecksum
-  , InternetChecksumLatency
-  , onesComplementAdd
-  ) where
+module Clash.Cores.Ethernet.InternetChecksum (
+  onesComplementAdd,
+  internetChecksum,
+  reduceToInternetChecksum,
+  pipelinedInternetChecksum,
+  InternetChecksumLatency,
+) where
 
 import Clash.Prelude
 import Clash.Signal.Extra ( registerN )
@@ -18,7 +21,22 @@ import Clash.Sized.Vector.Extra ( PipelineLatency, foldPipeline )
 
 import Data.Maybe
 
+{- |
+Computes the one's complement sum of two 16-bit numbers. An important property
+of this function is that it never produces @0x0000@ (positive zero) as a result.
 
+=== __doctests setup__
+>>> import Clash.Prelude
+
+=== Examples
+
+>>> onesComplementAdd 0x0001 0x0004 == 0x0005
+True
+>>> onesComplementAdd 0x1111 0xEEEE == 0xFFFF
+True
+>>> onesComplementAdd 0x1112 0xEEEE == 0x0001
+True
+-}
 onesComplementAdd :: BitVector 16 -> BitVector 16 -> BitVector 16
 onesComplementAdd a b = carry + truncated
   where
@@ -92,4 +110,4 @@ pipelinedInternetChecksum resetInp inputM = checkSum
     reset = registerN (SNat :: SNat (PipelineLatency width)) False resetInp
 
 -- | The latency of pipelinedInternetChecksum
-type InternetChecksumLatency (n :: Nat) = PipelineLatency n + 1
+type InternetChecksumLatency (n :: Nat) = CLog 2 n + 1

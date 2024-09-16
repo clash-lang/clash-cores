@@ -92,7 +92,7 @@ instead of having to compute it from scratch. For example, if the checksum of
 the input packet is @0xABCD@:
 
 >>> import Clash.Prelude
->>> import Clash.Cores.Ethernet.IP.InternetChecksum (onesComplementAdd)
+>>> import Clash.Cores.Ethernet.InternetChecksum (onesComplementAdd)
 
 We adjust the checksum as specified by
 [IETF RFC 1624](https://datatracker.ietf.org/doc/html/rfc1624):

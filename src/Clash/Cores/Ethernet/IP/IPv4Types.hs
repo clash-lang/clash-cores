@@ -81,12 +81,17 @@ data IPv4HeaderLite = IPv4HeaderLite
   , _ipv4lPayloadLength :: Unsigned 16
   } deriving (Show, ShowX, Eq, Generic, BitPack, NFDataX, NFData)
 
+{- |
+Convert 'IPv4Header' to 'IPv4HeaderLite'. The payload length is derived
+from the total length in the IPv4 header minus 20, because we only support
+@IHL = 5@.
+-}
 toLite :: IPv4Header -> IPv4HeaderLite
 toLite IPv4Header {..} = IPv4HeaderLite
   { _ipv4lSource = _ipv4Source
   , _ipv4lDestination = _ipv4Destination
   , _ipv4lProtocol = _ipv4Protocol
-  , _ipv4lPayloadLength = _ipv4Length - 20 -- We do not support IHLs other than 5
+  , _ipv4lPayloadLength = _ipv4Length - 20
   }
 
 -- | Shrinks IPv4 headers
@@ -95,6 +100,16 @@ toLiteC = Circuit (swap . unbundle . go . bundle)
   where
     go = fmap $ B.first $ fmap $ fmap toLite
 
+{- |
+Convert 'IPv4HeaderLite' to 'IPv4Header', in the following way:
+
+- TTL is set to @64@;
+- Checksum is initialized to @0x0000@;
+- Total length is derived from the payload length plus 20;
+- Version is set to @4@;
+- All fields related to fragmentation, DSCP and ECN are set to @0@.
+- All flags are set to @False@. 
+-}
 fromLite :: IPv4HeaderLite -> IPv4Header
 fromLite header = IPv4Header { _ipv4Version = 4
                              , _ipv4Ihl = ipv4Ihl

@@ -13,7 +13,7 @@ import Data.Maybe ( isJust )
 import Protocols
 import Protocols.PacketStream
 
--- | State of Ethernet stream transformer `toEthernetStream`
+-- | State of 'toEthernetStreamC'.
 data EthernetStreamState
   = Idle
   | DropPkt

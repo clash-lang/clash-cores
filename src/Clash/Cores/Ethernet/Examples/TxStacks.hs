@@ -48,7 +48,7 @@ to the packet. To be able to use this component, we need to use
 'Clash.Cores.Crc.deriveHardwareCrc' to derive a necessary instance.
 
 >>> :{
-\$(deriveHardwareCrc Crc32_ethernet d8 d1)
+$(deriveHardwareCrc Crc32_ethernet d8 d1)
 myTxStack ::
   (HiddenClockResetEnable dom) =>
   (KnownDomain domEthTx) =>
@@ -81,7 +81,7 @@ all the necessary components and connect them with the '|>' operator, creating
 one big 'Circuit'. For example:
 
 >>> :{
-\$(deriveHardwareCrc Crc32_ethernet d8 d8)
+$(deriveHardwareCrc Crc32_ethernet d8 d8)
 myCustomTxStack ::
   (HiddenClockResetEnable dom) =>
   (KnownDomain domEthTx) =>
