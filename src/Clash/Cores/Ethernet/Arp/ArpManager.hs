@@ -89,9 +89,9 @@ arpManagerT AwaitArpReply{..} (Just lookupIPv4, arpResponseIn, _, secondPassed) 
 arpManagerT st (Nothing, _,  _, _) = (st, (Nothing, (Nothing, Df.NoData)))
 
 -- | This component handles ARP lookup requests by client components. If a lookup IPv4 address is not found
---   in the ARP table, it will broadcast an ARP request to the local network and wait at most `maxWaitSeconds`
---   for a reply. If no reply was received within time, the lookup request is ignored. `maxWaitSeconds` is inaccurate
---   for up to one second less. For example, if `maxWaitSeconds` ~ 30, then the component will wait for 29-30 seconds.
+--   in the ARP table, it will broadcast an ARP request to the local network and wait at most @maxWaitSeconds@
+--   for a reply. If no reply was received within time, the lookup request is ignored. @maxWaitSeconds@ is inaccurate
+--   for up to one second less. For example, if @maxWaitSeconds ~ 30@, then the component will wait for 29-30 seconds.
 --   Does not support clock frequencies lower than 2 Hz.
 arpManagerC
   :: forall (dom :: Domain)
