@@ -21,7 +21,7 @@ import Protocols.PacketStream (PacketStreamM2S(_meta))
 import Protocols.PacketStream.Hedgehog
 
 import Test.Cores.Ethernet.Base (genIPv4HeaderLite)
-import Test.Cores.Ethernet.IP.InternetChecksum (calculateChecksum)
+import Test.Cores.Ethernet.InternetChecksum (calculateChecksum)
 
 import Test.Tasty
 import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit))

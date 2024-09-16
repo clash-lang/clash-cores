@@ -1,10 +1,10 @@
 {-# LANGUAGE ViewPatterns #-}
 
 {-|
-Module      : Clash.Cores.Ethernet.IP.InternetChecksum
+Module      : Clash.Cores.Ethernet.InternetChecksum
 Description : Functions for computing the RFC1071 internet checksum.
 -}
-module Clash.Cores.Ethernet.IP.InternetChecksum
+module Clash.Cores.Ethernet.InternetChecksum
   ( internetChecksum
   , reduceToInternetChecksum
   , pipelinedInternetChecksum

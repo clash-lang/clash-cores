@@ -20,7 +20,7 @@ import Protocols.PacketStream
 import Protocols.PacketStream.Hedgehog
 
 import Test.Cores.Ethernet.Base
-import Test.Cores.Ethernet.IP.InternetChecksum (pureInternetChecksum)
+import Test.Cores.Ethernet.InternetChecksum (pureInternetChecksum)
 
 import Test.Tasty
 import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit))

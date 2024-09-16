@@ -23,7 +23,7 @@ import Protocols (Circuit, (|>))
 import Protocols.PacketStream
 
 import Clash.Cores.Ethernet.IP.IPv4Types (IPv4Address (..), IPv4HeaderLite (..))
-import Clash.Cores.Ethernet.IP.InternetChecksum (onesComplementAdd)
+import Clash.Cores.Ethernet.InternetChecksum (onesComplementAdd)
 
 -- | Full ICMP header.
 data IcmpHeader = IcmpHeader
