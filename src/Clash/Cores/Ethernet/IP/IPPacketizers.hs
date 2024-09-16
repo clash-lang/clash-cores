@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# OPTIONS_HADDOCK hide #-}
 
 {-|
 Module      : Clash.Cores.Ethernet.IP.IPPacketizers
@@ -17,7 +18,7 @@ import Clash.Prelude
 import Protocols
 import Protocols.PacketStream
 
-import Clash.Cores.Ethernet.IP.InternetChecksum
+import Clash.Cores.Ethernet.InternetChecksum
 import Clash.Cores.Ethernet.IP.IPv4Types
 import Clash.Cores.Ethernet.Mac.EthernetTypes
 
