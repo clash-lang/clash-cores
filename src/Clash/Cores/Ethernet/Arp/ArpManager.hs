@@ -1,27 +1,30 @@
-{-# language FlexibleContexts #-}
 {-# language RecordWildCards #-}
 {-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
+{-# OPTIONS_HADDOCK hide #-}
 
 {-|
-Module      : Clash.Cores.Ethernet.Arp.ArpManager
-Description : Provides an ARP manager which handles ARP lookups from client circuits.
+Copyright   : (C) 2024, QBayLogic B.V.
+License     : BSD2 (see the file LICENSE)
+Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
+
+Provides individual components which handle the ARP protocol.
 -}
-module Clash.Cores.Ethernet.Arp.ArpManager
-  ( arpManagerC
-  , arpReceiverC
-  , arpTransmitterC
-  ) where
+module Clash.Cores.Ethernet.Arp.ArpManager (
+  arpManagerC,
+  arpReceiverC,
+  arpTransmitterC,
+) where
 
 import Clash.Prelude
-import Clash.Signal.Extra
-
-import Protocols
-import qualified Protocols.Df as Df
-import Protocols.PacketStream
+import Clash.Signal.Extra (secondTimer)
 
 import Clash.Cores.Ethernet.Arp.ArpTypes
 import Clash.Cores.Ethernet.IP.IPv4Types
 import Clash.Cores.Ethernet.Mac.EthernetTypes
+
+import Protocols
+import qualified Protocols.Df as Df
+import Protocols.PacketStream
 
 -- | State of the ARP manager.
 data ArpManagerState maxWaitSeconds
@@ -91,7 +94,7 @@ arpManagerT st (Nothing, _,  _, _) = (st, (Nothing, (Nothing, Df.NoData)))
 -- | This component handles ARP lookup requests by client components. If a lookup IPv4 address is not found
 --   in the ARP table, it will broadcast an ARP request to the local network and wait at most @maxWaitSeconds@
 --   for a reply. If no reply was received within time, the lookup request is ignored. @maxWaitSeconds@ is inaccurate
---   for up to one second less. For example, if @maxWaitSeconds ~ 30@, then the component will wait for 29-30 seconds.
+--   for up to one second less. For example, if @maxWaitSeconds@ ~ 30, then the component will wait for 29-30 seconds.
 --   Does not support clock frequencies lower than 2 Hz.
 arpManagerC
   :: forall (dom :: Domain)
@@ -112,49 +115,66 @@ arpManagerC SNat = fromSignals ckt
         (bwdOut, fwdOut) =
           mealyB arpManagerT (AwaitLookup @maxWaitSeconds False) (lookupIPv4S, arpResponseInS, ackInS, secondTimer)
 
--- | Transmits ARP packets upon request.
-arpTransmitterC
-  :: forall (dom :: Domain)
-            (dataWidth :: Nat)
-   . HiddenClockResetEnable dom
-  => 1 <= dataWidth
-  => KnownNat dataWidth
-  => Signal dom MacAddress
-  -- ^ Our MAC address
-  -> Signal dom IPv4Address
-  -- ^ Our IPv4 address
-  -> Circuit (Df dom ArpLite) (PacketStream dom dataWidth EthernetHeader)
-arpTransmitterC ourMacS ourIPv4S = fromSignals bundleWithSrc |> packetizeFromDfC toEthernetHdr constructArpPkt
-  where
-    bundleWithSrc (fwdIn, bwdIn) = (bwdIn, go <$> bundle (ourMacS, ourIPv4S, fwdIn))
-    go (ourMac, ourIPv4, maybeArpLite) = maybeArpLite >>= \arpLite -> Df.Data (ourMac, ourIPv4, arpLite)
+{- |
+Transmits ARP packets upon request by creating a full 'ArpPacket' from the
+input 'ArpLite' and packetizing that into a new packet stream. Uses
+'packetizeFromDfC' internally to achieve this, and therefore inherits all of
+its properties related to latency and throughput.
 
-    toEthernetHdr (ourMac, _, arpLite)
-      = EthernetHeader {
-        _macDst = _targetMac arpLite,
-        _macSrc = ourMac,
-        _etherType = arpEtherType
-      }
+Because ARP's EtherType and our MAC address are known globally, we do not add
+it to the metadata here, only the target MAC address. This makes this circuit
+more flexible, because then the top-level ARP circuit decides where to add this
+metadata to the stream, allowing for cheaper potential buffers between components.
+-}
+arpTransmitterC ::
+  forall (dataWidth :: Nat) (dom :: Domain).
+  (HiddenClockResetEnable dom) =>
+  (KnownNat dataWidth) =>
+  (1 <= dataWidth) =>
+  -- | Our MAC address
+  Signal dom MacAddress ->
+  -- | Our IPv4 address
+  Signal dom IPv4Address ->
+  Circuit (Df dom ArpLite) (PacketStream dom dataWidth MacAddress)
+arpTransmitterC ourMacS ourIPv4S =
+  fromSignals (\(fwdIn, bwdIn) -> (bwdIn, go <$> bundle (ourMacS, ourIPv4S, fwdIn)))
+    |> packetizeFromDfC toTargetMac constructArpPkt
+ where
+  go (ourMac, ourIPv4, maybeArpLite) =
+    maybeArpLite >>= \arpLite -> Df.Data (ourMac, ourIPv4, arpLite)
 
-    constructArpPkt (ourMac, ourIPv4, arpLite)
-      = newArpPacket ourMac ourIPv4 (_targetMac arpLite) (_targetIPv4 arpLite) (_isRequest arpLite)
+  toTargetMac (_, _, arpLite) = _targetMac arpLite
 
--- | arpReceiverC takes the incoming PacketStream
---   with an ethernet header in the meta data and
---   creates an ARP entry or an ARP response.
---   - It outputs ARP entries for ARP responses (OPER == 2)
---     and GARP messages in the form of an ARP request (OPER == 1) with
---     TPA == SPA.
---   - It outputs ARP lite responses for any other ARP request (OPER == 1 and
---     TPA /= SPA).
-arpReceiverC
-  :: forall (dom :: Domain) (dataWidth :: Nat)
-   . HiddenClockResetEnable dom
-  => KnownNat dataWidth
-  => 1 <= dataWidth
-  => Signal dom IPv4Address
-  -> Circuit (PacketStream dom dataWidth EthernetHeader) (Df dom ArpEntry, Df dom ArpLite)
-arpReceiverC myIP = circuit $ \ethStream -> do
+  constructArpPkt (ourMac, ourIPv4, ArpLite{..})
+    = newArpPacket ourMac ourIPv4 _targetMac _targetIPv4 _isRequest
+
+{-|
+Parses the incoming packet stream into an @ArpPacket@, validates whether this
+is a correct IPv4 to Ethernet ARP packet and then throws away all the redundant
+information to create either an ARP entry or an ARP (lite) response:
+
+- Outputs ARP entries for any gratuitous ARP packets (@TPA == SPA@) and
+  ARP replies (@OPER == 2@).
+- Outputs ARP (lite) responses for ARP requests (@OPER == 1@) where
+  @TPA@ is our IPv4 address.
+
+Uses 'depacketizeToDfC' internally to do the parsing, so all padding will be
+consumed and packets will be dropped if they were aborted.
+
+Assumes that the input stream is either a broadcast or directed towards us, and
+that it is routed by the ARP EtherType.
+-}
+arpReceiverC ::
+  forall (dataWidth :: Nat) (dom :: Domain).
+  (HiddenClockResetEnable dom) =>
+  (KnownNat dataWidth) =>
+  (1 <= dataWidth) =>
+  -- Our IPv4 address
+  Signal dom IPv4Address ->
+  Circuit
+    (PacketStream dom dataWidth ())
+    (Df dom ArpEntry, Df dom ArpLite)
+arpReceiverC myIP = circuit $ \stream -> do
   -- TODO:
   -- when backpressure is asserted on `arpTransmitter`,
   -- the entire arp stack will stall and this will lead
@@ -164,11 +184,18 @@ arpReceiverC myIP = circuit $ \ethStream -> do
   -- Solution: putting abortOnBackpressure (Packetbuffer) to
   -- before `depacketizetoDfC` should work, as depacketizeToDfC already
   -- implements dropping of
-  arpDf <- depacketizeToDfC const -< ethStream
-  arpDf' <- Df.filterS (isValidArp <$> myIP) -< arpDf
+  arpDf <- depacketizeToDfC const -< stream
+  arpDf' <- Df.filterS (validArp <$> myIP) -< arpDf
   (arpRequests, arpEntries) <- Df.partitionS (isRequest <$> myIP) -< arpDf'
   lites <- Df.map (\p -> ArpLite (_sha p) (_spa p) False) -< arpRequests
   entries <- Df.map (\p -> ArpEntry (_sha p) (_spa p)) -< arpEntries
   idC -< (entries, lites)
   where
+    validArp ip ArpPacket{..} =
+            _htype == 1
+          && _ptype == 0x0800
+          && _hlen  == 6
+          && _plen  == 4
+          &&(_oper == 1 && (_tpa == ip || _tpa == _spa) || _oper == 2)
+
     isRequest ip ArpPacket{..} = _oper == 1 && _tpa == ip

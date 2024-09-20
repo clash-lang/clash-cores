@@ -1,4 +1,5 @@
 {-# language FlexibleContexts #-}
+{-# OPTIONS_HADDOCK hide #-}
 
 {-|
 Module      : Clash.Cores.Ethernet.Arp.ArpTable

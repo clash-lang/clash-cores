@@ -24,7 +24,7 @@ import Protocols.Hedgehog
 import Protocols.PacketStream
 import Protocols.PacketStream.Hedgehog
 
-import Test.Cores.Ethernet.Base (genEthernetHeader, genIPv4Addr, genMacAddr)
+import Test.Cores.Ethernet.Base (genIPv4Addr, genMacAddr)
 
 import Test.Tasty
 import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit))
@@ -152,16 +152,11 @@ arpTransmitterPropertyGenerator SNat =
     (exposeClockResetEnable @System (arpTransmitterC (pure ourMac) (pure ourIPv4)))
     (===)
  where
-  model :: [ArpLite] -> [PacketStreamM2S dataWidth EthernetHeader]
-  model = packetizeFromDfModel (arpLiteToEthernetHeader ourMac) toArpPkt
+  model :: [ArpLite] -> [PacketStreamM2S dataWidth MacAddress]
+  model = packetizeFromDfModel _targetMac toArpPkt
 
-  toArpPkt arpLite =
-    newArpPacket
-      ourMac
-      ourIPv4
-      (_targetMac arpLite)
-      (_targetIPv4 arpLite)
-      (_isRequest arpLite)
+  toArpPkt ArpLite{..} =
+    newArpPacket ourMac ourIPv4 _targetMac _targetIPv4 _isRequest
 
 arpReceiverPropertyGenerator ::
   forall (dataWidth :: Nat).
@@ -188,18 +183,18 @@ arpReceiverPropertyGenerator SNat =
   genPkt am =
     Gen.choice
       [ -- Random packet
-        genValidPacket genEthernetHeader (Range.linear 0 20) am
+        genValidPacket (pure ()) (Range.linear 0 20) am
       , -- Valid ARP reply/request
         do
           arpPkt <- genArpPacket False
-          pure (packetizeFromDfModel arpToEthernetHeader id [arpPkt])
+          pure (packetizeFromDfModel (pure ()) id [arpPkt])
       , -- Valid gratuitous ARP reply/request
         do
           arpPkt <- genArpPacket True
-          pure (packetizeFromDfModel arpToEthernetHeader id [arpPkt])
+          pure (packetizeFromDfModel (pure ()) id [arpPkt])
       ]
 
-  model :: [PacketStreamM2S dataWidth EthernetHeader] -> ([ArpEntry], [ArpLite])
+  model :: [PacketStreamM2S dataWidth ()] -> ([ArpEntry], [ArpLite])
   model ethStr = (entries, lites)
    where
     arpDf = L.filter (isValidArp ourIPv4) (depacketizeToDfModel const ethStr)

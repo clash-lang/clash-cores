@@ -1,7 +1,7 @@
 {- |
-Copyright   :  (C) 2024, QBayLogic B.V.
-License     :  BSD2 (see the file LICENSE)
-Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+Copyright   : (C) 2024, QBayLogic B.V.
+License     : BSD2 (see the file LICENSE)
+Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
 
 Provides various components to handle the Ethernet protocol, both the physical-
 and link-layer.
