@@ -60,45 +60,53 @@ arpManagerT ::
 -- in the ARP table.
 arpManagerT AwaitLookup{..} (Just lookupIPv4, arpResponseIn, Ack readyIn, _) =
   (nextSt, (arpResponseOut, Just lookupIPv4, arpRequestOut))
-    where
-      (arpResponseOut, arpRequestOut, nextSt) = case arpResponseIn of
-        Nothing
-          -> ( Nothing
-             , if _awaitTransmission then Df.Data (ArpLite broadcastMac lookupIPv4 True) else Df.NoData
-             , if readyIn && _awaitTransmission then AwaitArpReply maxBound else AwaitLookup False
-             )
-        Just ArpEntryNotFound
-          -> ( Nothing
-             , Df.Data (ArpLite broadcastMac lookupIPv4 True)
-             , if readyIn then AwaitArpReply maxBound else AwaitLookup True
-             )
-        Just (ArpEntryFound _)
-          -> ( arpResponseIn
-             , Df.NoData
-             , AwaitLookup False
-             )
+ where
+  (arpResponseOut, arpRequestOut, nextSt) = case arpResponseIn of
+    Nothing ->
+      ( Nothing
+      , if _awaitTransmission
+          then Df.Data (ArpLite broadcastMac lookupIPv4 Request)
+          else Df.NoData
+      , if readyIn && _awaitTransmission
+          then AwaitArpReply maxBound
+          else AwaitLookup False
+      )
+    Just ArpEntryNotFound ->
+      ( Nothing
+      , Df.Data (ArpLite broadcastMac lookupIPv4 Request)
+      , if readyIn
+          then AwaitArpReply maxBound
+          else AwaitLookup True
+      )
+    Just (ArpEntryFound _) ->
+      ( arpResponseIn
+      , Df.NoData
+      , AwaitLookup False
+      )
 
 -- We don't care about incoming backpressure, because we do not send ARP requests in this state.
 -- We keep polling the ARP table until either a timeout occurs or the entry is found.
 -- This requires the ARP table to handle read and write requests in parallel.
 arpManagerT AwaitArpReply{..} (Just lookupIPv4, arpResponseIn, _, secondPassed) =
   (nextSt, (arpResponseOut, Just lookupIPv4, Df.NoData))
-    where
-      newTimer = if secondPassed then satPred SatBound _secondsLeft else _secondsLeft
+ where
+  newTimer =
+    if secondPassed
+      then satPred SatBound _secondsLeft
+      else _secondsLeft
 
-      (arpResponseOut, nextSt) =
-        case (arpResponseIn, _secondsLeft == 0) of
-          (Just (ArpEntryFound _), _)
-            -> (arpResponseIn, AwaitLookup False)
-          (Just ArpEntryNotFound, True)
-            -> (arpResponseIn, AwaitLookup False)
-          -- Note that we keep driving the same lookup request when the ARP table has not acknowledged
-          -- our request yet, even if the time is up. If we don't, we violate protocol invariants.
-          -- Therefore timer can be slightly inaccurate, depending on the latency of the ARP table.
-          (_, _)
-            -> (Nothing, AwaitArpReply newTimer)
-
-arpManagerT st (Nothing, _,  _, _) = (st, (Nothing, Nothing, Df.NoData))
+  (arpResponseOut, nextSt) =
+    case (arpResponseIn, _secondsLeft == 0) of
+      (Just (ArpEntryFound _), _) ->
+        (arpResponseIn, AwaitLookup False)
+      (Just ArpEntryNotFound, True) ->
+        (arpResponseIn, AwaitLookup False)
+      -- Note that we keep driving the same lookup request when the ARP table has not acknowledged
+      -- our request yet, even if the time is up. If we don't, we violate protocol invariants.
+      -- Therefore timer can be slightly inaccurate, depending on the latency of the ARP table.
+      (_, _) ->
+        (Nothing, AwaitArpReply newTimer)
+arpManagerT st (Nothing, _, _, _) = (st, (Nothing, Nothing, Df.NoData))
 
 {- |
 Handles ARP lookup requests by client components. If a lookup IPv4 address is
@@ -109,7 +117,7 @@ was received within time, we signal an 'ArpEntryNotFound' to the lookup channel.
 Client components should drop a packet upon receiving 'ArpEntryNotFound' in
 order to avoid stalling the network stack any further.
 
-__NB__: the timer does not support clock frequencies slower than 2 Hz.
+__NB__: the timer does not support clock frequencies slower than 2000 Hz.
 -}
 arpManagerC ::
   forall
@@ -159,10 +167,10 @@ arpTransmitterC ourMacS ourIPv4S =
   go (ourMac, ourIPv4, maybeArpLite) =
     maybeArpLite >>= \arpLite -> Df.Data (ourMac, ourIPv4, arpLite)
 
-  toTargetMac (_, _, arpLite) = _targetMac arpLite
+  toTargetMac (_, _, arpLite) = _liteTha arpLite
 
   constructArpPkt (ourMac, ourIPv4, ArpLite{..}) =
-    newArpPacket ourMac ourIPv4 _targetMac _targetIPv4 _isRequest
+    newArpPacket ourMac ourIPv4 _liteTha _liteTpa _liteOper
 
 {- |
 Parses the incoming packet stream into an @ArpPacket@, validates whether this
@@ -203,17 +211,8 @@ arpReceiverC myIP = circuit $ \stream -> do
   -- before `depacketizetoDfC` should work, as depacketizeToDfC already
   -- implements dropping of
   arpDf <- depacketizeToDfC const -< stream
-  arpDf' <- Df.filterS (validArp <$> myIP) -< arpDf
-  (arpRequests, arpEntries) <- Df.partitionS (isRequest <$> myIP) -< arpDf'
-  lites <- Df.map (\p -> ArpLite (_sha p) (_spa p) False) -< arpRequests
+  arpDf' <- Df.filterS (isValidArp <$> myIP) -< arpDf
+  (arpRequests, arpEntries) <- Df.partitionS (expectsReply <$> myIP) -< arpDf'
+  lites <- Df.map (\p -> ArpLite (_sha p) (_spa p) Reply) -< arpRequests
   entries <- Df.map (\p -> ArpEntry (_sha p) (_spa p)) -< arpEntries
   idC -< (entries, lites)
-  where
-    validArp ip ArpPacket{..} =
-            _htype == 1
-          && _ptype == 0x0800
-          && _hlen  == 6
-          && _plen  == 4
-          &&(_oper == 1 && (_tpa == ip || _tpa == _spa) || _oper == 2)
-
-    isRequest ip ArpPacket{..} = _oper == 1 && _tpa == ip
