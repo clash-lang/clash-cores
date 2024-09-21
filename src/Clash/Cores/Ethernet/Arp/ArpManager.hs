@@ -1,8 +1,8 @@
-{-# language RecordWildCards #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
 {-# OPTIONS_HADDOCK hide #-}
 
-{-|
+{- |
 Copyright   : (C) 2024, QBayLogic B.V.
 License     : BSD2 (see the file LICENSE)
 Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
@@ -16,7 +16,7 @@ module Clash.Cores.Ethernet.Arp.ArpManager (
 ) where
 
 import Clash.Prelude
-import Clash.Signal.Extra (secondTimer)
+import Clash.Signal.Extra (timer)
 
 import Clash.Cores.Ethernet.Arp.ArpTypes
 import Clash.Cores.Ethernet.IP.IPv4Types
@@ -27,30 +27,39 @@ import qualified Protocols.Df as Df
 import Protocols.PacketStream
 
 -- | State of the ARP manager.
-data ArpManagerState maxWaitSeconds
-  = AwaitLookup {
-    -- | Whether we need to keep driving the same ARP request to the transmitter,
-    --   because it asserted backpressure.
-    _awaitTransmission :: Bool
-  }
-  | AwaitArpReply {
-    -- | The maximum number of seconds to keep waiting for an ARP reply.
-    _secondsLeft :: Index (maxWaitSeconds + 1)
-  } deriving (Generic, NFDataX, Show, ShowX)
+data ArpManagerState maxWaitMs
+  = AwaitLookup
+      { _awaitTransmission :: Bool
+      -- ^ Whether we need to keep driving the same ARP request to the
+      --   transmitter, because it asserted backpressure.
+      }
+  | AwaitArpReply
+      { _secondsLeft :: Index (maxWaitMs + 1)
+      -- ^ The maximum number of seconds to keep waiting for an ARP reply.
+      }
+  deriving (Generic, NFDataX, Show, ShowX)
 
 -- | ARP manager transition function.
-arpManagerT
-  :: forall (maxWaitSeconds :: Nat)
-   . 1 <= maxWaitSeconds
-  => KnownNat maxWaitSeconds
-  => ArpManagerState maxWaitSeconds
-  -> (Maybe IPv4Address, Maybe ArpResponse, Ack, Bool)
-  -> (ArpManagerState maxWaitSeconds
-     , (Maybe ArpResponse, (Maybe IPv4Address, Df.Data ArpLite)))
--- User issues a lookup request. We don't have a timeout, because the ARP table should
--- always respond within a reasonable time frame. If not, there is a bug in the ARP table.
+arpManagerT ::
+  forall maxWaitMs.
+  (KnownNat maxWaitMs) =>
+  ArpManagerState maxWaitMs ->
+  ( Maybe IPv4Address
+  , Maybe ArpResponse
+  , Ack
+  , Bool
+  ) ->
+  ( ArpManagerState maxWaitMs
+  , ( Maybe ArpResponse
+    , Maybe IPv4Address
+    , Df.Data ArpLite
+    )
+  )
+-- User issues a lookup request. We don't have a timeout, because the ARP table
+-- should always respond within a reasonable time frame. If not, there is a bug
+-- in the ARP table.
 arpManagerT AwaitLookup{..} (Just lookupIPv4, arpResponseIn, Ack readyIn, _) =
-  (nextSt, (arpResponseOut, (Just lookupIPv4, arpRequestOut)))
+  (nextSt, (arpResponseOut, Just lookupIPv4, arpRequestOut))
     where
       (arpResponseOut, arpRequestOut, nextSt) = case arpResponseIn of
         Nothing
@@ -73,7 +82,7 @@ arpManagerT AwaitLookup{..} (Just lookupIPv4, arpResponseIn, Ack readyIn, _) =
 -- We keep polling the ARP table until either a timeout occurs or the entry is found.
 -- This requires the ARP table to handle read and write requests in parallel.
 arpManagerT AwaitArpReply{..} (Just lookupIPv4, arpResponseIn, _, secondPassed) =
-  (nextSt, (arpResponseOut, (Just lookupIPv4, Df.NoData)))
+  (nextSt, (arpResponseOut, Just lookupIPv4, Df.NoData))
     where
       newTimer = if secondPassed then satPred SatBound _secondsLeft else _secondsLeft
 
@@ -89,31 +98,36 @@ arpManagerT AwaitArpReply{..} (Just lookupIPv4, arpResponseIn, _, secondPassed) 
           (_, _)
             -> (Nothing, AwaitArpReply newTimer)
 
-arpManagerT st (Nothing, _,  _, _) = (st, (Nothing, (Nothing, Df.NoData)))
+arpManagerT st (Nothing, _,  _, _) = (st, (Nothing, Nothing, Df.NoData))
 
--- | This component handles ARP lookup requests by client components. If a lookup IPv4 address is not found
---   in the ARP table, it will broadcast an ARP request to the local network and wait at most @maxWaitSeconds@
---   for a reply. If no reply was received within time, the lookup request is ignored. @maxWaitSeconds@ is inaccurate
---   for up to one second less. For example, if @maxWaitSeconds@ ~ 30, then the component will wait for 29-30 seconds.
---   Does not support clock frequencies lower than 2 Hz.
-arpManagerC
-  :: forall (dom :: Domain)
-            (maxWaitSeconds :: Nat)
-   . HiddenClockResetEnable dom
-  => KnownDomain dom
-  => KnownNat (DomainPeriod dom)
-  => 1 <= DomainPeriod dom
-  => DomainPeriod dom <= 5 * 10^11
-  => 1 <= maxWaitSeconds
-  => SNat maxWaitSeconds
-  -- ^ The amount of seconds we wait for an incoming ARP reply
-  -> Circuit (ArpLookup dom) (ArpLookup dom, Df dom ArpLite)
+{- |
+Handles ARP lookup requests by client components. If a lookup IPv4 address is
+not found in the ARP table, it will broadcast an ARP request to the local
+network and wait at most @maxWaitMs@ milliseconds for a reply. If no reply
+was received within time, we signal an 'ArpEntryNotFound' to the lookup channel.
+
+Client components should drop a packet upon receiving 'ArpEntryNotFound' in
+order to avoid stalling the network stack any further.
+
+__NB__: the timer does not support clock frequencies slower than 2 Hz.
+-}
+arpManagerC ::
+  forall
+    (dom :: Domain)
+    (maxWaitMs :: Nat).
+  (HiddenClockResetEnable dom) =>
+  -- | The maximum amount of milliseconds to wait for an incoming ARP reply
+  SNat maxWaitMs ->
+  Circuit (ArpLookup dom) (ArpLookup dom, Df dom ArpLite)
 arpManagerC SNat = fromSignals ckt
-  where
-    ckt (lookupIPv4S, (arpResponseInS, ackInS)) = (bwdOut, unbundle fwdOut)
-      where
-        (bwdOut, fwdOut) =
-          mealyB arpManagerT (AwaitLookup @maxWaitSeconds False) (lookupIPv4S, arpResponseInS, ackInS, secondTimer)
+ where
+  ckt (lookupIn, (arpRespIn, ackIn)) = (arpRespOut, (lookupOut, arpReqOut))
+   where
+    (arpRespOut, lookupOut, arpReqOut) =
+      mealyB
+        arpManagerT
+        (AwaitLookup @maxWaitMs False)
+        (lookupIn, arpRespIn, ackIn, timer (SNat @(10 ^ 9)))
 
 {- |
 Transmits ARP packets upon request by creating a full 'ArpPacket' from the
@@ -127,7 +141,9 @@ more flexible, because then the top-level ARP circuit decides where to add this
 metadata to the stream, allowing for cheaper potential buffers between components.
 -}
 arpTransmitterC ::
-  forall (dataWidth :: Nat) (dom :: Domain).
+  forall
+    (dataWidth :: Nat)
+    (dom :: Domain).
   (HiddenClockResetEnable dom) =>
   (KnownNat dataWidth) =>
   (1 <= dataWidth) =>
@@ -145,10 +161,10 @@ arpTransmitterC ourMacS ourIPv4S =
 
   toTargetMac (_, _, arpLite) = _targetMac arpLite
 
-  constructArpPkt (ourMac, ourIPv4, ArpLite{..})
-    = newArpPacket ourMac ourIPv4 _targetMac _targetIPv4 _isRequest
+  constructArpPkt (ourMac, ourIPv4, ArpLite{..}) =
+    newArpPacket ourMac ourIPv4 _targetMac _targetIPv4 _isRequest
 
-{-|
+{- |
 Parses the incoming packet stream into an @ArpPacket@, validates whether this
 is a correct IPv4 to Ethernet ARP packet and then throws away all the redundant
 information to create either an ARP entry or an ARP (lite) response:
@@ -165,11 +181,13 @@ Assumes that the input stream is either a broadcast or directed towards us, and
 that it is routed by the ARP EtherType.
 -}
 arpReceiverC ::
-  forall (dataWidth :: Nat) (dom :: Domain).
+  forall
+    (dataWidth :: Nat)
+    (dom :: Domain).
   (HiddenClockResetEnable dom) =>
   (KnownNat dataWidth) =>
   (1 <= dataWidth) =>
-  -- Our IPv4 address
+  -- | Our IPv4 address
   Signal dom IPv4Address ->
   Circuit
     (PacketStream dom dataWidth ())
