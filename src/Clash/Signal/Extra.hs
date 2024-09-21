@@ -6,7 +6,7 @@ Description : Extra utility functions for working with signals.
 -}
 module Clash.Signal.Extra
   ( registerN
-  , secondTimer
+  , timer
   ) where
 
 import Clash.Prelude
@@ -27,21 +27,23 @@ registerN n@SNat initial inp = case compareSNat d1 n of
   SNatLE -> register initial $ registerN (SNat @(n - 1)) initial inp
   SNatGT -> inp
 
+{- |
+This register is @True@ exactly every @ps@ picoseconds. If @DomainPeriod dom@
+does not divide @ps@, there will be a rounding error. We round the result down,
+so the clock will tick slightly faster than intended. In this case, a faster
+clock will be more accurate than a slower clock.
 
--- | This register is @True@ exactly every second if @DomainPeriod dom@ divides @10^12@.
---   If not, the accuracy depends on the clock frequency, because we round this division
---   down. In that case, the higher the clock frequency, the more accurate it is.
---   Does not support clock frequencies lower than 2 Hz.
-secondTimer
-  :: forall (dom :: Domain)
-   . HiddenClockResetEnable dom
-  => KnownNat (DomainPeriod dom)
-  => 1 <= DomainPeriod dom
-  => DomainPeriod dom <= 5 * 10^11
-  => Signal dom Bool
-secondTimer = case compareSNat d1 (SNat @(10^12 `Div` DomainPeriod dom)) of
-  SNatLE -> isRising 0 $ msb <$> counter
-    where
-      counter :: Signal dom (Index (10^12 `Div` DomainPeriod dom))
+NB: @ps / DomainPeriod dom@ must be at least 2.
+-}
+timer :: forall dom ps.
+  (HiddenClockResetEnable dom) =>
+  SNat ps ->
+  Signal dom Bool
+timer SNat = case knownDomain @dom of
+  SDomainConfiguration{} -> case compareSNat d2 (SNat @(ps `Div` DomainPeriod dom)) of
+    SNatGT -> clashCompileError
+      "timer: clock frequencies of <2 Hz are not supported."
+    SNatLE -> isRising 0 $ msb <$> counter
+     where
+      counter :: Signal dom (Index (ps `Div` DomainPeriod dom))
       counter = register maxBound (satPred SatWrap <$> counter)
-  SNatGT -> errorX "secondTimer: Absurd, Report this to the Clash compiler team: https://github.com/clash-lang/clash-compiler/issues"

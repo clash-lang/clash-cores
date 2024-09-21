@@ -302,7 +302,7 @@ arpIcmpUdpStackC macAddressS ipS udpCkt = circuit $ \ethIn -> do
   [arpEthIn, ipEthIn] <- packetDispatcherC (routeBy _etherType $ 0x0806 :> 0x0800 :> Nil) -< ethIn
   ipTx <- ipLitePacketizerC <| packetFifoC d10 d4 Backpressure <| icmpUdpStack <| packetFifoC d10 d4 Backpressure <| filterMetaS (isForMyIp <$> ipS) <| ipDepacketizerLiteC -< ipEthIn
   (ipEthOut, arpLookup) <- toEthernetStreamC macAddressS -< ipTx
-  arpEthOut <- arpC d300 d2 macAddressS (fst <$> ipS) -< (arpEthIn, arpLookup)
+  arpEthOut <- arpC d300 d500 d6 macAddressS (fst <$> ipS) -< (arpEthIn, arpLookup)
   packetArbiterC RoundRobin -< [arpEthOut, ipEthOut]
 
   where

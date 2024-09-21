@@ -1,4 +1,7 @@
-{-|
+{-# LANGUAGE FlexibleContexts #-}
+{-# OPTIONS_GHC -fplugin=Protocols.Plugin #-}
+
+{- |
 Copyright   : (C) 2024, QBayLogic B.V.
 License     : BSD2 (see the file LICENSE)
 Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
@@ -6,10 +9,6 @@ Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
 Provides a top-level ARP circuit sufficient for most use cases, along with
 the individual components it is composed of.
 -}
-
-{-# language FlexibleContexts #-}
-{-# OPTIONS_GHC -fplugin=Protocols.Plugin #-}
-
 module Clash.Cores.Ethernet.Arp (
   -- * Types, constants and simple operations
   module Clash.Cores.Ethernet.Arp.ArpTypes,
@@ -54,39 +53,36 @@ __NB__: does not support Proxy ARP.
 -}
 arpC ::
   forall
+    (dataWidth :: Nat)
     (dom :: Domain)
     (maxAgeSeconds :: Nat)
-    (maxWaitSeconds :: Nat)
-    (dataWidth :: Nat).
-  HiddenClockResetEnable dom
-  => KnownNat dataWidth
-  => KnownNat (DomainPeriod dom)
-  => DomainPeriod dom <= 5 * 10^11
-  => 1 <= DomainPeriod dom
-  => 1 <= maxAgeSeconds
-  => 1 <= maxWaitSeconds
-  => 1 <= dataWidth
-  => SNat maxAgeSeconds
-  -- ^ ARP entries will expire after this many seconds
-  -> SNat maxWaitSeconds
-  -- ^ The maximum amount of seconds we wait for an incoming ARP reply
-  --   if the lookup IPv4 address was not found in our ARP table
-  -> Signal dom MacAddress
-  -- ^ Our MAC address
-  -> Signal dom IPv4Address
-  -- ^ Our IPv4 address
-  -> Circuit (PacketStream dom dataWidth EthernetHeader, ArpLookup dom)
-             (PacketStream dom dataWidth EthernetHeader)
-arpC maxAge maxWait ourMacS ourIPv4S =
-  -- TODO waiting for an ARP reply in seconds is too coarse.
-  -- Make this timer less coarse, e.g. milliseconds
+    (maxWaitMs :: Nat)
+    (tableDepth :: Nat).
+  (HiddenClockResetEnable dom) =>
+  (KnownNat dataWidth) =>
+  (1 <= dataWidth) =>
+  (1 <= tableDepth) =>
+  -- | Entries are evicted from the ARP table this many seconds after being inserted
+  SNat maxAgeSeconds ->
+  -- | The maximum amount of milliseconds to wait for an incoming ARP reply
+  SNat maxWaitMs ->
+  -- | The ARP table will contain @2^depth@ entries
+  SNat tableDepth ->
+  -- | Our MAC address
+  Signal dom MacAddress ->
+  -- | Our IPv4 address
+  Signal dom IPv4Address ->
+  Circuit
+    (PacketStream dom dataWidth EthernetHeader, ArpLookup dom)
+    (PacketStream dom dataWidth EthernetHeader)
+arpC maxAge maxWaitMs tableDepth ourMacS ourIPv4S =
   circuit $ \(ethStream, lookupIn) -> do
     -- Add a skid buffer to improve timing. We don't need the metadata, so we
     -- can throw it away.
     bufferedStream <- mapMeta (const ()) |> registerBoth -< ethStream
     (entry, replyOut) <- arpReceiverC ourIPv4S -< bufferedStream
-    (lookupOut, requestOut) <- arpManagerC maxWait -< lookupIn
-    () <- arpTable maxAge -< (lookupOut, entry)
+    (lookupOut, requestOut) <- arpManagerC maxWaitMs -< lookupIn
+    () <- arpTableC tableDepth maxAge -< (lookupOut, entry)
     -- Being biased towards outbound requests is favourable, as it
     -- lessens the impact of ARP request DoS attacks. Moreover,
     -- @CollectMode@ @Df.Parallel@ is not always more expensive
@@ -94,9 +90,5 @@ arpC maxAge maxWait ourMacS ourIPv4S =
     -- it may be cheaper.
     arpPktOut <- Df.roundrobinCollect Df.Parallel -< [replyOut, requestOut]
     arpStreamOut <- arpTransmitterC ourMacS ourIPv4S |> registerBoth -< arpPktOut
-    mapMetaS
-      (
-        (\ourMac targetMac ->
-          EthernetHeader targetMac ourMac arpEtherType
-        ) <$> ourMacS
-      ) -< arpStreamOut
+    mapMetaS ((\src dst -> EthernetHeader dst src arpEtherType) <$> ourMacS)
+      -< arpStreamOut

@@ -108,7 +108,7 @@ Convert 'IPv4HeaderLite' to 'IPv4Header', in the following way:
 - Total length is derived from the payload length plus 20;
 - Version is set to @4@;
 - All fields related to fragmentation, DSCP and ECN are set to @0@.
-- All flags are set to @False@. 
+- All flags are set to @False@.
 -}
 fromLite :: IPv4HeaderLite -> IPv4Header
 fromLite header = IPv4Header { _ipv4Version = 4
