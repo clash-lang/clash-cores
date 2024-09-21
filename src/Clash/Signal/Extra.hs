@@ -42,7 +42,7 @@ timer :: forall dom ps.
 timer SNat = case knownDomain @dom of
   SDomainConfiguration{} -> case compareSNat d2 (SNat @(ps `Div` DomainPeriod dom)) of
     SNatGT -> clashCompileError
-      "timer: clock frequencies of <2 Hz are not supported."
+      "timer: (ps / DomainPeriod dom) must be at least 2."
     SNatLE -> isRising 0 $ msb <$> counter
      where
       counter :: Signal dom (Index (ps `Div` DomainPeriod dom))

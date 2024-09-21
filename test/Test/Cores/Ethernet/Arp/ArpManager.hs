@@ -40,7 +40,12 @@ genArpLite =
   ArpLite
     <$> genMacAddr
     <*> genIPv4Addr
-    <*> Gen.enumBounded
+    <*> genArpOperation
+
+genArpOperation :: Gen ArpOperation
+genArpOperation = do
+  request <- Gen.bool
+  pure $ if request then Request else Reply
 
 arpTransmitterPropertyGenerator ::
   forall (dataWidth :: Nat).
@@ -57,10 +62,10 @@ arpTransmitterPropertyGenerator SNat =
     (===)
  where
   model :: [ArpLite] -> [PacketStreamM2S dataWidth MacAddress]
-  model = packetizeFromDfModel _targetMac toArpPkt
+  model = packetizeFromDfModel _liteTha toArpPkt
 
   toArpPkt ArpLite{..} =
-    newArpPacket ourMac ourIPv4 _targetMac _targetIPv4 _isRequest
+    newArpPacket ourMac ourIPv4 _liteTha _liteTpa _liteOper
 
 arpReceiverPropertyGenerator ::
   forall (dataWidth :: Nat).
@@ -82,7 +87,7 @@ arpReceiverPropertyGenerator SNat =
       <*> Gen.constant spa
       <*> Gen.constant ourMac
       <*> Gen.constant (if isGratuitous then spa else ourIPv4)
-      <*> Gen.bool
+      <*> genArpOperation
 
   genPkt am =
     Gen.choice
@@ -107,7 +112,7 @@ arpReceiverPropertyGenerator SNat =
     isRequest ip ArpPacket{..} = _oper == 1 && _tpa == ip
 
     entries = (\p -> ArpEntry (_sha p) (_spa p)) <$> arpEntries
-    lites = (\p -> ArpLite (_sha p) (_spa p) False) <$> arpRequests
+    lites = (\p -> ArpLite (_sha p) (_spa p) Reply) <$> arpRequests
 
 -- | headerBytes mod dataWidth ~ 0
 prop_arp_transmitter_d1 :: Property
