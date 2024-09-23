@@ -32,7 +32,6 @@ cabal.config
 *.bin
 *.log
 *.tar.gz
-stack.yaml.lock
 
 *~
 *.DS_Store
@@ -45,3 +44,11 @@ stack.yaml.lock
 /vhdl
 /verilog
 /systemverilog
+
+# direnv
+.envrc
+
+# Vivado tmp files
+vivado.jou
+vivado_*.backup.jou
+work-obj93.cf
