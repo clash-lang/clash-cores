@@ -61,16 +61,19 @@ stack-build:
     - export THREADS=$(./.ci/effective_cpus.sh)
     - tar -cf - /root/.stack | zstd -T$THREADS -3 > cache.tar.zst
 
-#nix-build:
-#  image: nixos/nix:2.10.1
-#  needs: []
-#  stage: test
-#  before_script:
-#   - nix-env -i gawk
-#  script:
-#    - nix-build -j$(./.ci/effective_cpus.sh) --log-format raw --max-silent-time 3600
-#  tags:
-#    - local
+nix-build:
+  image: nixos/nix:2.10.1
+  needs: []
+  stage: test
+  rules:
+    - if: $CLASH_BRANCH == "release"
+  before_script:
+    - nix-env -i gawk
+    - export
+  script:
+    - nix-build -j$(./.ci/effective_cpus.sh) --log-format raw --max-silent-time 3600
+  tags:
+    - local
 
 haddock:
   extends: .common-local

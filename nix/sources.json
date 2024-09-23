@@ -1,14 +1,14 @@
 {
     "clash-compiler": {
-        "branch": "master",
+        "branch": "1.8",
         "description": "Haskell to VHDL/Verilog/SystemVerilog compiler",
         "homepage": "https://clash-lang.org/",
         "owner": "clash-lang",
         "repo": "clash-compiler",
-        "rev": "b14ff0ef2ccfad8854210a9035e9db1e32b3be07",
-        "sha256": "00gq0v4fi2dy13xchllxxhhjfpvvj0ig8cgp5y65c7zb7qw5b30y",
+        "rev": "3f5dc67c0e526e43a4dd88eb3902e39ed512c166",
+        "sha256": "022rwif8xkaabw0j3arhyj0hswmh3vq2nx1bbz8rbkp05jm4psgg",
         "type": "tarball",
-        "url": "https://github.com/clash-lang/clash-compiler/archive/b14ff0ef2ccfad8854210a9035e9db1e32b3be07.tar.gz",
+        "url": "https://github.com/clash-lang/clash-compiler/archive/3f5dc67c0e526e43a4dd88eb3902e39ed512c166.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "1.8.1"
     },
