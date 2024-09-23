@@ -1,77 +1,87 @@
-{-# language RecordWildCards #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
 {-# OPTIONS_HADDOCK hide #-}
 
-module Clash.Cores.Ethernet.IP.EthernetStream
-  (toEthernetStreamC) where
+module Clash.Cores.Ethernet.IP.EthernetStream (
+  toEthernetStreamC,
+) where
 
 import Clash.Cores.Ethernet.Arp.ArpTypes
 import Clash.Cores.Ethernet.IP.IPv4Types
 import Clash.Cores.Ethernet.Mac.EthernetTypes
+
 import Clash.Prelude
-import qualified Data.Bifunctor as B
-import Data.Maybe ( isJust )
+
+import Data.Maybe (isJust)
+
 import Protocols
 import Protocols.PacketStream
 
--- | State of 'toEthernetStreamC'.
+-- | State of 'toEthernetStreamT'.
 data EthernetStreamState
   = Idle
-  | DropPkt
+  | DropPacket
   | Forward {_mac :: MacAddress}
   deriving (Generic, NFDataX, Show, ShowX)
 
--- | Takes our IPv4 address (as a signal), a packet stream with IPv4 addresses in the metadata,
--- performs an ARP lookup from a user-given ARP service, and
--- outputs the packet with a completed ethernet header containing
--- the IPv4 ether type, our IPv4 address and the looked up destination MAC.
--- If the ARP service gave an ArpEntryNotFound, then this circuit drops the
--- entire packet. It does not time out, instead expects the ARP service to send
--- an ArpEntryNotFound after an appropriate timeout.
-toEthernetStreamC
-  :: forall (dom :: Domain) (dataWidth :: Nat)
-  .  HiddenClockResetEnable dom
-  => KnownNat dataWidth
-  => Signal dom MacAddress
-  -- ^ My Mac address
-  -> Circuit
-      (PacketStream dom dataWidth IPv4Address)
-      (PacketStream dom dataWidth EthernetHeader, ArpLookup dom)
-toEthernetStreamC myMac = fromSignals ckt
-  where
-    ckt
-      :: (Signal dom (Maybe (PacketStreamM2S dataWidth IPv4Address))
-         , (Signal dom PacketStreamS2M, Signal dom  (Maybe ArpResponse)))
-      -> (Signal dom PacketStreamS2M
-         , (Signal dom (Maybe (PacketStreamM2S dataWidth EthernetHeader)),Signal dom (Maybe IPv4Address)))
-    ckt (packetInS, (ackInS, arpInS)) = (B.second unbundle . mealyB go Idle . B.second bundle) (myMac, packetInS, (ackInS, arpInS))
-      where
-        go
-          :: EthernetStreamState
-          -> (MacAddress, Maybe (PacketStreamM2S dataWidth IPv4Address)
-             , (PacketStreamS2M, Maybe ArpResponse))
-          -> (EthernetStreamState, (PacketStreamS2M
-             , (Maybe (PacketStreamM2S dataWidth EthernetHeader), Maybe IPv4Address)))
-        go Idle (_, pktIn, (_, arpResponse)) = (newSt, (PacketStreamS2M False, (Nothing, fmap _meta pktIn)))
-          where
-            newSt = case arpResponse of
-              Nothing -> Idle
-              Just ArpEntryNotFound -> DropPkt
-              Just (ArpEntryFound ma) -> Forward{_mac = ma}
-        go DropPkt (_, pktIn, (_, _))
-          = (nextSt, (PacketStreamS2M True, (Nothing, Nothing)))
-          where
-            pktInX = fromJustX pktIn
-            nextSt =
-              if isJust pktIn && isJust (_last pktInX)
-              then Idle
-              else DropPkt
-        go st@Forward{..} (mac, pktIn, (PacketStreamS2M ack, _))
-          = (nextSt, (PacketStreamS2M ack, (pktOut, Nothing)))
-          where
-            pktInX = fromJustX pktIn
-            nextSt =
-              if isJust pktIn && isJust (_last pktInX) && ack
-              then Idle
-              else st
-            hdr = EthernetHeader _mac mac 0x0800
-            pktOut = fmap (hdr <$) pktIn
+-- | State transition function of 'toEthernetStreamC'.
+toEthernetStreamT ::
+  forall (dataWidth :: Nat).
+  (KnownNat dataWidth) =>
+  EthernetStreamState ->
+  ( Maybe (PacketStreamM2S dataWidth IPv4Address)
+  , PacketStreamS2M
+  , Maybe ArpResponse
+  ) ->
+  ( EthernetStreamState
+  , ( PacketStreamS2M
+    , Maybe (PacketStreamM2S dataWidth MacAddress)
+    , Maybe IPv4Address
+    )
+  )
+toEthernetStreamT Idle (transferInM, _, arpResp) =
+  (nextSt, (PacketStreamS2M False, Nothing, _meta <$> transferInM))
+ where
+  nextSt = case arpResp of
+    Nothing -> Idle
+    Just ArpEntryNotFound -> DropPacket
+    Just (ArpEntryFound mac) -> Forward{_mac = mac}
+toEthernetStreamT DropPacket (Just transferIn, _, _) =
+  (nextSt, (PacketStreamS2M True, Nothing, Nothing))
+ where
+  nextSt = if isJust (_last transferIn) then Idle else DropPacket
+toEthernetStreamT st@Forward{..} (Just transferIn, PacketStreamS2M readyIn, _) =
+  (nextSt, (PacketStreamS2M readyIn, Just (_mac <$ transferIn), Nothing))
+ where
+  nextSt = if isJust (_last transferIn) && readyIn then Idle else st
+toEthernetStreamT st (Nothing, _, _) = (st, (PacketStreamS2M True, Nothing, Nothing))
+
+{- |
+Bridges the gap between the IPv4 and MAC layer by transforming packets directed
+to an IPv4 address (in the metadata) to packets directed to a MAC address.
+It does so by sending the IPv4 address in the metadata to the ARP service,
+for each packet in the stream. If the ARP service responds with 'ArpEntryNotFound',
+the packet is dropped to avoid stalling the network stack.
+
+The maximum latency per packet depends on the configuration of the ARP service,
+there are no timers in this component.
+-}
+toEthernetStreamC ::
+  forall (dataWidth :: Nat) (dom :: Domain).
+  (HiddenClockResetEnable dom) =>
+  (KnownNat dataWidth) =>
+  -- | Our MAC address
+  Signal dom MacAddress ->
+  Circuit
+    (PacketStream dom dataWidth IPv4Address)
+    (PacketStream dom dataWidth EthernetHeader, ArpLookup dom)
+toEthernetStreamC ourMacS = circuit $ \transferIn -> do
+  (withDstMac, req) <- fromSignals resolver -< transferIn
+  withEthernetHeader <-
+    mapMetaS ((\src dst -> EthernetHeader dst src 0x0800) <$> ourMacS) -< withDstMac
+  idC -< (withEthernetHeader, req)
+ where
+  resolver (transferIn, (readyIn, respIn)) = (readyOut, (transferOut, reqOut))
+   where
+    (readyOut, transferOut, reqOut) =
+      mealyB toEthernetStreamT Idle (transferIn, readyIn, respIn)
