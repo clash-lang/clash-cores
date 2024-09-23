@@ -1,5 +1,6 @@
 dist/
 build/
+result/
 dist-newstyle/
 .stack-work/
 stack.yaml.lock
