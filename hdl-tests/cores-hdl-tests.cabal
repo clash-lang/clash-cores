@@ -1,0 +1,72 @@
+cabal-version:       2.4
+
+name:                cores-hdl-tests
+version:             0.0.0
+synopsis:            Clash cores HDL tests
+-- description:
+homepage:            https://clash-lang.org/
+license:             BSD-2-Clause
+license-file:        LICENSE
+author:              The Clash Authors
+Maintainer:          QBayLogic B.V. <devops@qbaylogic.com>
+copyright:           Copyright © 2022-2024 QBayLogic B.V.
+category:            Testing
+build-type:          Simple
+
+executable cores-hdl-tests
+  main-is: Main.hs
+  default-language: Haskell2010
+  ghc-options:
+    -Wall -Wcompat
+    -fexpose-all-unfoldings
+    -fno-worker-wrapper
+
+  default-extensions:
+    DeriveDataTypeable
+    OverloadedStrings
+    ViewPatterns
+
+  ghc-options:
+
+
+  build-tool-depends:
+    clash-ghc:clash
+
+  build-depends:
+    aeson,
+    base,
+    data-default,
+    directory,
+    extra,
+    filepath,
+    ghc,
+    Glob,
+    ieee754,
+    optparse-applicative,
+    process,
+    string-interpolate,
+    tagged,
+    tasty >= 1.5,
+    tasty-hunit,
+    temporary,
+    text,
+    clash-cores,
+    clash-ghc,
+    clash-lib,
+    clash-prelude,
+    clash-testsuite
+
+  if impl(ghc >= 9.0.0)
+    build-depends:
+      singletons,
+      singletons-base,
+      singletons-th
+  else
+    build-depends:
+      singletons < 3.0
+
+  -- See https://github.com/clash-lang/clash-compiler/pull/2511
+  if impl(ghc >= 9.4)
+    CPP-Options: -DCLASH_OPAQUE=OPAQUE
+  else
+    CPP-Options: -DCLASH_OPAQUE=NOINLINE

@@ -1,0 +1,117 @@
+include:
+  - '/.ci/gitlab/common.yaml'
+
+stages:
+  - pre
+  - test
+  - post
+
+tests-always:
+  stage: test
+  needs: []
+  trigger:
+    include: .ci/gitlab/test.yaml
+    strategy: depend
+  variables:
+    CLASH_BRANCH: "$CLASH_BRANCH"
+  parallel:
+    matrix:
+      - GHC_VERSION: 9.8.2
+
+      - GHC_VERSION: 9.0.2
+        WORKAROUND_GHC_MMAP_CRASH: "yes"
+
+      - GHC_VERSION: 8.10.7
+        WORKAROUND_GHC_MMAP_CRASH: "yes"
+
+tests-release:
+  stage: test
+  rules:
+    - if: $CLASH_BRANCH == "release"
+  needs: []
+  trigger:
+    include: .ci/gitlab/test.yaml
+    strategy: depend
+  variables:
+    CLASH_BRANCH: "$CLASH_BRANCH"
+  parallel:
+    matrix:
+      - GHC_VERSION: [9.6.6, 9.4.8, 9.2.8]
+
+stack-build:
+  extends: .common-local
+  image: fpco/stack-build:lts-22.33
+  needs: []
+  stage: test
+  rules:
+    - if: $CLASH_BRANCH == "release"
+  variables:
+    CACHE_FALLBACK_KEY: $CI_JOB_NAME-master-$CI_JOB_IMAGE-1-3-non_protected
+  before_script:
+    - apt-get update
+    - apt-get install -y zstd
+    - export THREADS=$(./.ci/effective_cpus.sh)
+    - export
+    - tar -xf cache.tar.zst -C / || true
+    # Print stack.yaml for debugging
+    - cat stack.yaml
+  script:
+    - stack build -j$THREADS --pedantic
+  after_script:
+    - export THREADS=$(./.ci/effective_cpus.sh)
+    - tar -cf - /root/.stack | zstd -T$THREADS -3 > cache.tar.zst
+
+nix-build:
+  image: nixos/nix:2.10.1
+  needs: []
+  stage: test
+  rules:
+    - if: $CLASH_BRANCH == "release"
+  before_script:
+    - nix-env -i gawk
+    - export
+  script:
+    - nix-build -j$(./.ci/effective_cpus.sh) --log-format raw --max-silent-time 3600
+  tags:
+    - local
+
+haddock:
+  extends: .common-local
+  needs: []
+  stage: test
+  artifacts:
+    paths:
+      - hadocs/*/*
+    expire_in: 1 month
+  script:
+    - .ci/build_docs.sh
+
+# We manually report status to GitHub to work around
+# <https://gitlab.com/gitlab-org/gitlab/-/issues/216629>.
+#
+# If we ever remove this manual GitHub reporting, we may have to rethink the
+# use of the interruptible flag: see <https://github.com/clash-lang/clash-compiler/pull/2616#discussion_r1409429185>
+.report_status:
+  # interruptible: false
+  image: curlimages/curl
+  dependencies: []
+
+set_pending:
+  extends: .report_status
+  stage: pre
+  script:
+    - .ci/report_status.sh $CLASH_BRANCH pending
+
+set_success:
+  extends: .report_status
+  stage: post
+  when: on_success
+  script:
+    - .ci/report_status.sh $CLASH_BRANCH success
+
+set_failure:
+  extends: .report_status
+  stage: post
+  when: on_failure
+  script:
+    - .ci/report_status.sh $CLASH_BRANCH failure

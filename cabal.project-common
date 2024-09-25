@@ -1,0 +1,34 @@
+index-state: 2024-08-30T20:09:00Z
+
+packages:
+  clash-cores.cabal
+  hdl-tests
+
+package clash-cores
+  ghc-options: +RTS -qn4 -A128M -RTS -j4
+
+write-ghc-environment-files: always
+
+-- Eliminates the need for `--enable-tests`, which is needed for HLS.
+tests: true
+
+package clash-ghc
+  ghc-options: +RTS -qn4 -A128M -RTS -j4
+  executable-dynamic: True
+
+package clash-prelude
+  ghc-options: +RTS -qn4 -A128M -RTS -j4
+
+package clash-lib
+  ghc-options: +RTS -qn4 -A128M -RTS -j4
+
+-- Works around: https://github.com/recursion-schemes/recursion-schemes/issues/128. This
+-- shouldn't harm (runtime) performance of Clash, as we only use recursion-schemes with
+-- TemplateHaskell.
+package recursion-schemes
+    optimization: 0
+
+-- <https://github.com/haskell-hvr/regex-tdfa/issues/7>: compiling regex-tdfa
+-- with -O2 provides gains around 5% to 10% in simple benchmarks
+package regex-tdfa
+    optimization: 2

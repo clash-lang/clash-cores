@@ -1,2 +1,2 @@
 import: cabal.project-common
-import: cabal.project-1.8
+import: cabal.project-master

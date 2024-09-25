@@ -17,6 +17,9 @@ eventually made public.
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+#if !MIN_VERSION_clash_prelude(1,9,0)
+{-# LANGUAGE RankNTypes #-}
+#endif
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -570,3 +573,11 @@ instBBTF doms config primArgs0 primResults0 bbCtx
 
 instBBTF _doms _config _primArgs _primRes ctx =
   error ("instBBTF, bad context:\n\n" <> ppShow ctx)
+
+#if !MIN_VERSION_clash_prelude(1,9,0)
+onSomeBackend :: (forall b. Backend b => b -> a) -> SomeBackend -> a
+onSomeBackend f (SomeBackend b) = f b
+
+fromSomeBackend :: (forall b. Backend b => b -> a) -> Lens.Getter SomeBackend a
+fromSomeBackend f = Lens.to (onSomeBackend f)
+#endif

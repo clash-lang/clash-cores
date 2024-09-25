@@ -7,10 +7,11 @@
   UART transmitter and receiver module
 -}
 
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Clash.Cores.UART
   ( BaudGenerator
@@ -27,12 +28,26 @@ module Clash.Cores.UART
   -- * Internal
   , UartBaudGenTick
   , UartBaudGenTick2
+#if !MIN_VERSION_clash_prelude(1,9,0)
+  , HzToPeriod
+  , PeriodToHz
+#endif
   , DivRound
   , BaudGenCounterWidth
   ) where
 
 import Clash.Prelude
 import Data.Maybe (isJust)
+
+#if !MIN_VERSION_clash_prelude(1,9,0)
+-- | Converts a frequency in hertz to a period in picoseconds. This might lead to rounding
+-- errors.
+type HzToPeriod (hz :: Nat) = 1_000_000_000_000 `Div` hz
+
+-- | Converts a period in picoseconds to a frequency in hertz. This might lead to rounding
+-- errors.
+type PeriodToHz (period :: Nat) = 1_000_000_000_000 `Div` period
+#endif
 
 -- | Division that rounds the result
 type DivRound (a :: Nat) (b :: Nat) = Div (a + (Div b 2)) b

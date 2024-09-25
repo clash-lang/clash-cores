@@ -11,14 +11,14 @@ import           Data.List                 (intercalate)
 import           Data.List.Extra           (trim)
 import           Data.Version              (versionBranch)
 import           System.Directory
-  (getCurrentDirectory, doesDirectoryExist, makeAbsolute, setCurrentDirectory)
+  (getCurrentDirectory, doesDirectoryExist, setCurrentDirectory)
 import           System.Environment
+import           System.FilePath           (takeDirectory)
 import           System.Info
 import           System.Process            (readProcess)
 import           GHC.Conc                  (numCapabilities)
 import           GHC.Stack
 import           GHC.IO.Unsafe             (unsafePerformIO)
-import           Text.Printf               (printf)
 
 import           Test.Tasty
 import           Test.Tasty.Clash
@@ -41,30 +41,17 @@ ghcVersion3 =
 
 -- Directory clash binary is expected to live in
 cabalClashBinDir :: IO String
-cabalClashBinDir = makeAbsolute rel_path
- where
-  rel_path = printf templ platform ghcVersion3 (VERSION_clash_ghc :: String)
-  platform :: String -- XXX: Hardcoded
-  platform = case os of
-     "mingw32" -> arch <> "-windows"
-     _ -> arch <> "-" <> os
-  templ = "dist-newstyle/build/%s/ghc-%s/clash-ghc-%s/x/clash/build/clash/" :: String
+cabalClashBinDir =
+  (takeDirectory . trim) <$>
+    readProcess "cabal" ["list-bin", ":package:clash-ghc:executable:clash"] ""
 
 -- | Set GHC_PACKAGE_PATH for local Cabal install. Currently hardcoded for Unix;
 -- override by setting @store_dir@ to point to local cabal installation.
 setCabalPackagePaths :: IO ()
 setCabalPackagePaths = do
-  ch <- lookupEnv "store_dir"
-  storeDir <- case ch of
-    Just dir -> pure dir
-    Nothing -> case os of
-      "mingw32" -> pure "C:/cabal/store" -- default ghcup location
-      _ ->  (<> "/.cabal/store") <$> getEnv "HOME"
   here <- getCurrentDirectory
   setEnv "GHC_PACKAGE_PATH" $
-       storeDir <> "/ghc-" <> ghcVersion3 <> "/package.db"
-    <> ":"
-    <> here <> "/dist-newstyle/packagedb/ghc-" <> ghcVersion3
+       here <> "/dist-newstyle/packagedb/ghc-" <> ghcVersion3
     <> ":"
 
 -- | See 'compiledWith'
@@ -127,7 +114,7 @@ clashTestGroup testName testTrees =
 
 runClashTest :: IO ()
 runClashTest = defaultMain $ clashTestRoot
-  [ clashTestGroup "test"
+  [ clashTestGroup "hdl-tests"
     [ clashTestGroup "shouldfail"
       [ clashTestGroup "Xilinx"
         [ clashTestGroup "VIO"
@@ -192,12 +179,18 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
+
+-- "Unmatchable constant as case subject"
+-- https://github.com/clash-lang/clash-compiler/issues/2806
+#if MIN_VERSION_clash_lib(1,9,0)
         , runTest "XpmCdcArraySingle" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
+#endif
+
         , runTest "XpmCdcGray" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
@@ -205,11 +198,25 @@ runClashTest = defaultMain $ clashTestRoot
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
         , runTest "XpmCdcHandshake" $ def
-            { hdlTargets=[VHDL, Verilog]
+            { hdlTargets=
+                [
+
+-- (Vivado) ERROR: [VRFC 10-2989] 'tuple3_0_sel0_std_logic_vector' is not declared [/tmp/clash-test_XpmCdcHandshake-71223bd02c6e132d/vivado-tb0/XpmCdcHandshake.tb0/top_4.vhdl:122]
+-- https://github.com/clash-lang/clash-compiler/issues/2807
+#if MIN_VERSION_clash_lib(1,9,0)
+                  VHDL,
+#endif
+
+                  Verilog
+                ]
             , hdlLoad=[Vivado]
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..6]]
             }
+
+-- "Unmatchable constant as case subject"
+-- https://github.com/clash-lang/clash-compiler/issues/2806
+#if MIN_VERSION_clash_lib(1,9,0)
         , runTest "XpmCdcPulse" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
@@ -228,6 +235,8 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
+#endif
+
         , runTest "DnaPortE2" def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]
@@ -293,6 +302,9 @@ runClashTest = defaultMain $ clashTestRoot
                                                 ]
                     }
           in runTest "Ila" _opts
+-- Pattern match failure in 'do' block at /home/peter/src/clash/clash-cores/test-suite/shouldwork/Xilinx/Ila.hs:103:3-8
+-- https://github.com/clash-lang/clash-cores/issues/9
+#if MIN_VERSION_clash_lib(1,9,0)
         , let _opts =
                 def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
                     , buildTargets=BuildSpecific [ "testWithDefaultsOne"
@@ -303,6 +315,7 @@ runClashTest = defaultMain $ clashTestRoot
                                                 ]
                     }
           in outputTest "Ila" _opts
+#endif
         , outputTest "VIO" def{
             hdlTargets=[VHDL]
           , buildTargets=BuildSpecific ["withSetName", "withSetNameNoResult"]
