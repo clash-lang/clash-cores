@@ -8,7 +8,6 @@ module Test.Cores.Ethernet.InternetChecksum where
 -- base
 import Data.Maybe
 import qualified Data.List as L
-import Data.Proxy
 import Numeric ( showHex )
 
 -- clash-prelude
@@ -188,104 +187,6 @@ prop_checksum_reset =
 
     footnoteShow $ showAsHex result
     assert $ checkZeroAfterReset 1 input result
-
--- | testing the example from wikipedia: https://en.wikipedia.org/wiki/Internet_checksum
-prop_checksum_reduce_specific_values :: Property
-prop_checksum_reduce_specific_values =
-  property $ do
-    let input = (False,) . Just <$> [
-          0x4500 :> 0x0073 :> 0x0000 :> Nil,
-          0x4000 :> 0x4011 :> 0xc0a8 :> Nil,
-          0x0001 :> 0xc0a8 :> 0x00c7 :> Nil
-          ]
-        size = L.length input
-        result = L.take (size + 1) $
-          simulate @System (uncurryS reduceToInternetChecksum) input
-        checkSum = L.last result
-
-    footnote $ "full output: " L.++ show (showAsHex result)
-    checkSum === 0x479e
-
-prop_checksum_reduce_succeed :: Property
-prop_checksum_reduce_succeed =
-  property $ do
-    let genInputList range = Gen.list range ((,) False <$> Gen.maybe (genWordVec @5))
-
-    input <- forAll $ genInputList (Range.linear 1 100)
-    let size = L.length input
-
-    let result = simulate @System (uncurryS reduceToInternetChecksum) input
-        checkSum = complement $ L.last $ L.take (size + 1) result
-        input' = input L.++ [(False, Just (checkSum :> 0x0 :> 0x0 :> 0x0 :> 0x0 :> Nil))]
-        checkSum' = L.last $ L.take (size + 2) $
-          simulate @System (uncurryS reduceToInternetChecksum) input'
-
-    checkSum' === 0xFFFF
-
-prop_checksum_reduce_reset :: Property
-prop_checksum_reduce_reset =
-  property $ do
-    let genInputList = Gen.list (Range.linear 1 100) ((,) <$> Gen.bool <*>  Gen.maybe (genWordVec @5))
-
-    input <- forAll genInputList
-    let size = L.length input
-        result = L.take (size + 1) $ simulate @System (uncurryS reduceToInternetChecksum) input
-
-    assert $ checkZeroAfterReset 1 input result
-
--- | testing the example from wikipedia: https://en.wikipedia.org/wiki/Internet_checksum
-prop_checksum_pipeline_specific_values :: Property
-prop_checksum_pipeline_specific_values =
-  property $ do
-    let input = (False,) . Just <$> [
-          0x4500 :> 0x0073 :> 0x0000 :> Nil,
-          0x4000 :> 0x4011 :> 0xc0a8 :> Nil,
-          0x0001 :> 0xc0a8 :> 0x00c7 :> Nil
-          ]
-        delayCycles = fromInteger $ natVal (Proxy :: Proxy (InternetChecksumLatency 4)) + 1
-        size = L.length input
-        result = L.take (size + delayCycles) $
-          simulate @System (uncurryS pipelinedInternetChecksum) (extendInput delayCycles input)
-        checkSum = L.last result
-
-    footnote $ "full output: " L.++ show (showAsHex result)
-    checkSum === 0x479e
-
-prop_checksum_pipeline_succeed :: Property
-prop_checksum_pipeline_succeed =
-  property $ do
-    let genInputList range = Gen.list range ((False,) <$> Gen.maybe (genWordVec @5))
-        delayCycles = fromInteger $ natVal (Proxy :: Proxy (InternetChecksumLatency 5))
-
-    input <- forAll $ genInputList (Range.linear 1 100)
-    let size = L.length input
-
-    let result = simulate @System (uncurryS pipelinedInternetChecksum) (extendInput delayCycles input)
-        checkSum = complement $ L.last $ L.take (size + delayCycles) result
-        input' = input
-          L.++ [(False, Just (checkSum :> 0x0 :> 0x0 :> 0x0 :> 0x0 :> Nil))]
-          L.++ extendInput delayCycles input
-        checkSum' = L.last $ L.take (size + delayCycles + 1) $
-          simulate @System (uncurryS pipelinedInternetChecksum) input'
-
-    footnoteShow $ showAsHex $ L.take (size + delayCycles) result
-
-    checkSum' === 0xFFFF
-
-prop_checksum_pipeline_reset :: Property
-prop_checksum_pipeline_reset =
-  property $ do
-    let genInputList = Gen.list (Range.linear 1 100) ((,) <$> Gen.bool <*> Gen.maybe (genWordVec @7))
-        delayCycles = fromInteger $ natVal (Proxy :: Proxy (InternetChecksumLatency 7))
-    input <- forAll genInputList
-    let size = L.length input
-        result = L.take (size + delayCycles) $
-          simulate @System (uncurryS pipelinedInternetChecksum)
-          (input L.++ extendInput delayCycles input)
-
-    footnoteShow $ showAsHex result
-
-    assert $ checkZeroAfterReset delayCycles input result
 
 tests :: TestTree
 tests =

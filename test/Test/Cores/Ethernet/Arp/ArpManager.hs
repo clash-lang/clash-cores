@@ -80,13 +80,13 @@ arpReceiverPropertyGenerator SNat =
     (exposeClockResetEnable model)
     (exposeClockResetEnable @System (arpReceiverC $ pure ourIPv4))
  where
-  genArpPacket isGratuitous = do
+  genArpPacket gratuitous = do
     spa <- genIPv4Addr
     newArpPacket
       <$> genMacAddr
       <*> Gen.constant spa
       <*> Gen.constant ourMac
-      <*> Gen.constant (if isGratuitous then spa else ourIPv4)
+      <*> Gen.constant (if gratuitous then spa else ourIPv4)
       <*> genArpOperation
 
   genPkt am =
