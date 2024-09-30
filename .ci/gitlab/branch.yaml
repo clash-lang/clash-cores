@@ -75,6 +75,16 @@ nix-build:
   tags:
     - local
 
+fourmolu:
+  extends: .common-local
+  needs: []
+  stage: test
+  script:
+    - cabal v2-update
+    - cabal v2-install fourmolu
+    - export PATH="$HOME/.cabal/bin:$PATH"
+    - ./format.sh check
+
 haddock:
   extends: .common-local
   needs: []
