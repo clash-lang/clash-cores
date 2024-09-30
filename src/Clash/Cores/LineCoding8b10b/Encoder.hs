@@ -1,20 +1,22 @@
--- |
---   Copyright   :  (C) 2020-2021, Ben Sampson,
---                      2024     , QBayLogic B.V.
---   License     :  BSD2 (see the file LICENSE)
---   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
---
---   8b/10b encoding look-up table
+{- |
+  Copyright   :  (C) 2020-2021, Ben Sampson,
+                     2024     , QBayLogic B.V.
+  License     :  BSD2 (see the file LICENSE)
+  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+  8b/10b encoding look-up table
+-}
 module Clash.Cores.LineCoding8b10b.Encoder where
 
 import Clash.Prelude
 
--- | Defines a list that is used as a lookup table for converting data words to
---   code groups. The list is indexed as the 10-bit concatenation of whether the
---   signal is a control signal ('Bit'), the running disparity ('Bit'), and the
---   data word ('BitVector'). The result is a tuple containing an error code
---   ('Bit'), the new running disparity ('Bit') and the encoded code group
---   ('BitVector').
+{- | Defines a list that is used as a lookup table for converting data words to
+  code groups. The list is indexed as the 10-bit concatenation of whether the
+  signal is a control signal ('Bit'), the running disparity ('Bit'), and the
+  data word ('BitVector'). The result is a tuple containing an error code
+  ('Bit'), the new running disparity ('Bit') and the encoded code group
+  ('BitVector').
+-}
 encoderLut :: [(Bit, Bit, BitVector 10)]
 encoderLut =
   [ (0, 0, 0b0010111001) -- D00.0

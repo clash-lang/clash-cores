@@ -1,101 +1,108 @@
-{-|
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_HADDOCK hide #-}
+
+{- |
 Copyright  :  (C) 2021-2022, QBayLogic B.V.,
                   2022     , Google Inc.,
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 -}
-
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE RecordWildCards #-}
-
-{-# OPTIONS_HADDOCK hide #-}
-
-module Clash.Cores.Xilinx.Floating.BlackBoxes
-  ( addTclTF
-  , subTclTF
-  , mulTclTF
-  , divTclTF
-  , fromUTclTF
-  , fromSTclTF
-  , compareTclTF
-  ) where
+module Clash.Cores.Xilinx.Floating.BlackBoxes (
+  addTclTF,
+  subTclTF,
+  mulTclTF,
+  divTclTF,
+  fromUTclTF,
+  fromSTclTF,
+  compareTclTF,
+) where
 
 import Prelude
 
 import Control.Monad.State (State)
-import Data.Maybe (isJust, fromJust)
-import Data.String (fromString, IsString)
+import Data.Maybe (fromJust, isJust)
+import Data.String (IsString, fromString)
 import Prettyprinter.Interpolate (di, __di)
 
 import Clash.Backend (Backend)
-import Clash.Netlist.Types
-  (BlackBoxContext(..), Expr(..), HWType(..), Literal(..), Modifier(..),
-   TemplateFunction(..))
+import Clash.Netlist.Types (
+  BlackBoxContext (..),
+  Expr (..),
+  HWType (..),
+  Literal (..),
+  Modifier (..),
+  TemplateFunction (..),
+ )
 import Data.Text.Prettyprint.Doc.Extra (Doc)
 
 import Clash.Cores.Xilinx.Floating.Internal
 
 data HasCustom = HasCustom
-  { addSubVal ::  !(Maybe String)
+  { addSubVal :: !(Maybe String)
   , hasArchOpt :: !Bool
   , hasDspUsage :: !Bool
   , hasBMemUsage :: !Bool
   }
 
 defHasCustom :: HasCustom
-defHasCustom = HasCustom
-  { addSubVal = Nothing
-  , hasArchOpt = True
-  , hasDspUsage = True
-  , hasBMemUsage = False
-  }
+defHasCustom =
+  HasCustom
+    { addSubVal = Nothing
+    , hasArchOpt = True
+    , hasDspUsage = True
+    , hasBMemUsage = False
+    }
 
 hasNoCustom :: HasCustom
-hasNoCustom = HasCustom
-  { addSubVal = Nothing
-  , hasArchOpt = False
-  , hasDspUsage = False
-  , hasBMemUsage = False
-  }
+hasNoCustom =
+  HasCustom
+    { addSubVal = Nothing
+    , hasArchOpt = False
+    , hasDspUsage = False
+    , hasBMemUsage = False
+    }
 
 addTclTF :: TemplateFunction
 addTclTF =
-  binaryTclTF (defHasCustom { addSubVal = Just "Add" }) "Add_Subtract"
+  binaryTclTF (defHasCustom{addSubVal = Just "Add"}) "Add_Subtract"
 
 subTclTF :: TemplateFunction
 subTclTF =
-  binaryTclTF (defHasCustom { addSubVal = Just "Subtract" }) "Add_Subtract"
+  binaryTclTF (defHasCustom{addSubVal = Just "Subtract"}) "Add_Subtract"
 
 mulTclTF :: TemplateFunction
 mulTclTF = binaryTclTF hasCustom "Multiply"
  where
-  hasCustom = HasCustom { addSubVal = Nothing
-                        , hasArchOpt = False
-                        , hasDspUsage = True
-                        , hasBMemUsage = False
-                        }
+  hasCustom =
+    HasCustom
+      { addSubVal = Nothing
+      , hasArchOpt = False
+      , hasDspUsage = True
+      , hasBMemUsage = False
+      }
 
 divTclTF :: TemplateFunction
 divTclTF = binaryTclTF hasNoCustom "Divide"
 
-binaryTclTF
-  :: HasCustom
-  -> String
-  -> TemplateFunction
+binaryTclTF ::
+  HasCustom ->
+  String ->
+  TemplateFunction
 binaryTclTF hasCustom operType =
   TemplateFunction used valid (tclTemplate hasCustom operType)
  where
-  used = [0..4]
+  used = [0 .. 4]
   valid = const True
 
-tclTemplate
-  :: Backend s
-  => HasCustom
-  -> String
-  -> BlackBoxContext
-  -> State s Doc
-tclTemplate (HasCustom {..}) operType bbCtx
+tclTemplate ::
+  (Backend s) =>
+  HasCustom ->
+  String ->
+  BlackBoxContext ->
+  State s Doc
+tclTemplate (HasCustom{..}) operType bbCtx
   | (Literal _ (NumLit latency), _, _) <- bbInputs bbCtx !! 1
   , (DataCon _ _ cfgExprs, _, _) <- bbInputs bbCtx !! 3
   , let cfgArchOptExpr = cfgExprs !! 0
@@ -103,58 +110,60 @@ tclTemplate (HasCustom {..}) operType bbCtx
   , let cfgDspUsageExpr = cfgExprs !! 1
   , DataCon _ (DC (Sum _ cfgDspUsageConstrs, cfgDspUsageTag)) _ <- cfgDspUsageExpr
   , let cfgBMemUsageExpr = cfgExprs !! 2
-  , DataCon _ (DC (Sum _ cfgBMemUsageConstrs, cfgBMemUsageTag)) _ <- cfgBMemUsageExpr
-  =
- let
-  compName = bbQsysIncName bbCtx !! 0
+  , DataCon _ (DC (Sum _ cfgBMemUsageConstrs, cfgBMemUsageTag)) _ <- cfgBMemUsageExpr =
+      let
+        compName = bbQsysIncName bbCtx !! 0
 
-  cfgArchOpt = cfgArchOptConstrs !! cfgArchOptTag
-  tclArchOpt :: String
-  tclArchOpt
-    | cfgArchOpt == show0 'SpeedArch = "Speed_Optimized"
-    | cfgArchOpt == show0 'LatencyArch = "Low_Latency"
-    | otherwise = error "Unknown ArchOpt constructor"
+        cfgArchOpt = cfgArchOptConstrs !! cfgArchOptTag
+        tclArchOpt :: String
+        tclArchOpt
+          | cfgArchOpt == show0 'SpeedArch = "Speed_Optimized"
+          | cfgArchOpt == show0 'LatencyArch = "Low_Latency"
+          | otherwise = error "Unknown ArchOpt constructor"
 
-  cfgDspUsage = cfgDspUsageConstrs !! cfgDspUsageTag
-  tclDspUsage :: String
-  tclDspUsage
-    | cfgDspUsage == show0 'NoDspUsage =  "No_Usage"
-    | cfgDspUsage == show0 'MediumDspUsage = "Medium_Usage"
-    | cfgDspUsage == show0 'FullDspUsage = "Full_Usage"
-    | cfgDspUsage == show0 'MaxDspUsage = "Max_Usage"
-    | otherwise = error "Unknown FloatingDspUsage constructor"
+        cfgDspUsage = cfgDspUsageConstrs !! cfgDspUsageTag
+        tclDspUsage :: String
+        tclDspUsage
+          | cfgDspUsage == show0 'NoDspUsage = "No_Usage"
+          | cfgDspUsage == show0 'MediumDspUsage = "Medium_Usage"
+          | cfgDspUsage == show0 'FullDspUsage = "Full_Usage"
+          | cfgDspUsage == show0 'MaxDspUsage = "Max_Usage"
+          | otherwise = error "Unknown FloatingDspUsage constructor"
 
-  cfgBMemUsage = cfgBMemUsageConstrs !! cfgBMemUsageTag
-  tclBMemUsage :: String
-  tclBMemUsage
-    | cfgBMemUsage == show0 'NoBMemUsage = "No_Usage"
-    | cfgBMemUsage == show0 'FullBMemUsage = "Full_Usage"
-    | otherwise = error "Unknown BMemUsage constructor"
+        cfgBMemUsage = cfgBMemUsageConstrs !! cfgBMemUsageTag
+        tclBMemUsage :: String
+        tclBMemUsage
+          | cfgBMemUsage == show0 'NoBMemUsage = "No_Usage"
+          | cfgBMemUsage == show0 'FullBMemUsage = "Full_Usage"
+          | otherwise = error "Unknown BMemUsage constructor"
 
-  tclClkEn :: String
-  tclClkEn =
-    case bbInputs bbCtx !! 5 of
-      (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
-      _                                                    -> "true"
+        tclClkEn :: String
+        tclClkEn =
+          case bbInputs bbCtx !! 5 of
+            (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
+            _ -> "true"
 
-  props =
-    foldr prop ""
-      [ (True, "CONFIG.Operation_Type", operType)
-      , (isJust addSubVal, "CONFIG.Add_Sub_Value", fromJust addSubVal)
-      , (hasArchOpt, "CONFIG.C_Optimization", tclArchOpt)
-      , (hasDspUsage, "CONFIG.C_Mult_Usage", tclDspUsage)
-      , (hasBMemUsage, "CONFIG.C_BRAM_Usage", tclBMemUsage)
-      , (True, "CONFIG.Flow_Control", "NonBlocking")
-      , (True, "CONFIG.Has_ACLKEN", tclClkEn)
-      , (True, "CONFIG.Has_RESULT_TREADY", "false")
-      , (True, "CONFIG.Maximum_Latency", "false")
-      , (True, "CONFIG.C_Latency", show latency)
-      ]
-  prop (False, _, _) s = s
-  prop (True, name, value) s =
-    replicate 29 ' ' ++ name ++ ' ': value ++ " \\\n" ++ s
+        props =
+          foldr
+            prop
+            ""
+            [ (True, "CONFIG.Operation_Type", operType)
+            , (isJust addSubVal, "CONFIG.Add_Sub_Value", fromJust addSubVal)
+            , (hasArchOpt, "CONFIG.C_Optimization", tclArchOpt)
+            , (hasDspUsage, "CONFIG.C_Mult_Usage", tclDspUsage)
+            , (hasBMemUsage, "CONFIG.C_BRAM_Usage", tclBMemUsage)
+            , (True, "CONFIG.Flow_Control", "NonBlocking")
+            , (True, "CONFIG.Has_ACLKEN", tclClkEn)
+            , (True, "CONFIG.Has_RESULT_TREADY", "false")
+            , (True, "CONFIG.Maximum_Latency", "false")
+            , (True, "CONFIG.C_Latency", show latency)
+            ]
+        prop (False, _, _) s = s
+        prop (True, name, value) s =
+          replicate 29 ' ' ++ name ++ ' ' : value ++ " \\\n" ++ s
 
-  bbText = [di|namespace eval $tclIface {
+        bbText =
+          [di|namespace eval $tclIface {
   variable api 1
   variable scriptPurpose createIp
   variable ipName {#{compName}}
@@ -168,34 +177,33 @@ tclTemplate (HasCustom {..}) operType bbCtx
     return
   }
 }|]
- in
-  pure bbText
-
+       in
+        pure bbText
 tclTemplate _ _ bbCtx = error ("Xilinx.Floating.tclTemplate, bad bbCtx: " <> show bbCtx)
 
 fromUTclTF :: TemplateFunction
 fromUTclTF = TemplateFunction used valid fromUTclTemplate
  where
-  used = [1,4,5]
+  used = [1, 4, 5]
   valid = const True
 
-fromUTclTemplate
-  :: Backend s
-  => BlackBoxContext
-  -> State s Doc
+fromUTclTemplate ::
+  (Backend s) =>
+  BlackBoxContext ->
+  State s Doc
 fromUTclTemplate bbCtx
   | [compName] <- bbQsysIncName bbCtx
   , (Literal _ (NumLit latency), _, _) <- bbInputs bbCtx !! 1
-  , (_, Unsigned inpLen, _) <- bbInputs bbCtx !! 5
-  =
- let
-  tclClkEn :: String
-  tclClkEn =
-    case bbInputs bbCtx !! 4 of
-      (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
-      _                                                    -> "true"
+  , (_, Unsigned inpLen, _) <- bbInputs bbCtx !! 5 =
+      let
+        tclClkEn :: String
+        tclClkEn =
+          case bbInputs bbCtx !! 4 of
+            (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
+            _ -> "true"
 
-  bbText = [__di|
+        bbText =
+          [__di|
     namespace eval $tclIface {
       variable api 1
       variable scriptPurpose createIp
@@ -220,34 +228,33 @@ fromUTclTemplate bbCtx
         return
       }
     }|]
- in
-  pure bbText
-
+       in
+        pure bbText
 fromUTclTemplate bbCtx = error ("Xilinx.Floating.fromUTclTemplate, bad bbCtx: " <> show bbCtx)
 
 fromSTclTF :: TemplateFunction
 fromSTclTF = TemplateFunction used valid fromSTclTemplate
  where
-  used = [1,4,5]
+  used = [1, 4, 5]
   valid = const True
 
-fromSTclTemplate
-  :: Backend s
-  => BlackBoxContext
-  -> State s Doc
+fromSTclTemplate ::
+  (Backend s) =>
+  BlackBoxContext ->
+  State s Doc
 fromSTclTemplate bbCtx
   | [compName] <- bbQsysIncName bbCtx
   , (Literal _ (NumLit latency), _, _) <- bbInputs bbCtx !! 1
-  , (_, Signed inpLen, _) <- bbInputs bbCtx !! 5
-  =
- let
-  tclClkEn :: String
-  tclClkEn =
-    case bbInputs bbCtx !! 4 of
-      (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
-      _                                                    -> "true"
+  , (_, Signed inpLen, _) <- bbInputs bbCtx !! 5 =
+      let
+        tclClkEn :: String
+        tclClkEn =
+          case bbInputs bbCtx !! 4 of
+            (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
+            _ -> "true"
 
-  bbText = [__di|
+        bbText =
+          [__di|
     namespace eval $tclIface {
       variable api 1
       variable scriptPurpose createIp
@@ -272,33 +279,32 @@ fromSTclTemplate bbCtx
         return
       }
     }|]
- in
-  pure bbText
-
+       in
+        pure bbText
 fromSTclTemplate bbCtx = error ("Xilinx.Floating.fromSTclTemplate, bad bbCtx: " <> show bbCtx)
 
 compareTclTF :: TemplateFunction
 compareTclTF = TemplateFunction used valid compareTclTemplate
  where
-  used = [1,3,4,5,6]
+  used = [1, 3, 4, 5, 6]
   valid = const True
 
-compareTclTemplate
-  :: Backend s
-  => BlackBoxContext
-  -> State s Doc
+compareTclTemplate ::
+  (Backend s) =>
+  BlackBoxContext ->
+  State s Doc
 compareTclTemplate bbCtx
   | [compName] <- bbQsysIncName bbCtx
-  , (Literal _ (NumLit latency), _, _) <- bbInputs bbCtx !! 1
-  =
- let
-  tclClkEn :: String
-  tclClkEn =
-    case bbInputs bbCtx !! 4 of
-      (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
-      _                                                    -> "true"
+  , (Literal _ (NumLit latency), _, _) <- bbInputs bbCtx !! 1 =
+      let
+        tclClkEn :: String
+        tclClkEn =
+          case bbInputs bbCtx !! 4 of
+            (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
+            _ -> "true"
 
-  bbText = [__di|
+        bbText =
+          [__di|
     namespace eval $tclIface {
       variable api 1
       variable scriptPurpose createIp
@@ -328,9 +334,8 @@ compareTclTemplate bbCtx
         return
       }
     }|]
- in
-  pure bbText
-
+       in
+        pure bbText
 compareTclTemplate bbCtx = error ("Xilinx.Floating.compareTclTemplate, bad bbCtx: " <> show bbCtx)
 
 show0 :: (Show a, IsString s) => a -> s

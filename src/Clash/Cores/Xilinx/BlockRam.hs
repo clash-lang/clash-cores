@@ -1,16 +1,14 @@
-{-|
+{-# LANGUAGE CPP #-}
+-- See [Note: eta port names for tdpbram]
+{-# OPTIONS_GHC -fno-do-lambda-eta-expansion #-}
+
+{- |
   Copyright   :  (C) 2023 QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
   Xilinx block RAM primitives
 -}
-
-{-# LANGUAGE CPP #-}
-
--- See [Note: eta port names for tdpbram]
-{-# OPTIONS_GHC -fno-do-lambda-eta-expansion #-}
-
 module Clash.Cores.Xilinx.BlockRam (tdpbram) where
 
 import Clash.Explicit.Prelude
@@ -19,15 +17,16 @@ import GHC.Stack (HasCallStack)
 
 import Clash.Cores.Xilinx.BlockRam.Internal (tdpbram#)
 
--- | Instantiates a Block Memory Generator IP as described in
--- [PG058](https://docs.xilinx.com/v/u/en-US/pg058-blk-mem-gen).
---
--- Any value that is being written on a particular port is also the
--- value that will be read on that port, i.e. the same-port read/write behavior
--- is: WriteFirst. For mixed-port read/write, when port A writes to the address
--- port B reads from, the output of port B is undefined, and vice versa.
+{- | Instantiates a Block Memory Generator IP as described in
+[PG058](https://docs.xilinx.com/v/u/en-US/pg058-blk-mem-gen).
+
+Any value that is being written on a particular port is also the
+value that will be read on that port, i.e. the same-port read/write behavior
+is: WriteFirst. For mixed-port read/write, when port A writes to the address
+port B reads from, the output of port B is undefined, and vice versa.
+-}
 tdpbram ::
-  forall nAddrs domA domB nBytes a .
+  forall nAddrs domA domB nBytes a.
   ( HasCallStack
   , KnownNat nAddrs
   , KnownDomain domA
@@ -37,7 +36,6 @@ tdpbram ::
   , NFDataX a
   , BitPack a
   ) =>
-
   Clock domA ->
   -- | Port enable
   Enable domA ->
@@ -47,7 +45,6 @@ tdpbram ::
   Signal domA (BitVector nBytes) ->
   -- | Write data
   Signal domA a ->
-
   Clock domB ->
   -- | Port enable
   Enable domB ->
@@ -57,7 +54,6 @@ tdpbram ::
   Signal domB (BitVector nBytes) ->
   -- | Write data
   Signal domB a ->
-
   ( Signal domA a
   , Signal domB a
   )
@@ -70,13 +66,22 @@ tdpbram clkA enA addrA byteEnaA datA clkB enB addrB byteEnaB datB =
   case (activeEdge @domA, activeEdge @domB) of
     (SRising, SRising) ->
       tdpbram#
-        clkA (fromEnable enA) addrA byteEnaA datA
-        clkB (fromEnable enB) addrB byteEnaB datB
+        clkA
+        (fromEnable enA)
+        addrA
+        byteEnaA
+        datA
+        clkB
+        (fromEnable enB)
+        addrB
+        byteEnaB
+        datB
     (SFalling, SFalling) ->
       clashCompileError "tdpbram: domain A and B need a rising active edge"
     (SFalling, _) ->
       clashCompileError "tdpbram: domain A needs a rising active edge"
     (_, SFalling) ->
       clashCompileError "tdpbram: domain B needs a rising active edge"
+
 -- See: https://github.com/clash-lang/clash-compiler/pull/2511
 {-# CLASH_OPAQUE tdpbram #-}

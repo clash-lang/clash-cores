@@ -1,20 +1,22 @@
--- |
---   Copyright   :  (C) 2020-2021, Ben Sampson,
---                      2024     , QBayLogic B.V.
---   License     :  BSD2 (see the file LICENSE)
---   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
---
---   8b/10b decoding look-up table
+{- |
+  Copyright   :  (C) 2020-2021, Ben Sampson,
+                     2024     , QBayLogic B.V.
+  License     :  BSD2 (see the file LICENSE)
+  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+  8b/10b decoding look-up table
+-}
 module Clash.Cores.LineCoding8b10b.Decoder where
 
 import Clash.Prelude
 
--- | Defines a list that is used as a lookup table for converting code groups to
---   data words. The list is indexed as the 11-bit concatenation of the running
---   disparity ('Bit') and the code group ('BitVector'). The result is a tuple
---   containing whether there is a disparity error ('Bit'), a code error
---   ('Bit'), whether the symbol is a control symbol ('Bit'), the new running
---   disparity ('Bit'), and the decoded data word ('BitVector').
+{- | Defines a list that is used as a lookup table for converting code groups to
+  data words. The list is indexed as the 11-bit concatenation of the running
+  disparity ('Bit') and the code group ('BitVector'). The result is a tuple
+  containing whether there is a disparity error ('Bit'), a code error
+  ('Bit'), whether the symbol is a control symbol ('Bit'), the new running
+  disparity ('Bit'), and the decoded data word ('BitVector').
+-}
 decoderLut :: [(Bit, Bit, Bit, Bit, BitVector 8)]
 decoderLut =
   [ (1, 1, 0, 0, 0b00000000) -- D00.0

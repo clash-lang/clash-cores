@@ -1,4 +1,4 @@
-{-|
+{- |
   Copyright   :  (C) 2024, Rowan Goemans <goemansrowan@gmail.com>
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
@@ -75,25 +75,25 @@ indicates how many @BitVector 8@ are valid inside the @Vec@. 0 means 1 is valid.
 True
 
 Notice that the 'crcEngine' has a latency of one clock cycle.
-
 -}
+module Clash.Cores.Crc (
+  CrcParams (..),
+  KnownCrc (..),
 
-module Clash.Cores.Crc
-  ( CrcParams(..)
-  , KnownCrc(..)
   -- ** Software
-  , SoftwareCrc
-  , mkSoftwareCrc
-  , reset
-  , feed
-  , digest
-  , rawResidue
-  , residue
+  SoftwareCrc,
+  mkSoftwareCrc,
+  reset,
+  feed,
+  digest,
+  rawResidue,
+  residue,
+
   -- ** Hardware
-  , HardwareCrc
-  , deriveHardwareCrc
-  , crcEngine
-  , crcValidator
-  ) where
+  HardwareCrc,
+  deriveHardwareCrc,
+  crcEngine,
+  crcValidator,
+) where
 
 import Clash.Cores.Crc.Internal
