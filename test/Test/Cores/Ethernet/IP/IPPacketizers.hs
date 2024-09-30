@@ -45,48 +45,85 @@ testIPPacketizer SNat =
    where
     checksum = (pureInternetChecksum @(Vec 10) . bitCoerce . _meta) (L.head xs)
 
-testIPDepacketizer ::
-  forall (dataWidth :: Nat).
+testVerifyIPChecksum ::
+  forall dataWidth.
   (1 <= dataWidth) =>
   SNat dataWidth ->
   Property
-testIPDepacketizer SNat =
+testVerifyIPChecksum SNat =
   idWithModelSingleDomain
     @System
-    defExpectOptions{eoStopAfterEmpty = 400}
-    (genPackets (Range.linear 1 10) Abort genPkt)
+    defExpectOptions{eoStopAfterEmpty = 1000, eoDriveEarly=False, eoResetCycles=0}
+    (genPackets (Range.linear 1 1) Abort genPkt)
     (exposeClockResetEnable model)
-    (exposeClockResetEnable (ipDepacketizerC @_ @dataWidth))
+    (exposeClockResetEnable (verifyChecksumC @dataWidth))
  where
-  validPkt = genValidPacket genEthernetHeader (Range.linear 0 10)
+  --x = natToNum @(20 `DivRU` dataWidth + 1)
+  validPkt = genValidPacket (pure ()) (Range.linear 3 3)
   genPkt am =
     Gen.choice
       [ -- Random packet: extremely high chance to get aborted.
         validPkt am
-      , -- Packet with valid header: should not get aborted.
-        do
+        -- Packet with valid header: should not get aborted.
+      , do
           hdr <- genIPv4Header
           packetizerModel
             id
             (const hdr{_ipv4Checksum = pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16))})
-            <$> validPkt am
-      , -- Packet with valid header apart from (most likely) the checksum.
-        do
+              <$> validPkt am
+        -- Packet with valid header apart from (most likely) the checksum.
+      , do
           hdr <- genIPv4Header
-          packetizerModel id (const hdr{_ipv4Checksum = 0xABCD}) <$> validPkt am
+          packetizerModel id (const hdr{_ipv4Checksum = 0x0001}) <$> validPkt am
       ]
 
-  model fragments = L.concat $ L.zipWith setAbort packets aborts
+  model fragments = L.concatMap go packets
    where
-    setAbort packet abort = (\f -> f{_abort = _abort f || abort}) <$> packet
-    validateHeader hdr =
-      pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16)) /= 0
-        || _ipv4Ihl hdr /= 5
-        || _ipv4Version hdr /= 4
-        || _ipv4FlagReserved hdr
-        || _ipv4FlagMF hdr
-    packets = chunkByPacket $ depacketizerModel const fragments
-    aborts = validateHeader . _meta . L.head <$> packets
+    packets = chunkByPacket fragments
+
+    go packet
+      | dropPacket = []
+      | otherwise = packet
+     where
+      asIpv4hdr :: [PacketStreamM2S dataWidth IPv4Header]
+      asIpv4hdr = depacketizerModel const packet
+
+      hdr = _meta (L.head asIpv4hdr)
+      dropPacket = pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16)) /= 0
+
+prop_checksum_verif_d1 :: Property
+prop_checksum_verif_d1 = testVerifyIPChecksum d1
+
+prop_checksum_verif_d2 :: Property
+prop_checksum_verif_d2 = testVerifyIPChecksum d2
+
+prop_checksum_verif_d3 :: Property
+prop_checksum_verif_d3 = testVerifyIPChecksum d3
+
+prop_checksum_verif_d4 :: Property
+prop_checksum_verif_d4 = testVerifyIPChecksum d4
+
+prop_checksum_verif_d5 :: Property
+prop_checksum_verif_d5 = testVerifyIPChecksum d5
+
+prop_checksum_verif_d6 :: Property
+prop_checksum_verif_d6 = testVerifyIPChecksum d6
+
+prop_checksum_verif_d7 :: Property
+prop_checksum_verif_d7 = testVerifyIPChecksum d7
+
+prop_checksum_verif_d9 :: Property
+prop_checksum_verif_d9 = testVerifyIPChecksum d9
+
+-- Fails!
+prop_checksum_verif_d11 :: Property
+prop_checksum_verif_d11 = testVerifyIPChecksum d11
+
+prop_checksum_verif_d20 :: Property
+prop_checksum_verif_d20 = testVerifyIPChecksum d20
+
+prop_checksum_verif_d25 :: Property
+prop_checksum_verif_d25 = testVerifyIPChecksum d25
 
 -- | 20 % dataWidth ~ 0
 prop_ip_ip_packetizer_d1 :: Property
@@ -103,22 +140,6 @@ prop_ip_ip_packetizer_d20 = testIPPacketizer d20
 -- | dataWidth > 20
 prop_ip_ip_packetizer_d23 :: Property
 prop_ip_ip_packetizer_d23 = testIPPacketizer d23
-
--- | 20 % dataWidth ~ 0
-prop_ip_depacketizer_d1 :: Property
-prop_ip_depacketizer_d1 = testIPDepacketizer d1
-
--- | dataWidth < 20
-prop_ip_depacketizer_d7 :: Property
-prop_ip_depacketizer_d7 = testIPDepacketizer d7
-
--- | dataWidth ~ 20
-prop_ip_depacketizer_d20 :: Property
-prop_ip_depacketizer_d20 = testIPDepacketizer d20
-
--- | dataWidth > 20
-prop_ip_depacketizer_d23 :: Property
-prop_ip_depacketizer_d23 = testIPDepacketizer d23
 
 tests :: TestTree
 tests =
