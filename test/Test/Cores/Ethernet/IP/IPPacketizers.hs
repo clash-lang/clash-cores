@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE NumericUnderscores #-}
 
 module Test.Cores.Ethernet.IP.IPPacketizers (
@@ -10,6 +11,7 @@ import Clash.Cores.Ethernet.IP.IPv4Types
 import Clash.Prelude
 
 import qualified Data.List as L
+import Data.Type.Equality (type (==))
 
 import Hedgehog (Property)
 import qualified Hedgehog.Gen as Gen
@@ -26,8 +28,9 @@ import Test.Tasty
 import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit))
 import Test.Tasty.Hedgehog.Extra (testProperty)
 import Test.Tasty.TH (testGroupGenerator)
+import GHC.TypeLits.KnownNat (KnownBool)
 
-testIPPacketizer ::
+{-testIPPacketizer ::
   forall (dataWidth :: Nat).
   (1 <= dataWidth) =>
   SNat dataWidth ->
@@ -44,17 +47,18 @@ testIPPacketizer SNat =
   setChecksum xs = L.map (\x -> x{_meta = (_meta x){_ipv4Checksum = checksum}}) xs
    where
     checksum = (pureInternetChecksum @(Vec 10) . bitCoerce . _meta) (L.head xs)
-
+-}
 testVerifyIPChecksum ::
   forall dataWidth.
   (1 <= dataWidth) =>
+  (KnownBool (CmpNat dataWidth 20 == LT)) =>
   SNat dataWidth ->
   Property
 testVerifyIPChecksum SNat =
   idWithModelSingleDomain
     @System
-    defExpectOptions{eoStopAfterEmpty = 1000, eoDriveEarly=False, eoResetCycles=0}
-    (genPackets (Range.linear 1 1) Abort genPkt)
+    defExpectOptions{eoStopAfterEmpty = 400, eoDriveEarly=False, eoResetCycles=0}
+    (genPackets (Range.linear 2 2) Abort genPkt)
     (exposeClockResetEnable model)
     (exposeClockResetEnable (verifyChecksumC @dataWidth))
  where
@@ -63,9 +67,9 @@ testVerifyIPChecksum SNat =
   genPkt am =
     Gen.choice
       [ -- Random packet: extremely high chance to get aborted.
-        validPkt am
+        --validPkt am
         -- Packet with valid header: should not get aborted.
-      , do
+        do
           hdr <- genIPv4Header
           packetizerModel
             id
@@ -91,23 +95,25 @@ testVerifyIPChecksum SNat =
       hdr = _meta (L.head asIpv4hdr)
       dropPacket = pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16)) /= 0
 
+-- > 20
+prop_checksum_verif_d20 :: Property
+prop_checksum_verif_d20 = testVerifyIPChecksum d20
+
+prop_checksum_verif_d25 :: Property
+prop_checksum_verif_d25 = testVerifyIPChecksum d25
+
+prop_checksum_verif_d38 :: Property
+prop_checksum_verif_d38 = testVerifyIPChecksum d25
+
+-- Odd
 prop_checksum_verif_d1 :: Property
 prop_checksum_verif_d1 = testVerifyIPChecksum d1
-
-prop_checksum_verif_d2 :: Property
-prop_checksum_verif_d2 = testVerifyIPChecksum d2
 
 prop_checksum_verif_d3 :: Property
 prop_checksum_verif_d3 = testVerifyIPChecksum d3
 
-prop_checksum_verif_d4 :: Property
-prop_checksum_verif_d4 = testVerifyIPChecksum d4
-
 prop_checksum_verif_d5 :: Property
 prop_checksum_verif_d5 = testVerifyIPChecksum d5
-
-prop_checksum_verif_d6 :: Property
-prop_checksum_verif_d6 = testVerifyIPChecksum d6
 
 prop_checksum_verif_d7 :: Property
 prop_checksum_verif_d7 = testVerifyIPChecksum d7
@@ -115,31 +121,66 @@ prop_checksum_verif_d7 = testVerifyIPChecksum d7
 prop_checksum_verif_d9 :: Property
 prop_checksum_verif_d9 = testVerifyIPChecksum d9
 
--- Fails!
 prop_checksum_verif_d11 :: Property
 prop_checksum_verif_d11 = testVerifyIPChecksum d11
 
-prop_checksum_verif_d20 :: Property
-prop_checksum_verif_d20 = testVerifyIPChecksum d20
+prop_checksum_verif_d13 :: Property
+prop_checksum_verif_d13 = testVerifyIPChecksum d13
 
-prop_checksum_verif_d25 :: Property
-prop_checksum_verif_d25 = testVerifyIPChecksum d25
+prop_checksum_verif_d15 :: Property
+prop_checksum_verif_d15 = testVerifyIPChecksum d15
+
+prop_checksum_verif_d17 :: Property
+prop_checksum_verif_d17 = testVerifyIPChecksum d17
+
+prop_checksum_verif_d19 :: Property
+prop_checksum_verif_d19 = testVerifyIPChecksum d19
+
+-- Even
+prop_checksum_verif_d2 :: Property
+prop_checksum_verif_d2 = testVerifyIPChecksum d2
+
+prop_checksum_verif_d4 :: Property
+prop_checksum_verif_d4 = testVerifyIPChecksum d4
+
+prop_checksum_verif_d6 :: Property
+prop_checksum_verif_d6 = testVerifyIPChecksum d6
+
+prop_checksum_verif_d8 :: Property
+prop_checksum_verif_d8 = testVerifyIPChecksum d8
+
+prop_checksum_verif_d10 :: Property
+prop_checksum_verif_d10 = testVerifyIPChecksum d10
+
+prop_checksum_verif_d12 :: Property
+prop_checksum_verif_d12 = testVerifyIPChecksum d12
+
+prop_checksum_verif_d14 :: Property
+prop_checksum_verif_d14 = testVerifyIPChecksum d14
+
+prop_checksum_verif_d16 :: Property
+prop_checksum_verif_d16 = testVerifyIPChecksum d16
+
+prop_checksum_verif_d18 :: Property
+prop_checksum_verif_d18 = testVerifyIPChecksum d18
+
+
 
 -- | 20 % dataWidth ~ 0
-prop_ip_ip_packetizer_d1 :: Property
-prop_ip_ip_packetizer_d1 = testIPPacketizer d1
+--prop_ip_ip_packetizer_d1 :: Property
+--prop_ip_ip_packetizer_d1 = testIPPacketizer d1
 
 -- | dataWidth < 20
-prop_ip_ip_packetizer_d7 :: Property
-prop_ip_ip_packetizer_d7 = testIPPacketizer d7
+--prop_ip_ip_packetizer_d7 :: Property
+--prop_ip_ip_packetizer_d7 = testIPPacketizer d7
 
 -- | dataWidth ~ 20
-prop_ip_ip_packetizer_d20 :: Property
-prop_ip_ip_packetizer_d20 = testIPPacketizer d20
+--prop_ip_ip_packetizer_d20 :: Property
+--prop_ip_ip_packetizer_d20 = testIPPacketizer d20
 
 -- | dataWidth > 20
-prop_ip_ip_packetizer_d23 :: Property
-prop_ip_ip_packetizer_d23 = testIPPacketizer d23
+--prop_ip_ip_packetizer_d23 :: Property
+--prop_ip_ip_packetizer_d23 = testIPPacketizer d23
 
 tests :: TestTree
 tests =

@@ -24,10 +24,12 @@ import Clash.Cores.Ethernet.Mac.EthernetTypes
 import qualified Data.Bifunctor as B
 import Data.Functor
 import Data.Maybe
+import Data.Type.Equality (type (==))
 
 import Protocols
 import qualified Protocols.Df as Df
 import Protocols.PacketStream
+import GHC.TypeLits.KnownNat (KnownBool)
 
 -- | Packetize a packet stream with the IPv4HeaderLite meta data
 -- giving default values for header data that are not in IPv4HeaderLite.
@@ -106,7 +108,7 @@ ipDepacketizerC
      , 1 <= n
      )
   => Circuit (PacketStream dom n EthernetHeader) (PacketStream dom n IPv4Header)
-ipDepacketizerC = mapMeta (const ()) |> verifyChecksumC |> depacketizerC const |> verifyIPHdr
+ipDepacketizerC = depacketizerC const |> verifyIPHdr
   where
     verifyIPHdr = Circuit $ \(fwdIn, bwdIn) -> (bwdIn, (go <$>) <$> fwdIn)
     go p =
@@ -135,6 +137,7 @@ Verify the IPv4 checksum.
 verifyChecksumC ::
   forall dataWidth meta dom.
   (HiddenClockResetEnable dom) =>
+  (KnownBool (CmpNat dataWidth 20 == LT)) =>
   (KnownNat dataWidth) =>
   (1 <= dataWidth) =>
   (NFDataX meta) =>
