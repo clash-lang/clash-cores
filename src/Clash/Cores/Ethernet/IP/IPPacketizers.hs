@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
 {-# OPTIONS_HADDOCK hide #-}
 
 {-|
@@ -11,21 +12,24 @@ module Clash.Cores.Ethernet.IP.IPPacketizers
   , ipLitePacketizerC
   , ipDepacketizerC
   , ipDepacketizerLiteC
+  , verifyChecksumC
   ) where
 
 import Clash.Prelude
-
-import Protocols
-import Protocols.PacketStream
 
 import Clash.Cores.Ethernet.InternetChecksum
 import Clash.Cores.Ethernet.IP.IPv4Types
 import Clash.Cores.Ethernet.Mac.EthernetTypes
 
+import qualified Data.Bifunctor as B
 import Data.Functor
 import Data.Maybe
-import Data.Type.Equality
+import Data.Type.Equality (type (==))
 
+import Protocols
+import qualified Protocols.Df as Df
+import Protocols.PacketStream
+import GHC.TypeLits.KnownNat (KnownBool)
 
 -- | Packetize a packet stream with the IPv4HeaderLite meta data
 -- giving default values for header data that are not in IPv4HeaderLite.
@@ -104,7 +108,7 @@ ipDepacketizerC
      , 1 <= n
      )
   => Circuit (PacketStream dom n EthernetHeader) (PacketStream dom n IPv4Header)
-ipDepacketizerC = verifyChecksum |> depacketizerC const |> verifyIPHdr
+ipDepacketizerC = depacketizerC const |> verifyIPHdr
   where
     verifyIPHdr = Circuit $ \(fwdIn, bwdIn) -> (bwdIn, (go <$>) <$> fwdIn)
     go p =
@@ -127,79 +131,56 @@ ipDepacketizerLiteC
   => Circuit (PacketStream dom n EthernetHeader) (PacketStream dom n IPv4HeaderLite)
 ipDepacketizerLiteC = ipDepacketizerC |> toLiteC
 
-data VerifyChecksumS n
-  = DeCheck (BitVector 16) (Index (20 `DivRU` n)) (BitVector 8)
-  -- ^ Checking. Contains accumulator, remaining bytes, and byte from previous
-  -- packet in case of odd data widths
-  | DeForward Bool
-  -- ^ Forwarding. Bool is True if checksum was invalid
-  deriving (Generic, NFDataX)
+{- |
+Verify the IPv4 checksum.
+-}
+verifyChecksumC ::
+  forall dataWidth meta dom.
+  (HiddenClockResetEnable dom) =>
+  (KnownBool (CmpNat dataWidth 20 == LT)) =>
+  (KnownNat dataWidth) =>
+  (1 <= dataWidth) =>
+  (NFDataX meta) =>
+  Circuit (PacketStream dom dataWidth meta) (PacketStream dom dataWidth meta)
+verifyChecksumC = circuit $ \stream -> do
+  [s1, s2] <- fanout -< stream
+  delayed <- delayCkt -< s1
+  checksum <- calculateChecksumC -< s2
+  verifyChecksumC' -< (delayed, checksum)
+ where
+  delayCkt = case compareSNat d2 (SNat @(20 `DivRU` dataWidth)) of
+    SNatLE -> delayStreamC (SNat @(20 `DivRU` dataWidth - 1))
+    SNatGT -> idC
 
--- | Verifies the internet checksum of the first 20 bytes of each packet. Sets
--- the abort bit from byte 21 onwards if the checksum is invalid. Data is left
--- intact.
-verifyChecksum
-  :: forall dom n
-   . ( HiddenClockResetEnable dom
-     , KnownNat n
-     , 1 <= n
-     )
-  => Circuit (PacketStream dom n EthernetHeader) (PacketStream dom n EthernetHeader)
-verifyChecksum = case (divProof, divModProof, modLeProof) of
-    (SNatLE, Just Refl, SNatLE) -> Circuit $ mealyB go (DeCheck 0 0 undefined)
-    _ -> errorX "ipDepacketizerC: absurd in verifyChecksum: 2 * (n `Div` 2) + n `Mod` 2 not equal to n"
-  where
-    divProof = compareSNat d1 (SNat @(20 `DivRU` n))
-    divModProof = sameNat (SNat @n) (SNat @(2 * (n `Div` 2) + n `Mod` 2))
-    modLeProof = compareSNat (SNat @(20 `Mod` n)) (SNat @n)
+data VerifyChecksumState = Idle | DropPacket | Forward'
+  deriving (Generic, NFDataX, Show, ShowX)
 
-    go :: ( 2 * (n `Div` 2) + n `Mod` 2 ~ n, 20 `Mod` n <= n)
-      => 1 <= 20 `DivRU` n
-      => VerifyChecksumS n
-      -> (Maybe (PacketStreamM2S n EthernetHeader), PacketStreamS2M)
-      -> (VerifyChecksumS n, (PacketStreamS2M, Maybe (PacketStreamM2S n EthernetHeader)))
-    go (DeForward invalid) (fwd, bwd) = (nextSt, (bwd, (\p -> p {_abort = _abort p || invalid}) <$> fwd))
-      where
-        nextSt = if isJust fwd && _ready bwd && isJust (_last $ fromJustX fwd)
-           then DeCheck 0 0 undefined
-           else DeForward invalid
-    go s@(DeCheck {}) (Nothing, bwd) = (s, (bwd, Nothing))
-    go s@(DeCheck acc i byte) (Just fwdIn, PacketStreamS2M inReady) = (s', (PacketStreamS2M inReady, Just fwdOut))
-      where
-        finalHeaderFragment = i == maxBound
+{- |
+Not full throughput.
+-}
+verifyChecksumC' ::
+  forall dataWidth meta dom.
+  (HiddenClockResetEnable dom) =>
+  (NFDataX meta) =>
+  Circuit
+    (PacketStream dom dataWidth meta, Df dom (BitVector 16))
+    (PacketStream dom dataWidth meta)
+verifyChecksumC' = Circuit (B.first unbundle . mealyB go Idle . B.first bundle)
+ where
+  go Idle ((_, checksumM), _) = (nextSt, ((PacketStreamS2M False, Ack True), Nothing))
+   where
+    nextSt = case checksumM of
+      Df.NoData -> Idle
+      Df.Data checksum -> if checksum == 0 then Forward' else DropPacket
 
-        -- Set all data bytes to zero
-        (dataLo, dataHi0) = splitAtI @(20 `Mod` n) @(n - 20 `Mod` n) $ _data fwdIn
-        dataHi1 = if finalHeaderFragment then repeat 0 else dataHi0
-        -- If our datawidth is aligned we don't need to partial checksum of the data
-        header = case sameNat d0 (SNat @(20 `Mod` n)) of
-                   Just Refl -> _data fwdIn
-                   _         -> dataLo ++ dataHi1
+  go Forward' ((fwdIn, _), bwdIn) = (nextSt, ((bwdIn, Ack False), fwdIn))
+   where
+    nextSt = case fwdIn of
+      Just transferIn | isJust (_last transferIn) && _ready bwdIn -> Idle
+      _ -> Forward'
 
-        -- We verify that 2 * n Div 2 + n Mod 2 = n, and distinguish between
-        -- even and odd data widths. For odd data widths, we have to save the
-        -- extra byte in even packets and use it in the odd packets.
-        (acc', byte') =
-          case ( sameNat (SNat @(n `Mod` 2)) d0
-               , sameNat (SNat @(n `Mod` 2)) d1
-               ) of
-            (Just Refl, _) -> -- n mod 2 = 0
-              let xs :: Vec (n `Div` 2) (BitVector 16)
-                  xs = bitCoerce header
-               in (fold onesComplementAdd (acc :> xs), undefined)
-            (_, Just Refl) -> -- n mod 2 = 1
-              let xs :: Vec (n `Div` 2 + 1) (BitVector 16)
-                  xs = bitCoerce $ if even i then init header :< 0 :< 0 else byte :> header
-               in (fold onesComplementAdd (acc :> xs), last header)
-            _ -> errorX "ipDepacketizerC: absurd in verifyChecksum: n `Mod` 2 not equal to 0 or 1"
-
-        invalid = acc' /= 0xFFFF -- Note that we haven't taken the complement
-        s'
-          | not inReady = s
-          | isJust (_last fwdIn) = DeCheck 0 0 undefined
-          | finalHeaderFragment = DeForward invalid
-          | otherwise = DeCheck acc' (succ i) byte'
-
-        fwdOut = if finalHeaderFragment
-                   then fwdIn { _abort = _abort fwdIn || invalid }
-                   else fwdIn
+  go DropPacket ((fwdIn, _), _) = (nextSt, ((PacketStreamS2M True, Ack False), Nothing))
+   where
+    nextSt = case fwdIn of
+      Just transferIn | isJust (_last transferIn) -> Idle
+      _ -> DropPacket
