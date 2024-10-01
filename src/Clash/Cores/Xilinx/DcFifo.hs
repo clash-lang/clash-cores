@@ -1,4 +1,10 @@
-{-|
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ViewPatterns #-}
+
+{- |
 Copyright  :  (C) 2022, Google Inc,
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
@@ -44,37 +50,31 @@ acknowledge, valid, or programmable full\/empty flags)
 (The order of these items corresponds to Vivado's /Customize IP/ GUI dialog in
 Vivado 2022.1.)
 -}
+module Clash.Cores.Xilinx.DcFifo (
+  -- ** Reset sequencing
 
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ViewPatterns #-}
+  --
+  -- $resetSeq
 
-module Clash.Cores.Xilinx.DcFifo
-  ( -- ** Reset sequencing
-    --
-    -- $resetSeq
+  -- * Instantiating IP
+  dcFifo,
+  FifoOut (..),
 
-    -- * Instantiating IP
-    dcFifo
-  , FifoOut(..)
+  -- * Customizing IP
+  DcConfig (..),
+  defConfig,
 
-    -- * Customizing IP
-  , DcConfig(..)
-  , defConfig
-
-    -- * Helper type aliases
-  , Full
-  , Empty
-  , DataCount
-  ) where
+  -- * Helper type aliases
+  Full,
+  Empty,
+  DataCount,
+) where
 
 import Clash.Explicit.Prelude
-import Clash.Signal.Internal (Signal (..), ClockAB (..), clockTicks)
+import Clash.Signal.Internal (ClockAB (..), Signal (..), clockTicks)
 import Data.Maybe (isJust)
-import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.String.Interpolate (__i)
 import GHC.Stack (HasCallStack)
 
@@ -103,45 +103,45 @@ import Clash.Cores.Xilinx.DcFifo.Internal.Types
   operations to avoid unexpected behavior.
 -}
 
--- | Default config. Read\/write data counts are enabled but over-\/underflow
--- are not.
---
--- Examples using a type-level argument to specify the depth:
---
--- >>> fifo = dcFifo (defConfig @5)
--- >>> fifo = dcFifo @5 defConfig
--- >>> fifo = dcFifo (defConfig @5){dcReadDataCount=False}
--- >>> fifo = dcFifo @5 defConfig{dcReadDataCount=False}
-defConfig :: KnownNat depth => DcConfig depth
-defConfig = DcConfig
-  { dcDepth = SNat
-  , dcReadDataCount = True
-  , dcWriteDataCount = True
-  , dcOverflow = False
-  , dcUnderflow = False
-  }
+{- | Default config. Read\/write data counts are enabled but over-\/underflow
+are not.
 
--- | Xilinx dual clock FIFO
---
--- For an explanation about the type-level parameter @depth@, see 'DcConfig'.
---
--- If 'dcReadDataCount', 'dcUnderflow', 'dcOverflow', or 'dcWriteDataCount' are
--- disabled, the relevant signals will return 'XException'.
+Examples using a type-level argument to specify the depth:
+
+>>> fifo = dcFifo (defConfig @5)
+>>> fifo = dcFifo @5 defConfig
+>>> fifo = dcFifo (defConfig @5){dcReadDataCount=False}
+>>> fifo = dcFifo @5 defConfig{dcReadDataCount=False}
+-}
+defConfig :: (KnownNat depth) => DcConfig depth
+defConfig =
+  DcConfig
+    { dcDepth = SNat
+    , dcReadDataCount = True
+    , dcWriteDataCount = True
+    , dcOverflow = False
+    , dcUnderflow = False
+    }
+
+{- | Xilinx dual clock FIFO
+
+For an explanation about the type-level parameter @depth@, see 'DcConfig'.
+
+If 'dcReadDataCount', 'dcUnderflow', 'dcOverflow', or 'dcWriteDataCount' are
+disabled, the relevant signals will return 'XException'.
+-}
 dcFifo ::
-  forall depth a write read .
+  forall depth a write read.
   ( KnownDomain write
   , KnownDomain read
-
   , NFDataX a
-
   , KnownNat depth
-  -- Number of elements should be between [2**4, 2**17] ~ [16, 131072].
-  , 4 <= depth
+  , -- Number of elements should be between [2**4, 2**17] ~ [16, 131072].
+    4 <= depth
   , depth <= 17
   , HasCallStack
   ) =>
   DcConfig depth ->
-
   -- | Write clock, @wr_clk@
   Clock write ->
   -- | Synchronous write-side reset, @wr_rst@
@@ -150,7 +150,6 @@ dcFifo ::
   Clock read ->
   -- | Synchronous read-side reset, @rd_rst@
   Reset read ->
-
   -- | Write data, @din@ and @wr_en@
   Signal write (Maybe a) ->
   -- | Read enable @rd_en@
@@ -162,20 +161,22 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
       let
         (wFull, wOver, wCnt, rEmpty, rUnder, rCnt, rData) =
           go (clockTicks wClk rClk) mempty rstSignalR rEnable rstSignalW writeData
-      in FifoOut
+       in
+        FifoOut
           wFull
-          (if dcOverflow
-             then register wClk wRst enableGen False wOver
-             else errorX "Overflow disabled")
+          ( if dcOverflow
+              then register wClk wRst enableGen False wOver
+              else errorX "Overflow disabled"
+          )
           (if dcWriteDataCount then wCnt else errorX "Write data count disabled")
           rEmpty
-          (if dcUnderflow
-             then register rClk rRst enableGen False rUnder
-             else errorX "Underflow disabled")
+          ( if dcUnderflow
+              then register rClk rRst enableGen False rUnder
+              else errorX "Underflow disabled"
+          )
           (if dcReadDataCount then rCnt else errorX "Read data count disabled")
           (register rClk rRst enableGen (deepErrorX "No initial value") rData)
     _ -> error $ show 'dcFifo <> " only supports synchronous resets"
-
  where
   rstSignalR = unsafeToActiveHigh rRst
   rstSignalW = unsafeToActiveHigh wRst
@@ -193,15 +194,14 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
     ( Signal write Full
     , Signal write Bool
     , Signal write (DataCount depth)
-
     , Signal read Empty
     , Signal read Bool
     , Signal read (DataCount depth)
     , Signal read a
     )
-  go (ClockA:ticks)  = goWrite ticks
-  go (ClockB:ticks)  = goRead ticks
-  go (ClockAB:ticks) = go (ClockB:ClockA:ticks)
+  go (ClockA : ticks) = goWrite ticks
+  go (ClockB : ticks) = goRead ticks
+  go (ClockAB : ticks) = go (ClockB : ClockA : ticks)
   go [] = error "dcFifo.go: `ticks` should have been an infinite list"
 
   goWrite ticks _q rstR rEna (True :- rstWNext) (_ :- wData) =
@@ -210,7 +210,6 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
    where
     (preFull, preOver, preWCnt, fifoEmpty, under, rCnt, rData) =
       go ticks mempty rstR rEna rstWNext wData
-
   goWrite ticks q rstR rEna (_ :- rstW) (wDat :- wDats1) =
     (full, over, wCnt, fifoEmpty, under, rCnt, rData)
    where
@@ -221,7 +220,7 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
     full = (Seq.length q == fifoSize) :- preFull
     (q', over) =
       if Seq.length q < fifoSize
-        then (case wDat of { Just x -> x Seq.<| q ; _ -> q }, False :- preOver)
+        then (case wDat of Just x -> x Seq.<| q; _ -> q, False :- preOver)
         else (q, isJust wDat :- preOver)
 
   goRead ticks _q (True :- rstRNext) (_ :- rEnas1) rstW wData =
@@ -236,7 +235,6 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
 
     (full, over, wCnt, preEmpty, preUnder, preRCnt, preRData) =
       go ticks mempty rstRNext rEnas1 rstW wData
-
   goRead ticks q (_ :- rstRNext) (rEna :- rEnas1) rstW wData =
     (full, over, wCnt, fifoEmpty, under, rCnt, rData)
    where
@@ -249,19 +247,23 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
 
     (q', nextData, under) =
       if rEna
-        then
-          case Seq.viewr q of
-            Seq.EmptyR -> (q, deepErrorX "FIFO empty", True :- preUnder)
-            qData Seq.:> qDatum -> (qData, qDatum, False :- preUnder)
+        then case Seq.viewr q of
+          Seq.EmptyR -> (q, deepErrorX "FIFO empty", True :- preUnder)
+          qData Seq.:> qDatum -> (qData, qDatum, False :- preUnder)
         else (q, deepErrorX "Enable off", False :- preUnder)
 -- See: https://github.com/clash-lang/clash-compiler/pull/2511
 {-# CLASH_OPAQUE dcFifo #-}
-{-# ANN dcFifo (
-   let primName = 'dcFifo
-       tfName = 'dcFifoBBF
-   in InlineYamlPrimitive [minBound..] [__i|
+{-# ANN
+  dcFifo
+  ( let primName = 'dcFifo
+        tfName = 'dcFifoBBF
+     in InlineYamlPrimitive
+          [minBound ..]
+          [__i|
         BlackBoxHaskell:
             name: #{primName}
             templateFunction: #{tfName}
             workInfo: Always
-        |]) #-}
+        |]
+  )
+  #-}

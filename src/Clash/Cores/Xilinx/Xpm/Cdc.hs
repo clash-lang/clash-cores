@@ -1,4 +1,4 @@
-{-|
+{- |
   Copyright   :  (C) 2023, Google LLC
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
@@ -14,15 +14,14 @@
             vetted primitives. Always read the documentation and make sure the
             primitives' prerequisites and invariants are upheld.
 -}
-
-module Clash.Cores.Xilinx.Xpm.Cdc
-  ( xpmCdcArraySingle
-  , xpmCdcGray
-  , xpmCdcHandshake
-  , xpmCdcPulse
-  , xpmCdcSingle
-  , xpmCdcSyncRst
-  ) where
+module Clash.Cores.Xilinx.Xpm.Cdc (
+  xpmCdcArraySingle,
+  xpmCdcGray,
+  xpmCdcHandshake,
+  xpmCdcPulse,
+  xpmCdcSingle,
+  xpmCdcSyncRst,
+) where
 
 import Clash.Cores.Xilinx.Xpm.Cdc.ArraySingle
 import Clash.Cores.Xilinx.Xpm.Cdc.Gray

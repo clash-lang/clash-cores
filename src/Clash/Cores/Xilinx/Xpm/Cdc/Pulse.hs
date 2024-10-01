@@ -1,34 +1,35 @@
-{-|
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RecordWildCards #-}
+
+{- |
   Copyright   :  (C) 2023, Google LLC
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 -}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RecordWildCards #-}
-
-module Clash.Cores.Xilinx.Xpm.Cdc.Pulse
-  ( xpmCdcPulse
-  , XpmCdcPulseConfig(..)
-  , xpmCdcPulseWith
-  ) where
+module Clash.Cores.Xilinx.Xpm.Cdc.Pulse (
+  xpmCdcPulse,
+  XpmCdcPulseConfig (..),
+  xpmCdcPulseWith,
+) where
 
 import GHC.Stack (HasCallStack)
 
 import Clash.Explicit.Prelude
 
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
-import Clash.Cores.Xilinx.Xpm.Cdc.Single (XpmCdcSingleConfig(..), xpmCdcSingleWith)
+import Clash.Cores.Xilinx.Xpm.Cdc.Single (XpmCdcSingleConfig (..), xpmCdcSingleWith)
 
--- | Synchronizes a pulse from the source clock domain to the destination
--- domain. The pulse in the source domain can be of any length, while the pulse
--- in the destination domain will be asserted for a single cycle. For more
--- information see [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_PULSE).
---
--- __N.B.__: In order to simulate initial values, both the source and destination
---           domain need to support them. If the source and destination domain
---           disagree on this property, use of this function will fail to
---           simulate and translate to HDL. You can explicitly set it using
---           'xpmCdcPulseWith'.
+{- | Synchronizes a pulse from the source clock domain to the destination
+domain. The pulse in the source domain can be of any length, while the pulse
+in the destination domain will be asserted for a single cycle. For more
+information see [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_PULSE).
+
+__N.B.__: In order to simulate initial values, both the source and destination
+          domain need to support them. If the source and destination domain
+          disagree on this property, use of this function will fail to
+          simulate and translate to HDL. You can explicitly set it using
+          'xpmCdcPulseWith'.
+-}
 xpmCdcPulse ::
   forall a src dst.
   ( KnownDomain src
@@ -51,9 +52,11 @@ xpmCdcPulse clkSrc clkDst = xpmCdcPulseWith XpmCdcPulseConfig{..} clkSrc rstSrc 
     case (initBehavior @src, initBehavior @dst) of
       (SDefined, SDefined) -> True
       (SUnknown, SUnknown) -> False
-      _ -> clashCompileError $ "xpmCdcPulse: domains need to agree on initial value "
-                            <> "behavior. To set initial value usage explicitly, "
-                            <> "consider using 'xpmCdcPulseWith'."
+      _ ->
+        clashCompileError
+          $ "xpmCdcPulse: domains need to agree on initial value "
+          <> "behavior. To set initial value usage explicitly, "
+          <> "consider using 'xpmCdcPulseWith'."
   resetUsed = False
   rstSrc = error "xpmCdcPulse: src: no reset"
   rstDst = error "xpmCdcPulse: dst: no reset"
@@ -61,35 +64,35 @@ xpmCdcPulse clkSrc clkDst = xpmCdcPulseWith XpmCdcPulseConfig{..} clkSrc rstSrc 
 
 -- | Configuration for 'xpmCdcPulseWith'
 data XpmCdcPulseConfig stages = XpmCdcPulseConfig
-  { -- | Number of synchronization stages. I.e., number of registers in the
-    -- destination domain.
-    --
-    -- This is what [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_HANDSHAKE)
-    -- calls @DEST_SYNC_FF@.
-    stages :: SNat stages
-
-    -- | Initialize registers used within the primitive to /0/. Note that
-    -- 'xpmCdcPulse' will set this to 'True' if both domains support initial
-    -- values, to 'False' if neither domain does, and will otherwise emit an
-    -- error.
-    --
-    -- This is what [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_HANDSHAKE)
-    -- calls @INIT_SYNC_FF@.
+  { stages :: SNat stages
+  -- ^ Number of synchronization stages. I.e., number of registers in the
+  -- destination domain.
+  --
+  -- This is what [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_HANDSHAKE)
+  -- calls @DEST_SYNC_FF@.
   , initialValues :: Bool
-
-    -- | Register output. Makes sure the combinatorial logic in @XPM_CDC_PULSE@
-    -- doesn't contribute to any user critical paths.
+  -- ^ Initialize registers used within the primitive to /0/. Note that
+  -- 'xpmCdcPulse' will set this to 'True' if both domains support initial
+  -- values, to 'False' if neither domain does, and will otherwise emit an
+  -- error.
+  --
+  -- This is what [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_HANDSHAKE)
+  -- calls @INIT_SYNC_FF@.
   , registerOutput :: Bool
-    -- This is what [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_HANDSHAKE)
+  -- ^ Register output. Makes sure the combinatorial logic in @XPM_CDC_PULSE@
+  -- doesn't contribute to any user critical paths.
+  , -- This is what [PG382](https://docs.xilinx.com/r/en-US/pg382-xpm-cdc-generator/XPM_CDC_HANDSHAKE)
     -- calls @REG_OUTPUT@.
-  , resetUsed :: Bool
+    resetUsed :: Bool
   }
 
--- | Like 'xpmCdcPulse', but with a configurable number of stages, initial values,
--- and registered input. Also see 'XpmCdcPulseConfig'.
+{- | Like 'xpmCdcPulse', but with a configurable number of stages, initial values,
+and registered input. Also see 'XpmCdcPulseConfig'.
+-}
 xpmCdcPulseWith ::
   forall stages a src dst.
-  ( 2 <= stages, stages <= 10
+  ( 2 <= stages
+  , stages <= 10
   , KnownDomain src
   , KnownDomain dst
   , HasCallStack
@@ -105,7 +108,7 @@ xpmCdcPulseWith ::
   Reset dst ->
   Signal src a ->
   Signal dst a
-xpmCdcPulseWith XpmCdcPulseConfig{stages=stages@SNat, ..} clkSrc rstSrc0 clkDst rstDst0 input
+xpmCdcPulseWith XpmCdcPulseConfig{stages = stages@SNat, ..} clkSrc rstSrc0 clkDst rstDst0 input
   | clashSimulation = sim
   | otherwise = synth
  where
@@ -116,38 +119,45 @@ xpmCdcPulseWith XpmCdcPulseConfig{stages=stages@SNat, ..} clkSrc rstSrc0 clkDst 
       inst
         (instConfig "xpm_cdc_pulse")
           { library = Just "xpm"
-          , libraryImport = Just "xpm.vcomponents.all" }
-
-        (Param @"DEST_SYNC_FF"   @Integer (natToNum @stages))
-        (Param @"INIT_SYNC_FF"   @Integer (if initialValues then 1 else 0))
-        (Param @"REG_OUTPUT"     @Integer (if registerOutput then 1 else 0))
-        (Param @"RST_USED"       @Integer (if resetUsed then 1 else 0))
+          , libraryImport = Just "xpm.vcomponents.all"
+          }
+        (Param @"DEST_SYNC_FF" @Integer (natToNum @stages))
+        (Param @"INIT_SYNC_FF" @Integer (if initialValues then 1 else 0))
+        (Param @"REG_OUTPUT" @Integer (if registerOutput then 1 else 0))
+        (Param @"RST_USED" @Integer (if resetUsed then 1 else 0))
         (Param @"SIM_ASSERT_CHK" @Integer 0)
-
-        (ClockPort @"dest_clk"  clkDst)
+        (ClockPort @"dest_clk" clkDst)
         (ResetPort @"dest_rst" @'ActiveHigh rstDst)
+        (ClockPort @"src_clk" clkSrc)
+        (Port @"src_pulse" (bitCoerce @_ @Bit <$> input))
+        (ResetPort @"src_rst" @'ActiveHigh rstSrc)
 
-        (ClockPort @"src_clk"   clkSrc)
-        (Port      @"src_pulse" (bitCoerce @_ @Bit <$> input))
-        (ResetPort @"src_rst"  @'ActiveHigh rstSrc)
-
-  rstSrc | resetUsed = rstSrc0
-         | otherwise = error "xpmCdcPulseWith: src: no reset"
-  rstDst | resetUsed = rstDst0
-         | otherwise = error "xpmCdcPulseWith: dst: no reset"
+  rstSrc
+    | resetUsed = rstSrc0
+    | otherwise = error "xpmCdcPulseWith: src: no reset"
+  rstDst
+    | resetUsed = rstDst0
+    | otherwise = error "xpmCdcPulseWith: dst: no reset"
   sim =
-   xpmCdcPulse#
-    registerOutput initialValues resetUsed stages
-    clkSrc rstSrc
-    clkDst rstDst
-    input
+    xpmCdcPulse#
+      registerOutput
+      initialValues
+      resetUsed
+      stages
+      clkSrc
+      rstSrc
+      clkDst
+      rstDst
+      input
 {-# INLINE xpmCdcPulseWith #-}
 
--- | Clash implementation of @XPM_CDC_PULSE@. It does not need a black box / internal
--- module, as it delegates clock domain crossings to @XPM_CDC_SINGLE@.
+{- | Clash implementation of @XPM_CDC_PULSE@. It does not need a black box / internal
+module, as it delegates clock domain crossings to @XPM_CDC_SINGLE@.
+-}
 xpmCdcPulse# ::
   forall stages a src dst.
-  ( 2 <= stages, stages <= 10
+  ( 2 <= stages
+  , stages <= 10
   , KnownDomain src
   , KnownDomain dst
   , HasCallStack
@@ -164,19 +174,18 @@ xpmCdcPulse# ::
   Bool ->
   -- | Sync stages
   SNat stages ->
-
-  "src_clk"     ::: Clock src ->
-  "src_rst"     ::: Reset src ->
-  "dest_clk"    ::: Clock dst ->
+  "src_clk" ::: Clock src ->
+  "src_rst" ::: Reset src ->
+  "dest_clk" ::: Clock dst ->
   "dest_rst_in" ::: Reset dst ->
-  "src_pulse"   ::: Signal src a ->
-  "dest_pulse"  ::: Signal dst a
+  "src_pulse" ::: Signal src a ->
+  "dest_pulse" ::: Signal dst a
 xpmCdcPulse# regOutput initVals resetUsed stages clkSrc rstSrc0 clkDst rstDst0 srcPulse
   | regOutput = register clkDst rstDst1 enableGen initVal go
   | otherwise = go
  where
   initVal
-    | initVals  = unpack 0
+    | initVals = unpack 0
     | otherwise = errorX "xpmCdcPulse: initial values undefined"
 
   rstSrc1

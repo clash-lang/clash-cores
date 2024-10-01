@@ -1,33 +1,31 @@
-{-|
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_HADDOCK hide #-}
+
+{- |
 Copyright  :  (C) 2021-2023, QBayLogic B.V.,
                   2022     , Google Inc.,
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 -}
-
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
-
-{-# OPTIONS_HADDOCK hide #-}
-
-module Clash.Cores.Xilinx.Floating.Annotations
-  ( veriBinaryPrim
-  , vhdlBinaryPrim
-  , vhdlFromUPrim
-  , veriFromUPrim
-  , vhdlFromSPrim
-  , veriFromSPrim
-  , vhdlComparePrim
-  , veriComparePrim
-  ) where
+module Clash.Cores.Xilinx.Floating.Annotations (
+  veriBinaryPrim,
+  vhdlBinaryPrim,
+  vhdlFromUPrim,
+  veriFromUPrim,
+  vhdlFromSPrim,
+  veriFromSPrim,
+  vhdlComparePrim,
+  veriComparePrim,
+) where
 
 import Prelude
 
-import Data.List.Infinite (Infinite(..), (...))
+import Data.List.Infinite (Infinite (..), (...))
 import Data.String.Interpolate (__i)
 import Language.Haskell.TH.Syntax (Name)
 
-import Clash.Annotations.Primitive (Primitive(..), HDL(..))
+import Clash.Annotations.Primitive (HDL (..), Primitive (..))
 
 import Clash.Cores.Xilinx.Floating.BlackBoxes
 
@@ -36,11 +34,11 @@ import Clash.Cores.Xilinx.Floating.BlackBoxes
 -- Note: The BlackBox template includes @~DEVNULL[~LIT[#{config}]]@ which will
 -- ensure the template function (tclTFName argument) gets a fully evaluated
 -- Config.
-vhdlBinaryPrim
-  :: Name
-  -> Name
-  -> String
-  -> Primitive
+vhdlBinaryPrim ::
+  Name ->
+  Name ->
+  String ->
+  Primitive
 vhdlBinaryPrim primName tclTFName funcName =
   let
     _knownDomain
@@ -51,12 +49,15 @@ vhdlBinaryPrim primName tclTFName funcName =
       :< en
       :< x
       :< y
-      :< _ = ((0 :: Int)...)
+      :< _ = ((0 :: Int) ...)
     blockSym
       :< instSym
       :< stdEnSym
-      :< _ = ((0 :: Int)...)
-  in InlineYamlPrimitive [VHDL] [__i|
+      :< _ = ((0 :: Int) ...)
+   in
+    InlineYamlPrimitive
+      [VHDL]
+      [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration
@@ -103,11 +104,11 @@ vhdlBinaryPrim primName tclTFName funcName =
 
 -- Note: The BlackBox template includes ~DEVNULL[~LIT[3]] which will ensure the
 -- template function (tclTFName argument) gets a fully evaluated Config.
-veriBinaryPrim
-  :: Name
-  -> Name
-  -> String
-  -> Primitive
+veriBinaryPrim ::
+  Name ->
+  Name ->
+  String ->
+  Primitive
 veriBinaryPrim primName tclTFName funcName =
   let
     _knownDomain
@@ -118,9 +119,12 @@ veriBinaryPrim primName tclTFName funcName =
       :< en
       :< x
       :< y
-      :< _ = ((0 :: Int)...)
+      :< _ = ((0 :: Int) ...)
     instSym = 0 :: Int
-  in InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
+   in
+    InlineYamlPrimitive
+      [Verilog, SystemVerilog]
+      [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration
@@ -142,10 +146,10 @@ veriBinaryPrim primName tclTFName funcName =
           templateFunction: #{tclTFName}
     |]
 
-vhdlFromUPrim
-  :: Name
-  -> String
-  -> Primitive
+vhdlFromUPrim ::
+  Name ->
+  String ->
+  Primitive
 vhdlFromUPrim primName funcName =
   let tfName = 'fromUTclTF
       _knownDomain
@@ -154,13 +158,15 @@ vhdlFromUPrim primName funcName =
         :< clk
         :< en
         :< input
-        :< _ = ((0 :: Int)...)
+        :< _ = ((0 :: Int) ...)
       blockSym
         :< inpSlvSym
         :< compSym
         :< clkEnStdSym
-        :< _ = ((0 :: Int)...)
-  in InlineYamlPrimitive [VHDL] [__i|
+        :< _ = ((0 :: Int) ...)
+   in InlineYamlPrimitive
+        [VHDL]
+        [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration
@@ -201,10 +207,10 @@ vhdlFromUPrim primName funcName =
           templateFunction: #{tfName}
     |]
 
-veriFromUPrim
-  :: Name
-  -> String
-  -> Primitive
+veriFromUPrim ::
+  Name ->
+  String ->
+  Primitive
 veriFromUPrim primName funcName =
   let
     tfName = 'fromUTclTF
@@ -214,9 +220,12 @@ veriFromUPrim primName funcName =
       :< clk
       :< en
       :< input
-      :< _ = ((0 :: Int)...)
+      :< _ = ((0 :: Int) ...)
     instSym = 0 :: Int
-  in InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
+   in
+    InlineYamlPrimitive
+      [Verilog, SystemVerilog]
+      [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration
@@ -238,10 +247,10 @@ veriFromUPrim primName funcName =
           templateFunction: #{tfName}
     |]
 
-vhdlFromSPrim
-  :: Name
-  -> String
-  -> Primitive
+vhdlFromSPrim ::
+  Name ->
+  String ->
+  Primitive
 vhdlFromSPrim primName funcName =
   let
     tfName = 'fromSTclTF
@@ -251,13 +260,16 @@ vhdlFromSPrim primName funcName =
       :< clk
       :< en
       :< input
-      :< _ = ((0 :: Int)...)
+      :< _ = ((0 :: Int) ...)
     blockSym
       :< inpSlvSym
       :< compSym
       :< clkEnStdSym
-      :< _ = ((0 :: Int)...)
-  in InlineYamlPrimitive [VHDL] [__i|
+      :< _ = ((0 :: Int) ...)
+   in
+    InlineYamlPrimitive
+      [VHDL]
+      [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration
@@ -298,10 +310,10 @@ vhdlFromSPrim primName funcName =
           templateFunction: #{tfName}
     |]
 
-veriFromSPrim
-  :: Name
-  -> String
-  -> Primitive
+veriFromSPrim ::
+  Name ->
+  String ->
+  Primitive
 veriFromSPrim primName funcName =
   let
     tfName = 'fromSTclTF
@@ -311,9 +323,12 @@ veriFromSPrim primName funcName =
       :< clk
       :< en
       :< input
-      :< _ = ((0 :: Int)...)
+      :< _ = ((0 :: Int) ...)
     instSym = 0 :: Int
-  in InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
+   in
+    InlineYamlPrimitive
+      [Verilog, SystemVerilog]
+      [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration
@@ -335,13 +350,14 @@ veriFromSPrim primName funcName =
           templateFunction: #{tfName}
     |]
 
--- | The InlinePrimitive annotation for Xilinx's compare floating point
--- primitive, in VHDL.
-vhdlComparePrim
-  :: Name
-  -> Name
-  -> String
-  -> Primitive
+{- | The InlinePrimitive annotation for Xilinx's compare floating point
+primitive, in VHDL.
+-}
+vhdlComparePrim ::
+  Name ->
+  Name ->
+  String ->
+  Primitive
 vhdlComparePrim primName tclTFName funcName =
   let
     _knownDomain
@@ -351,13 +367,16 @@ vhdlComparePrim primName tclTFName funcName =
       :< enable
       :< x
       :< y
-      :< _ = ((0 :: Int)...)
+      :< _ = ((0 :: Int) ...)
     blockSym
       :< compSym
       :< clkEnStdSym
       :< ipResultSym
-      :< _ = ((0 :: Int)...)
-  in InlineYamlPrimitive [VHDL] [__i|
+      :< _ = ((0 :: Int) ...)
+   in
+    InlineYamlPrimitive
+      [VHDL]
+      [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration
@@ -401,13 +420,14 @@ vhdlComparePrim primName tclTFName funcName =
           templateFunction: #{tclTFName}
     |]
 
--- | The InlinePrimitive annotation for Xilinx's compare floating point
--- primitive, in Verilog.
-veriComparePrim
-  :: Name
-  -> Name
-  -> String
-  -> Primitive
+{- | The InlinePrimitive annotation for Xilinx's compare floating point
+primitive, in Verilog.
+-}
+veriComparePrim ::
+  Name ->
+  Name ->
+  String ->
+  Primitive
 veriComparePrim primName tclTFName funcName =
   let
     _knownDomain
@@ -417,9 +437,12 @@ veriComparePrim primName tclTFName funcName =
       :< enable
       :< x
       :< y
-      :< _ = ((0 :: Int)...)
+      :< _ = ((0 :: Int) ...)
     compSym = 0 :: Int
-  in InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
+   in
+    InlineYamlPrimitive
+      [Verilog, SystemVerilog]
+      [__i|
     BlackBox:
       name: #{primName}
       kind: Declaration

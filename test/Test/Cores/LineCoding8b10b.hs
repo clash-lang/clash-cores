@@ -1,9 +1,10 @@
--- |
---   Copyright   :  (C) 2024, QBayLogic B.V.
---   License     :  BSD2 (see the file LICENSE)
---   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
---
---   8b/10b encoding and decoding tests
+{- |
+  Copyright   :  (C) 2024, QBayLogic B.V.
+  License     :  BSD2 (see the file LICENSE)
+  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+  8b/10b encoding and decoding tests
+-}
 module Test.Cores.LineCoding8b10b where
 
 import Clash.Cores.LineCoding8b10b
@@ -18,8 +19,9 @@ import Test.Tasty.Hedgehog
 import Test.Tasty.TH
 import Prelude
 
--- | Check if a 'BitVector' does not contain a sequence of bits with the same
---   value for 5 or more indices consecutively
+{- | Check if a 'BitVector' does not contain a sequence of bits with the same
+  value for 5 or more indices consecutively
+-}
 checkBitSequence :: C.BitVector 10 -> Bool
 checkBitSequence cg =
   isNothing $
@@ -36,23 +38,26 @@ isValidCodeGroup cg =
   isValidSymbol (snd $ decode8b10b True cg)
     || isValidSymbol (snd $ decode8b10b False cg)
 
--- | Function that creates a list with a given range that contains a list of
---   running disparities and 'Symbol8b10b's
+{- | Function that creates a list with a given range that contains a list of
+  running disparities and 'Symbol8b10b's
+-}
 genSymbol8b10bs :: H.Range Int -> H.Gen [(Bool, Symbol8b10b)]
 genSymbol8b10bs range = do
   n <- Gen.int range
   genSymbol8b10bs1 n False
 
--- | Recursive function to generate a list of 'Symbol8b10b's with the correct
---   running disparity
+{- | Recursive function to generate a list of 'Symbol8b10b's with the correct
+  running disparity
+-}
 genSymbol8b10bs1 :: Int -> Bool -> H.Gen [(Bool, Symbol8b10b)]
 genSymbol8b10bs1 0 _ = pure []
 genSymbol8b10bs1 n rd = do
   (rdNew, dw) <- genSymbol8b10b rd
   ((rdNew, dw) :) <$> genSymbol8b10bs1 (pred n) rdNew
 
--- | Generate a 'Symbol8b10b' by creating a 'BitVector' of length 10 and
---   decoding it with the 'decode8b10b' function
+{- | Generate a 'Symbol8b10b' by creating a 'BitVector' of length 10 and
+  decoding it with the 'decode8b10b' function
+-}
 genSymbol8b10b :: Bool -> H.Gen (Bool, Symbol8b10b)
 genSymbol8b10b rd = Gen.filter f $ decode8b10b rd <$> genDefinedBitVector
  where
@@ -86,10 +91,11 @@ prop_encodeDecode8b10b = H.withTests 1000 $ H.property $ do
  where
   roundTrip rd inp = snd $ decode8b10b rd $ snd $ encode8b10b rd $ Dw inp
 
--- | Decode and then encode a valid input, and then decode it and the input to
---   check if they are the same. The last decoding step is performed to
---   side-step the fact that the decoding table contains errors, but we want the
---   test suite to succeed nonetheless.
+{- | Decode and then encode a valid input, and then decode it and the input to
+  check if they are the same. The last decoding step is performed to
+  side-step the fact that the decoding table contains errors, but we want the
+  test suite to succeed nonetheless.
+-}
 prop_decodeEncode8b10b :: H.Property
 prop_decodeEncode8b10b = H.withTests 1000 $ H.property $ do
   inp <- H.forAll (Gen.filter isValidCodeGroup genDefinedBitVector)

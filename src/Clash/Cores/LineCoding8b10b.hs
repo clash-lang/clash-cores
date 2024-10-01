@@ -1,19 +1,21 @@
 {-# LANGUAGE CPP #-}
 
--- |
---   Copyright   :  (C) 2024, QBayLogic B.V.
---   License     :  BSD2 (see the file LICENSE)
---   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
---
---   8b/10b encoding and decoding functions
+{- |
+  Copyright   :  (C) 2024, QBayLogic B.V.
+  License     :  BSD2 (see the file LICENSE)
+  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+8b/10b encoding and decoding functions
+-}
 module Clash.Cores.LineCoding8b10b where
 
 import qualified Clash.Cores.LineCoding8b10b.Decoder as Dec
 import qualified Clash.Cores.LineCoding8b10b.Encoder as Enc
 import Clash.Prelude
 
--- | Data type that contains a 'BitVector' with the corresponding error
---   condition of the decode function
+{- | Data type that contains a 'BitVector' with the corresponding error
+  condition of the decode function
+-}
 data Symbol8b10b
   = -- | Correct data word
     Dw (BitVector 8)
@@ -47,10 +49,11 @@ fromSymbol sym = case sym of
   DwError w -> w
   RdError w -> w
 
--- | Take the running disparity and the current code group, and return a tuple
---   containing the new running disparity and a 'Symbol8b10b' containing the
---   decoded value. This function uses a 'MemBlob' to store the decoder lookup
---   table.
+{- | Take the running disparity and the current code group, and return a tuple
+containing the new running disparity and a 'Symbol8b10b' containing the
+decoded value. This function uses a 'MemBlob' to store the decoder lookup
+table.
+-}
 decode8b10b ::
   -- | Running disparity
   Bool ->
@@ -74,10 +77,11 @@ decode8b10b rd cg = (rdNew, sym)
 
 {-# CLASH_OPAQUE decode8b10b #-}
 
--- | Take the running disparity and the current 'Symbol8b10b', and return a
---   tuple containing the new running disparity and a 'BitVector' containing the
---   encoded value. This function uses a 'MemBlob' to store the encoder lookup
---   table.
+{- | Take the running disparity and the current 'Symbol8b10b', and return a
+tuple containing the new running disparity and a 'BitVector' containing the
+encoded value. This function uses a 'MemBlob' to store the encoder lookup
+table.
+-}
 encode8b10b ::
   -- | Running disparity
   Bool ->

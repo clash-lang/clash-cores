@@ -75,6 +75,19 @@ nix-build:
   tags:
     - local
 
+fourmolu:
+  extends: .common-local
+  needs: []
+  stage: test
+  script:
+    - cabal v2-update
+    # Install the same version as Nix OS manages, 0.14.0.0.
+    # Installation failure should not make the job fail. This can happen if
+    # fourmolu was already in PATH for example.
+    - cabal v2-install --overwrite-policy=always fourmolu-0.14.0.0 || true
+    - export PATH="$HOME/.cabal/bin:$PATH"
+    - ./format.sh check
+
 haddock:
   extends: .common-local
   needs: []

@@ -1,4 +1,9 @@
-{-|
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# OPTIONS_HADDOCK hide #-}
+
+{- |
 Copyright  :  (C) 2021,      QBayLogic B.V.,
                   2022,      Google Inc.,
 License    :  BSD2 (see the file LICENSE)
@@ -41,49 +46,44 @@ defaults. These functions use the settings from 'defConfig' and the maximum
 delay for the Xilinx IP with that configuration. That delay is also defined as a
 type variable for delay annotation in circuits.
 -}
+module Clash.Cores.Xilinx.Floating.Explicit (
+  -- * Instantiating IP
+  addWith,
+  add,
+  AddDefDelay,
+  subWith,
+  sub,
+  SubDefDelay,
+  mulWith,
+  mul,
+  MulDefDelay,
+  divWith,
+  div,
+  DivDefDelay,
+  Ordering (..),
+  toMaybeOrdering,
+  compare,
+  compareWith,
+  CompareDefDelay,
+  fromU32With,
+  fromU32,
+  FromU32DefDelay,
+  fromS32With,
+  fromS32,
+  FromS32DefDelay,
 
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE ViewPatterns #-}
+  -- * Customizing IP
+  Config (..),
+  defConfig,
+  ArchOpt (..),
+  DspUsage (..),
+  BMemUsage (..),
 
-{-# OPTIONS_HADDOCK hide #-}
+  -- * Additional functions
+  xilinxNaN,
+) where
 
-module Clash.Cores.Xilinx.Floating.Explicit
-  ( -- * Instantiating IP
-    addWith
-  , add
-  , AddDefDelay
-  , subWith
-  , sub
-  , SubDefDelay
-  , mulWith
-  , mul
-  , MulDefDelay
-  , divWith
-  , div
-  , DivDefDelay
-  , Ordering(..)
-  , toMaybeOrdering
-  , compare
-  , compareWith
-  , CompareDefDelay
-  , fromU32With
-  , fromU32
-  , FromU32DefDelay
-  , fromS32With
-  , fromS32
-  , FromS32DefDelay
-    -- * Customizing IP
-  , Config(..)
-  , defConfig
-  , ArchOpt(..)
-  , DspUsage(..)
-  , BMemUsage(..)
-    -- * Additional functions
-  , xilinxNaN
-  ) where
-
-import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Explicit.Prelude hiding (Ordering (..), add, compare, div, mul, sub)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -92,18 +92,18 @@ import Clash.Cores.Xilinx.Floating.BlackBoxes
 import Clash.Cores.Xilinx.Floating.Internal
 
 -- | Customizable floating point addition.
-addWith
-  :: forall d dom n
-   . ( KnownDomain dom
-     , KnownNat d
-     , HasCallStack
-     )
-  => Config
-  -> Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + d) Float
+addWith ::
+  forall d dom n.
+  ( KnownDomain dom
+  , KnownNat d
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + d) Float
 addWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
   delayI und en clk . conditionFloatF $ x + y
  where
@@ -114,16 +114,16 @@ addWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
 {-# ANN addWith (veriBinaryPrim 'addWith 'addTclTF "add") #-}
 
 -- | Floating point addition with default settings.
-add
-  :: forall dom n
-   . ( KnownDomain dom
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + AddDefDelay) Float
+add ::
+  forall dom n.
+  ( KnownDomain dom
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + AddDefDelay) Float
 add = withFrozenCallStack $ addWith defConfig
 {-# INLINE add #-}
 
@@ -131,18 +131,18 @@ add = withFrozenCallStack $ addWith defConfig
 type AddDefDelay = 11
 
 -- | Customizable floating point subtraction.
-subWith
-  :: forall d dom n
-   . ( KnownDomain dom
-     , KnownNat d
-     , HasCallStack
-     )
-  => Config
-  -> Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + d) Float
+subWith ::
+  forall d dom n.
+  ( KnownDomain dom
+  , KnownNat d
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + d) Float
 subWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
   delayI und en clk . conditionFloatF $ x - y
  where
@@ -153,36 +153,37 @@ subWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
 {-# ANN subWith (veriBinaryPrim 'subWith 'subTclTF "sub") #-}
 
 -- | Floating point subtraction with default settings.
-sub
-  :: forall dom n
-   . ( KnownDomain dom
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + SubDefDelay) Float
+sub ::
+  forall dom n.
+  ( KnownDomain dom
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + SubDefDelay) Float
 sub = withFrozenCallStack $ subWith defConfig
 {-# INLINE sub #-}
 
--- | The default delay for floating point subtraction with default
--- customization.
+{- | The default delay for floating point subtraction with default
+customization.
+-}
 type SubDefDelay = 11
 
 -- | Customizable floating point multiplication.
-mulWith
-  :: forall d dom n
-   . ( KnownDomain dom
-     , KnownNat d
-     , HasCallStack
-     )
-  => Config
-  -> Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + d) Float
+mulWith ::
+  forall d dom n.
+  ( KnownDomain dom
+  , KnownNat d
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + d) Float
 mulWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
   delayI und en clk . conditionFloatF $ x * y
  where
@@ -193,36 +194,37 @@ mulWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
 {-# ANN mulWith (veriBinaryPrim 'mulWith 'mulTclTF "mul") #-}
 
 -- | Floating point multiplication with default settings.
-mul
-  :: forall dom n
-   . ( KnownDomain dom
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + MulDefDelay) Float
+mul ::
+  forall dom n.
+  ( KnownDomain dom
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + MulDefDelay) Float
 mul = withFrozenCallStack $ mulWith defConfig
 {-# INLINE mul #-}
 
--- | The default delay for floating point multiplication with default
--- customization.
+{- | The default delay for floating point multiplication with default
+customization.
+-}
 type MulDefDelay = 8
 
 -- | Customizable floating point division.
-divWith
-  :: forall d dom n
-   . ( KnownDomain dom
-     , KnownNat d
-     , HasCallStack
-     )
-  => Config
-  -> Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + d) Float
+divWith ::
+  forall d dom n.
+  ( KnownDomain dom
+  , KnownNat d
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + d) Float
 divWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
   delayI und en clk . conditionFloatF $ x / y
  where
@@ -233,36 +235,37 @@ divWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
 {-# ANN divWith (veriBinaryPrim 'divWith 'divTclTF "div") #-}
 
 -- | Floating point division with default settings.
-div
-  :: forall dom n
-   . ( KnownDomain dom
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + DivDefDelay) Float
+div ::
+  forall dom n.
+  ( KnownDomain dom
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + DivDefDelay) Float
 div = withFrozenCallStack $ divWith defConfig
 {-# INLINE div #-}
 
 -- | The default delay for floating point division with default customization.
 type DivDefDelay = 28
 
--- | Customizable conversion of @Unsigned 32@ to @Float@
---
--- Only the delay is configurable, so this function does not take a @Config@
--- argument.
-fromU32With
-  :: forall d dom n
-   . ( KnownDomain dom
-     , KnownNat d
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n (Unsigned 32)
-  -> DSignal dom (n + d) Float
+{- | Customizable conversion of @Unsigned 32@ to @Float@
+
+Only the delay is configurable, so this function does not take a @Config@
+argument.
+-}
+fromU32With ::
+  forall d dom n.
+  ( KnownDomain dom
+  , KnownNat d
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (Unsigned 32) ->
+  DSignal dom (n + d) Float
 fromU32With clk en = delayI und en clk . fmap fromIntegral
  where
   und = withFrozenCallStack $ errorX "Initial values of fromU32 undefined"
@@ -272,35 +275,36 @@ fromU32With clk en = delayI und en clk . fmap fromIntegral
 {-# ANN fromU32With (veriFromUPrim 'fromU32With "fromU32") #-}
 
 -- | Conversion of @Unsigned 32@ to @Float@, with default delay
-fromU32
-  :: forall dom n
-   . ( KnownDomain dom
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n (Unsigned 32)
-  -> DSignal dom (n + FromU32DefDelay) Float
+fromU32 ::
+  forall dom n.
+  ( KnownDomain dom
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (Unsigned 32) ->
+  DSignal dom (n + FromU32DefDelay) Float
 fromU32 = withFrozenCallStack fromU32With
 {-# INLINE fromU32 #-}
 
 -- | The default delay for conversion of @Unsigned 32@ to @Float@
 type FromU32DefDelay = 5
 
--- | Customizable conversion of @Signed 32@ to @Float@
---
--- Only the delay is configurable, so this function does not take a @Config@
--- argument.
-fromS32With
-  :: forall d dom n
-   . ( KnownDomain dom
-     , KnownNat d
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n (Signed 32)
-  -> DSignal dom (n + d) Float
+{- | Customizable conversion of @Signed 32@ to @Float@
+
+Only the delay is configurable, so this function does not take a @Config@
+argument.
+-}
+fromS32With ::
+  forall d dom n.
+  ( KnownDomain dom
+  , KnownNat d
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (Signed 32) ->
+  DSignal dom (n + d) Float
 fromS32With clk en = delayI und en clk . fmap fromIntegral
  where
   und = withFrozenCallStack $ errorX "Initial values of fromS32 undefined"
@@ -310,39 +314,40 @@ fromS32With clk en = delayI und en clk . fmap fromIntegral
 {-# ANN fromS32With (veriFromSPrim 'fromS32With "fromS32") #-}
 
 -- | Conversion of @Signed 32@ to @Float@, with default delay
-fromS32
-  :: forall dom n
-   . ( KnownDomain dom
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n (Signed 32)
-  -> DSignal dom (n + FromS32DefDelay) Float
+fromS32 ::
+  forall dom n.
+  ( KnownDomain dom
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (Signed 32) ->
+  DSignal dom (n + FromS32DefDelay) Float
 fromS32 = withFrozenCallStack fromS32With
 {-# INLINE fromS32 #-}
 
 -- | The default delay for conversion of @Signed 32@ to @Float@
 type FromS32DefDelay = 6
 
--- | Customizable floating point comparison
---
--- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
---
--- Only the delay is configurable, so this function does not take a @Config@
--- argument.
-compareWith
-  :: forall d dom n
-   . ( KnownDomain dom
-     , KnownNat d
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + d) Ordering
+{- | Customizable floating point comparison
+
+Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
+NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+
+Only the delay is configurable, so this function does not take a @Config@
+argument.
+-}
+compareWith ::
+  forall d dom n.
+  ( KnownDomain dom
+  , KnownNat d
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + d) Ordering
 compareWith clk ena a b = delayI und ena clk (xilinxCompare <$> a <*> b)
  where
   und = withFrozenCallStack $ errorX "Initial values of compare undefined"
@@ -351,36 +356,39 @@ compareWith clk ena a b = delayI und ena clk (xilinxCompare <$> a <*> b)
 {-# ANN compareWith (vhdlComparePrim 'compareWith 'compareTclTF "compare") #-}
 {-# ANN compareWith (veriComparePrim 'compareWith 'compareTclTF "compare") #-}
 
--- | Floating point comparison, with default delay
---
--- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
-compare
-  :: forall dom n
-   . ( KnownDomain dom
-     , HasCallStack
-     )
-  => Clock dom
-  -> Enable dom
-  -> DSignal dom n Float
-  -> DSignal dom n Float
-  -> DSignal dom (n + CompareDefDelay) Ordering
+{- | Floating point comparison, with default delay
+
+Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
+NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+-}
+compare ::
+  forall dom n.
+  ( KnownDomain dom
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n Float ->
+  DSignal dom n Float ->
+  DSignal dom (n + CompareDefDelay) Ordering
 compare = compareWith
 {-# INLINE compare #-}
 
 -- | The default delay for @Float@ comparison
 type CompareDefDelay = 2
 
--- | Default customization options.
---
--- For those operations that support it, the default options are:
---
--- * Speed-optimized architecture ('SpeedArch')
--- * Full DSP slice usage ('FullDspUsage')
--- * Exponential operator does not use block memory ('NoBMemUsage')
+{- | Default customization options.
+
+For those operations that support it, the default options are:
+
+* Speed-optimized architecture ('SpeedArch')
+* Full DSP slice usage ('FullDspUsage')
+* Exponential operator does not use block memory ('NoBMemUsage')
+-}
 defConfig :: Config
-defConfig = Config
-  { archOpt = SpeedArch
-  , dspUsage = FullDspUsage
-  , bMemUsage = NoBMemUsage
-  }
+defConfig =
+  Config
+    { archOpt = SpeedArch
+    , dspUsage = FullDspUsage
+    , bMemUsage = NoBMemUsage
+    }
