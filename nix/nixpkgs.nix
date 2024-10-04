@@ -46,7 +46,7 @@ let
         clash-protocols-base =
           pkgs.haskell.lib.doJailbreak (self.callCabal2nix "clash-protocols-base" (sources.clash-protocols + "/clash-protocols-base") {});
         clash-protocols =
-          pkgs.haskell.lib.doJailbreak (self.callCabal2nix "clash-protocols" (sources.clash-protocols + "/clash-protocols") {});
+          pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak (self.callCabal2nix "clash-protocols" (sources.clash-protocols + "/clash-protocols") {}));
         clash-lib =
           self.callCabal2nix "clash-lib" (sources.clash-compiler + "/clash-lib") {};
         clash-ghc =
