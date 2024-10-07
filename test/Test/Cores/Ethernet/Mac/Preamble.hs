@@ -36,17 +36,17 @@ prop_preamble_stripper =
   idWithModelSingleDomain
     @System
     defExpectOptions{eoStopAfterEmpty = 1000}
-    (genPackets (Range.linear 1 10) Abort genPkt)
+    (genPackets 1 10 genPkt)
     (exposeClockResetEnable preambleStripperModel)
     (exposeClockResetEnable preambleStripperC)
  where
-  genPkt am =
+  genPkt =
     Gen.choice
       [ -- Random valid packet
-        genValidPacket (pure ()) (Range.linear 0 20) am
+        genValidPacket defPacketOptions (pure ()) (Range.linear 0 20)
       , -- Valid packet with SFD set somewhere
         do
-          packet <- genValidPacket (pure ()) (Range.linear 0 20) am
+          packet <- genValidPacket defPacketOptions (pure ()) (Range.linear 0 20)
           idx <- Gen.int (Range.linear 0 (L.length packet - 1))
           pure $
             L.zipWith

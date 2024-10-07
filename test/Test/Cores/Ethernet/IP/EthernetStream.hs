@@ -86,7 +86,7 @@ ethernetStreamTest SNat arpResponse =
   idWithModelSingleDomain
     @System
     defExpectOptions
-    (genPackets (Range.linear 1 10) Abort (genValidPacket genIPv4Addr (Range.linear 0 10)))
+    (genPackets 1 10 (genValidPacket defPacketOptions genIPv4Addr (Range.linear 0 10)))
     (exposeClockResetEnable (model arpResponse))
     (exposeClockResetEnable (testCircuit @_ @dataWidth arpResponse))
 

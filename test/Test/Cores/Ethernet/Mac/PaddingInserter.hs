@@ -63,7 +63,7 @@ paddingInserterTest SNat padBytes =
   idWithModelSingleDomain
     @System
     defExpectOptions
-    (genPackets (Range.linear 1 10) Abort (genValidPacket (pure ()) (Range.linear 0 10)))
+    (genPackets 1 10 (genValidPacket defPacketOptions (pure ()) (Range.linear 0 10)))
     (exposeClockResetEnable (paddingInserterModel $ natToNum @padBytes))
     (exposeClockResetEnable (paddingInserterC @dataWidth padBytes))
 
