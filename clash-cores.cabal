@@ -48,7 +48,7 @@ flag nix
 custom-setup
   setup-depends:
     base,
-    Cabal
+    Cabal >= 3.10.3.0
 
 common basic-config
   default-language: Haskell2010
