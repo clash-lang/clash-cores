@@ -3,32 +3,12 @@ source-repository-package
   type: git
   location: https://github.com/clash-lang/clash-compiler.git
   tag: master
-  subdir: clash-prelude
-
-source-repository-package
-  type: git
-  location: https://github.com/clash-lang/clash-compiler.git
-  tag: master
-  subdir: clash-lib
-
-source-repository-package
-  type: git
-  location: https://github.com/clash-lang/clash-compiler.git
-  tag: master
-  subdir: clash-ghc
-
-source-repository-package
-  type: git
-  location: https://github.com/clash-lang/clash-compiler.git
-  tag: master
-  subdir: clash-prelude-hedgehog
-
--- clash-testsuite
-source-repository-package
-  type: git
-  location: https://github.com/clash-lang/clash-compiler.git
-  tag: master
-  subdir: tests
+  subdir:
+    clash-prelude
+    clash-lib
+    clash-ghc
+    clash-prelude-hedgehog
+    tests
 
 constraints:
   clash-prelude == 1.9.0,
