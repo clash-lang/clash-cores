@@ -33,6 +33,7 @@ cabal.config
 *.bin
 *.log
 *.tar.gz
+*.tix
 
 *~
 *.DS_Store

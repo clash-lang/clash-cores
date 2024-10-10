@@ -42,6 +42,11 @@ flag nix
   default: False
   manual: True
 
+flag clash-18
+  description:
+    Disable cores that require a Clash version later than 1.8
+  default: False
+
 -- TODO: Remove this workaround. See:
 --
 --   https://github.com/clash-lang/clash-compiler/pull/2665#issuecomment-1939044550
@@ -107,16 +112,25 @@ common basic-config
 
   build-depends:
     base                      >= 4.10  && < 5,
-    clash-prelude,
     constraints,
     containers                >=0.5    && <0.8,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
+    infinite-list             ^>= 0.1,
     lens,
     QuickCheck,
     string-interpolate        ^>= 0.3,
     template-haskell,
+
+  if flag(clash-18)
+    build-depends:
+      clash-lib               >= 1.8.1,
+      clash-prelude           >= 1.8.1,
+  else
+    build-depends:
+      clash-lib               >= 1.9.0,
+      clash-prelude           >= 1.9.0,
 
 library
   import: basic-config
@@ -164,6 +178,19 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
 
+  if !flag(clash-18)
+    exposed-modules:
+      Clash.Cores.Sgmii
+      Clash.Cores.Sgmii.AutoNeg
+      Clash.Cores.Sgmii.BitSlip
+      Clash.Cores.Sgmii.Common
+      Clash.Cores.Sgmii.PcsReceive
+      Clash.Cores.Sgmii.PcsTransmit
+      Clash.Cores.Sgmii.PcsTransmit.CodeGroup
+      Clash.Cores.Sgmii.PcsTransmit.OrderedSet
+      Clash.Cores.Sgmii.RateAdapt
+      Clash.Cores.Sgmii.Sync
+
   other-modules:
     Data.Text.Extra
 
@@ -172,9 +199,7 @@ library
     -fno-worker-wrapper
 
   build-depends:
-    clash-lib,
     unordered-containers,
-    infinite-list           ^>= 0.1,
     ghc-prim                >= 0.3.1.0 && < 1.0,
     lens,
     mtl                     >= 2.1.1 && < 2.4,
@@ -184,7 +209,7 @@ library
     reducers                >= 3.12.2 && < 4.0,
     text                    >= 1.2.2 && < 2.2,
     constraints             >= 0.9   && < 1.0,
-    template-haskell        >= 2.12.0.0 && < 2.22
+    template-haskell        >= 2.12.0.0 && < 2.22,
 
 test-suite unit-tests
   import: basic-config
@@ -195,7 +220,7 @@ test-suite unit-tests
   if !flag(unit-tests)
     buildable: False
 
-  other-Modules:
+  other-modules:
     Test.Cores.Crc
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
@@ -207,9 +232,16 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
 
+  if !flag(clash-18)
+    other-modules:
+      Test.Cores.Sgmii.AutoNeg
+      Test.Cores.Sgmii.BitSlip
+      Test.Cores.Sgmii.RateAdapt
+      Test.Cores.Sgmii.Sgmii
+      Test.Cores.Sgmii.Sync
+
   build-depends:
     clash-cores,
-    clash-lib,
     clash-prelude-hedgehog,
     deepseq,
     tasty        >= 1.2 && < 1.6,
@@ -218,7 +250,6 @@ test-suite unit-tests
     tasty-th,
     hedgehog,
     tasty-hedgehog >= 1.2.0,
-    infinite-list
 
 test-suite doctests
   type:             exitcode-stdio-1.0
@@ -234,4 +265,4 @@ test-suite doctests
       base,
       clash-cores,
       doctest-parallel >= 0.2 && < 0.4,
-      filepath
+      filepath,

@@ -7,6 +7,10 @@ packages:
   - .
   - hdl-tests
 
+flags:
+  clash-cores:
+    clash-18: true
+
 extra-deps:
   - # clash-testsuite
     git: https://github.com/clash-lang/clash-compiler.git
