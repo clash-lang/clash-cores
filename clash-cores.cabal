@@ -109,7 +109,7 @@ common basic-config
     clash-protocols,
     constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.8,
-    -- extra,
+    deepseq,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
@@ -136,6 +136,12 @@ library
     Clash.Cores.Crc
     Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
+    Clash.Cores.Etherbone
+    Clash.Cores.Etherbone.Base
+    Clash.Cores.Etherbone.RecordBuilder
+    Clash.Cores.Etherbone.RecordProcessor
+    Clash.Cores.Etherbone.WishboneMaster
+    Clash.Cores.Etherbone.ConfigMaster
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
@@ -216,6 +222,11 @@ test-suite unit-tests
 
   other-modules:
     Test.Cores.Crc
+    Test.Cores.Etherbone
+    Test.Cores.Etherbone.Internal
+    Test.Cores.Etherbone.WishboneMaster
+    Test.Cores.Etherbone.RecordBuilder
+    Test.Cores.Etherbone.RecordProcessor
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
@@ -238,7 +249,6 @@ test-suite unit-tests
   build-depends:
     clash-cores,
     clash-prelude-hedgehog,
-    deepseq,
     hedgehog,
     infinite-list,
     tasty                   >= 1.2 && < 1.6,
