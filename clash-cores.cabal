@@ -109,6 +109,7 @@ common basic-config
     clash-protocols,
     constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.8,
+    deepseq,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
@@ -235,7 +236,6 @@ test-suite unit-tests
   build-depends:
     clash-cores,
     clash-prelude-hedgehog,
-    deepseq,
     hedgehog,
     tasty                   >= 1.2 && < 1.6,
     tasty-hedgehog          >= 1.2.0,
