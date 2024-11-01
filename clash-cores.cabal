@@ -122,6 +122,8 @@ common basic-config
     QuickCheck,
     string-interpolate        ^>= 0.3,
     template-haskell,
+    clash-protocols,
+    deepseq,
 
   if flag(clash-18)
     build-depends:
