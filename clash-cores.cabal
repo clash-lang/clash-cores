@@ -224,6 +224,8 @@ test-suite unit-tests
 
   other-modules:
     Test.Cores.Crc
+    Test.Cores.Etherbone
+    Test.Cores.Etherbone.WishboneMaster
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
