@@ -140,6 +140,7 @@ library
     Clash.Cores.Crc
     Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
+    Clash.Cores.Ethernet.Mdio
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
