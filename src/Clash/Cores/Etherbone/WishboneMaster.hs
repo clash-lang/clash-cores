@@ -6,7 +6,7 @@ import Clash.Prelude
 import Protocols
 import Protocols.Wishbone
 import qualified Data.Bifunctor as B
-import qualified Protocols.Df as Df
+import Protocols.Df as Df
 import Data.Maybe
 import qualified Prelude as P
 -- import Debug.Trace
@@ -15,26 +15,132 @@ type ByteSize dat = BitSize dat `DivRU` 8
 
 data WishboneMasterInput addrWidth selWidth dat
   = WishboneMasterInput
-  { _addr   :: BitVector addrWidth
-  , _dat    :: Maybe dat
-  , _sel    :: BitVector selWidth
-  , _last   :: Bool
-  , _abort  :: Bool
+  { _inAddr   :: BitVector addrWidth
+  -- | Input data. This determines whether the operation is a read or a write.
+  -- Read for @Nothing@, write for @Just@.
+  , _inDat    :: Maybe dat
+  , _inSel    :: BitVector selWidth
+  -- | Indicates whether the operation is the last of this packet (and record)
+  , _inLast   :: Bool
+  -- | Indicates whether the @busCycle@ line should be dropped after the
+  -- operation.
+  , _dropCyc  :: Bool
   } deriving (Generic, NFDataX, Show)
 
 data WishboneMasterOutput dat
   = WishboneMasterOutput
-  { _wbDatOut  :: Maybe dat
-  , _wbLastOut :: Bool
-  }
+  { _outDat  :: Maybe dat
+  , _outLast :: Bool
+  } deriving (Generic, Show)
 
-data WishboneMasterState addrWidth selWidth dat
+-- | The @busCycle@ is controlled by the @_dropCyc@ bool in the incoming
+-- operation. If this is set, the @cyc@ line is dropped in the @WaitForAck@
+-- state and kept low until a new operation arives. 
+data WishboneMasterState dat
+  -- | Wait for an incoming wishbone operation. If an op is available, it is
+  -- direclty forwarded to the wishbone bus.
   = WaitForOp  { _cyc :: Bool }
-  | Busy       { _input :: WishboneMasterInput addrWidth selWidth dat }
-  -- Wait till Df was acked. If new data is already availible jump back to Busy.
-  -- Otherwise jump to WaitForOp
-  | WaitForAck { _cyc :: Bool, _retDat :: dat }
-  deriving (Generic, NFDataX, Show)
+  -- | Wait for a termination signal from the wishbone bus.
+  | Busy
+  -- | Forward result and wait for an Ack. In this state, a new operation can
+  -- already be sent on the input, though only in the @WaitForOp@ state is it
+  -- being handled.
+  | WaitForAck { _cyc :: Bool, _retDat :: Maybe dat, _isLast :: Bool}
+  deriving (Generic, NFDataX, Show, Eq)
+
+-- TODO: Add edge case where cyc is kept high even after last was seen
+-- This can also be handled in the @recordProcessor@
+wishboneMasterT ::
+  ( KnownNat addrWidth
+  , BitPack dat
+  , NFDataX dat
+  , selWidth ~ ByteSize dat
+  )
+  => WishboneMasterState dat
+  -> ( Bool
+     , ( Data (WishboneMasterInput addrWidth selWidth dat)
+      , (Ack, WishboneS2M dat, ())
+      )
+     )
+  -> ( WishboneMasterState dat
+     , ( Ack
+       , ( Data (WishboneMasterOutput dat)
+         , WishboneM2S addrWidth selWidth dat
+         , Maybe Bit)
+       )
+     )
+wishboneMasterT state (rst, (iFwd, (oBwd, wbBwd, _)))
+  = (nextState, (iBwd, (oFwd, wbFwd, errBit)))
+  where
+    nextState = fsm state iFwd oBwd
+
+    wbErr = err wbBwd || retry wbBwd
+    wbAck = acknowledge wbBwd || wbErr
+
+    oFwd = case state of
+      WaitForAck _ dat lst -> Data $ WishboneMasterOutput dat lst
+      _                    -> NoData
+
+    iBwd = case state of
+      Busy -> Ack False
+      _    -> let Ack oAck = oBwd in Ack (not rst && oAck)
+
+    errBit = case (state, nextState) of
+      (Busy, WaitForAck{}) -> Just $ boolToBit wbErr
+      _                    -> Nothing
+
+    wbFwd = case (state, iFwd) of
+      (WaitForOp c, NoData) -> wbEmpty   { strobe=False, busCycle=c }
+      (WaitForOp _, Data i) -> (wbPkt i) { strobe=True,  busCycle=True }
+      (Busy, NoData)        -> error "No input data in Busy state, this should be impossible!"
+      (Busy, Data i)        -> (wbPkt i) { strobe=True,  busCycle=True }
+      (WaitForAck c _ _, _) -> wbEmpty   { strobe=False, busCycle=c }
+
+    wbPkt WishboneMasterInput{..} = WishboneM2S
+      { addr                = _inAddr
+      , writeData           = fromMaybe undefined _inDat
+      , busSelect           = _inSel
+      , lock                = False
+      , busCycle            = undefined
+      , strobe              = undefined
+      , writeEnable         = isJust _inDat
+      , cycleTypeIdentifier = Classic
+      , burstTypeExtension  = LinearBurst
+      }
+    wbEmpty = emptyWishboneM2S
+
+    fsm st@WaitForOp{} NoData _ = st
+    fsm WaitForOp{} (Data _) _ = Busy
+    fsm Busy{} NoData _ = error "Sender did not keep Df channel constant!" 
+    fsm Busy{} (Data x) _
+      | wbAck     = WaitForAck (not $ _dropCyc x) (dat $ _inDat x) (_inLast x)
+      | otherwise = Busy
+      where
+        dat Nothing  = Just $ readData wbBwd
+        dat (Just _) = Nothing
+    fsm st@WaitForAck{} _ (Ack False) = st
+    fsm WaitForAck{..} _ (Ack True) = WaitForOp _cyc
+
+
+wishboneMasterC
+  :: forall dom addrWidth dat selWidth .
+  ( HiddenClock dom
+  , KnownNat addrWidth
+  , BitPack dat
+  , selWidth ~ ByteSize dat
+  , NFDataX dat
+  )
+  => Clock dom
+  -> Reset dom
+  -> Circuit (Df dom (WishboneMasterInput addrWidth selWidth dat))
+             ( Df dom (WishboneMasterOutput dat)
+             , Wishbone dom Standard addrWidth dat
+             , CSignal dom (Maybe Bit)
+             )
+wishboneMasterC clk rst = Circuit $ B.second unbundle . unbundle . fsm . bundle . B.second bundle
+  where
+    fsm inp = withClockResetEnable clk rst enableGen mealy wishboneMasterT (WaitForOp False) $ bundle (rst', inp)
+    rst' = unsafeToActiveHigh rst
 
 
 {-
@@ -154,6 +260,8 @@ wishboneMasterC = Circuit (B.second unbundle . go . B.second bundle)
 -}
 
 
+
+{-
 type WBData = BitVector 32
 
 wbmInput :: [( Maybe (WishboneMasterInput 32 (ByteSize WBData) WBData), (Ack, WishboneS2M WBData, ()) )]
@@ -204,6 +312,7 @@ type WbmInput addrWidth dat  = ( Maybe (WishboneMasterInput addrWidth (ByteSize 
 type WbmOutput addrWidth dat = ( (), ( Df.Data dat
                                      , WishboneM2S addrWidth (ByteSize dat) dat
                                      , Maybe Bit) )
+-}
 
 -- wbmSim :: forall dat addrWidth .
 --   ( KnownNat addrWidth

@@ -9,5 +9,5 @@ tests :: TestTree
 tests =
   testGroup
     "Etherbone"
-    [ --Test.Cores.Etherbone.WishboneMaster.tests
+    [ Test.Cores.Etherbone.WishboneMaster.tests
     ]
