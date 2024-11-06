@@ -180,6 +180,12 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
 
+    Clash.Cores.Etherbone
+    Clash.Cores.Etherbone.Base
+    -- Clash.Cores.Etherbone.RecordBuilder
+    -- Clash.Cores.Etherbone.RecordProcessor
+    Clash.Cores.Etherbone.WishboneMaster
+
   if !flag(clash-18)
     exposed-modules:
       Clash.Cores.Sgmii
