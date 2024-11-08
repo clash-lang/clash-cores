@@ -116,7 +116,7 @@ prop_recordProcessor_wishbone = withTests 1000 $ do
   idWithModelSingleDomain @C.System
     defExpectOptions
     genRecordProcessorInput
-    (C.exposeClockResetEnable (fst . recordProcessorModel))
+    (C.exposeClockResetEnable (snd . recordProcessorModel))
     (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth @DataWidth @WBData))
   where
     ckt :: forall dom dataWidth addrWidth selWidth dat . 
@@ -132,9 +132,9 @@ prop_recordProcessor_wishbone = withTests 1000 $ do
                  (Df.Df dom (WishboneOperation addrWidth selWidth dat))
     ckt = Circuit go
       where
-        go (iFwd, oBwd) = (oFwd, fst iBwd)
+        go (iFwd, oBwd) = (oFwd, snd iBwd)
           where
-            (oFwd, iBwd) = toSignals recordProcessorC (iFwd, (oBwd, pure ()))
+            (oFwd, iBwd) = toSignals recordProcessorC (iFwd, (pure (), oBwd))
 
 
 prop_recordProcessor_bypass :: Property
@@ -154,9 +154,9 @@ prop_recordProcessor_bypass = withTests 1000 $ property $ do
                  (CSignal dom (Maybe (Bypass addrWidth)))
     ckt = Circuit go
       where
-        go (iFwd, oBwd) = (oFwd, snd iBwd)
+        go (iFwd, oBwd) = (oFwd, fst iBwd)
           where
-            (oFwd, iBwd) = toSignals (recordProcessorC @_ @_ @_ @dat @dataWidth) (iFwd, (pure $ Ack True, oBwd))
+            (oFwd, iBwd) = toSignals (recordProcessorC @_ @_ @_ @dat @dataWidth) (iFwd, (oBwd, pure $ Ack True))
 
     inputs = map Just inputs'
     inputsS = zip inputs (repeat ())
@@ -167,7 +167,7 @@ prop_recordProcessor_bypass = withTests 1000 $ property $ do
 
     bypass = map snd res
 
-    modelBypass = snd $ (recordProcessorModel @DataWidth @AddrWidth @WBData) inputs'
+    modelBypass = fst $ (recordProcessorModel @DataWidth @AddrWidth @WBData) inputs'
   footnote $ "Circit output: " <> show bypass
   footnote $ "Model output:  " <> show modelBypass
 
@@ -184,8 +184,8 @@ recordProcessorModel :: forall dataWidth addrWidth dat selWidth .
   , Show dat
   )
   => [PacketStreamM2S dataWidth RecordHeader]
-  -> ([WishboneOperation addrWidth selWidth dat], [Maybe (Bypass addrWidth)])
-recordProcessorModel inputs = (wbmInput, bypass)
+  -> ([Maybe (Bypass addrWidth)], [WishboneOperation addrWidth selWidth dat])
+recordProcessorModel inputs = (bypass, wbmInput)
   where
     hdr = _meta $ head inputs
     wCount = fromIntegral $ _wCount hdr
