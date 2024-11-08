@@ -19,30 +19,38 @@ import Protocols
 import qualified Protocols.Df as Df
 import Protocols.Wishbone
 import Prelude
+import Clash.Cores.Etherbone.Base
 
 type WBData = C.BitVector 32
 
-genWishboneMasterInput :: Gen (WishboneMasterInput 32 4 WBData)
-genWishboneMasterInput = do
-  _inAddr :: C.BitVector 32 <- Gen.integral Range.linearBounded
-  _inDat :: Maybe WBData <- Gen.maybe $ Gen.integral Range.linearBounded
-  _inLast <- Gen.bool
+genWishboneOperation :: Gen (WishboneOperation 32 4 WBData)
+genWishboneOperation = do
+  _opAddr :: C.BitVector 32 <- Gen.integral Range.linearBounded
+  _opDat :: Maybe WBData <- Gen.maybe $ Gen.integral Range.linearBounded
+  _opLast <- Gen.bool
   _dropCyc <- Gen.bool
   let
-    _inSel = 0xf :: C.BitVector 4
+    _opSel = 0xf :: C.BitVector 4
+
+    -- For now, no testing for _abort
+    _opAbort = False
+    _addrSpace = WishboneAddressSpace
+
     input =
-      WishboneMasterInput
-        { _inAddr
-        , _inDat
-        , _inSel
-        , _inLast
+      WishboneOperation
+        { _opAddr
+        , _opDat
+        , _opSel
+        , _opLast
+        , _opAbort
         , _dropCyc
+        , _addrSpace
         }
   pure input
 
 prop_wishboneMasterT :: Property
 prop_wishboneMasterT = property $ do
-  input <- forAll genWishboneMasterInput
+  input <- forAll genWishboneOperation
   wbTime :: Int <- forAll $ Gen.integral (Range.linear 1 10)
   ackTime :: Int <- forAll $ Gen.integral (Range.linear 0 10)
   let
@@ -91,11 +99,11 @@ prop_wishboneMasterT = property $ do
   -- Check if data was read from the wishbone bus if a read op was submitted,
   -- otherwise check if the returned data was 'Nothing'
   assert $
-    _outDat (getOutDat $ out !! (beginWait + wbTime'))
-      == if isJust (_inDat input) then Nothing else Just readData
+    _resDat (getOutDat $ out !! (beginWait + wbTime'))
+      == if isJust (_opDat input) then Nothing else Just readData
 
   -- Check if last was set correctly
-  assert $ _outLast (getOutDat $ out !! (beginWait + wbTime')) == _inLast input
+  assert $ _resLast (getOutDat $ out !! (beginWait + wbTime')) == _opLast input
 
 tests :: TestTree
 tests = $(testGroupGenerator)
