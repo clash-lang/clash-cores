@@ -183,7 +183,7 @@ library
     Clash.Cores.Etherbone
     Clash.Cores.Etherbone.Base
     -- Clash.Cores.Etherbone.RecordBuilder
-    -- Clash.Cores.Etherbone.RecordProcessor
+    Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
 
   if !flag(clash-18)
@@ -232,6 +232,7 @@ test-suite unit-tests
     Test.Cores.Crc
     Test.Cores.Etherbone
     Test.Cores.Etherbone.WishboneMaster
+    Test.Cores.Etherbone.RecordProcessor
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
