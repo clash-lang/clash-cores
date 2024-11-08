@@ -66,23 +66,23 @@ recordProcessorT :: forall dataWidth addrWidth dat selWidth .
   , selWidth ~ dataWidth)
   => RecordProcessorState addrWidth
   -> ( Maybe (PacketStreamM2S dataWidth RecordHeader)
-     , (Ack, ())
+     , ((), Ack)
      )
   -> ( RecordProcessorState addrWidth
      , ( PacketStreamS2M
-       , ( Df.Data (WishboneOperation addrWidth selWidth dat)
-         , Maybe (Bypass addrWidth)
+       , ( Maybe (Bypass addrWidth)
+         , Df.Data (WishboneOperation addrWidth selWidth dat)
          )
        )
      )
 -- No data in -> no data out
 recordProcessorT state (Nothing, _)
-  = (state, (PacketStreamS2M True, (Df.NoData, Nothing)))
+  = (state, (PacketStreamS2M True, (Nothing, Df.NoData)))
 -- If in the initial state and abort is asserted, stay in this state.
 recordProcessorT WriteOrReadAddr (Just PacketStreamM2S{_abort=True}, _)
-  = (WriteOrReadAddr, (PacketStreamS2M True, (Df.NoData, Nothing)))
-recordProcessorT state (Just psFwd, (Ack wbAck, ()))
-  = (nextState, (PacketStreamS2M psBwd, (wbOut, bpOut)))
+  = (WriteOrReadAddr, (PacketStreamS2M True, (Nothing, Df.NoData)))
+recordProcessorT state (Just psFwd, ((), Ack wbAck))
+  = (nextState, (PacketStreamS2M psBwd, (bpOut, wbOut)))
   where
     nextState
       | ack       = state'
@@ -200,7 +200,7 @@ recordProcessorC :: forall dom dataWidth addrWidth dat selWidth .
   , selWidth ~ dataWidth
   )
   => Circuit (PacketStream dom dataWidth RecordHeader)
-               (Df.Df dom (WishboneOperation addrWidth selWidth dat), CSignal dom (Maybe (Bypass addrWidth)))
+             (CSignal dom (Maybe (Bypass addrWidth)), Df.Df dom (WishboneOperation addrWidth selWidth dat))
 recordProcessorC = forceResetSanity |> Circuit (B.second unbundle . fsm . B.second bundle)
   where
     fsm = mealyB recordProcessorT WriteOrReadAddr
