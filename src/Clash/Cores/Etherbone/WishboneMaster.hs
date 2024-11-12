@@ -49,7 +49,7 @@ wishboneMasterT state (rst, (Df.Data WishboneOperation{_addrSpace=ConfigAddressS
     where
       wbEmpty = emptyWishboneM2S
 wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
-  = (nextState, (iBwd, (oFwd, wbFwd, errBit)))
+  = (nextState, (Ack iBwd, (oFwd, wbFwd, errBit)))
   where
     nextState = fsm state iFwd oBwd
 
@@ -60,9 +60,10 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
       WaitForAck _ dat lst -> Df.Data $ WishboneResult dat lst
       _                    -> Df.NoData
 
-    iBwd = case state of
-      Busy -> Ack False
-      _    -> Ack (not rst && oBwd)
+    iBwd = not rst && case state of
+      WaitForOp _  -> True
+      Busy         -> False
+      WaitForAck{} -> oBwd
 
     errBit = case (state, nextState) of
       (Busy, WaitForAck{}) -> Just $ boolToBit wbErr

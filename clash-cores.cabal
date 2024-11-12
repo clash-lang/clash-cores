@@ -182,7 +182,7 @@ library
 
     Clash.Cores.Etherbone
     Clash.Cores.Etherbone.Base
-    -- Clash.Cores.Etherbone.RecordBuilder
+    Clash.Cores.Etherbone.RecordBuilder
     Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
 
@@ -231,7 +231,9 @@ test-suite unit-tests
   other-modules:
     Test.Cores.Crc
     Test.Cores.Etherbone
+    Test.Cores.Etherbone.Internal
     Test.Cores.Etherbone.WishboneMaster
+    Test.Cores.Etherbone.RecordBuilder
     Test.Cores.Etherbone.RecordProcessor
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
