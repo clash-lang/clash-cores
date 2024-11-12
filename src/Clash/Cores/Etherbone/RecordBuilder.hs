@@ -49,29 +49,33 @@ ebTxMeta SNat SNat = EBHeader
 data RecordBuilderState addrWidth
   -- | Wait for a new packet.
   -- For a write, write zeros and jump to @PadWrites@
-  -- For a read, write the response header and jump to @BaseAddr@
+  -- For a read, write the response header and jump to @BaseRetAddr@
   -- This state always gives backpressure, to make up for the lost cycle form
   -- the record header depacketizer.
   = Init
   -- | Write zeros for each queued (or finished) write.
   -- If second-to-last write, jump to @Header@.
-  | PadWrites   { _header     :: RecordHeader
-                , _maybeBase  :: Maybe (BitVector addrWidth)
-                , _writesLeft :: Unsigned 8
-                }
+  | BaseWriteAddr {_header :: RecordHeader}
+  | PadWrites
+    { _header     :: RecordHeader
+    , _maybeBase  :: Maybe (BitVector addrWidth)
+    , _writesLeft :: Unsigned 8
+    }
   -- | Write the response record header
-  | Header      { _header    :: RecordHeader
-                , _maybeBase :: Maybe (BitVector addrWidth)
-                }
+  | Header
+    { _header    :: RecordHeader
+    , _maybeBase :: Maybe (BitVector addrWidth)
+    }
   -- | Write the @BaseRetAddr@. This is know either through the stored
   -- @_baseAddr@ value, or through the current data on the bypass line.
-  | BaseAddr    { _header    :: RecordHeader
-                , _maybeBase :: Maybe (BitVector addrWidth)
-                }
+  | BaseRetAddr
+    { _header    :: RecordHeader
+    , _maybeBase :: Maybe (BitVector addrWidth)
+    }
   -- | Write the returned values from the @WishboneMaster@.
-  | ReadValues  { _header    :: RecordHeader }
+  | ReadValues  {_header    :: RecordHeader}
   | WaitForLast
-  deriving (Generic, NFDataX, NFData, Show, ShowX)
+  deriving (Generic, NFDataX, NFData, Show, ShowX, Eq)
 
 -- TODO: Check how difficult it would be to make it configurable whether we wait
 -- for writes to finish or directly reply.
@@ -84,45 +88,57 @@ recordBuilderT :: forall addrWidth dataWidth dat .
   , BitSize dat ~ dataWidth * 8
   )
   => RecordBuilderState addrWidth
-  -> ( ( Maybe (Bypass addrWidth)
+  -> ( ( Df.Data (Bypass addrWidth)
        , Df.Data (WishboneResult dat)  -- Config space
        , Df.Data (WishboneResult dat)  -- Wishbone space
        )
      , PacketStreamS2M
      )
   -> ( RecordBuilderState addrWidth
-     , ( ((), Ack, Ack)
+     , ( (Ack, Ack, Ack)
        , Maybe (PacketStreamM2S dataWidth EBHeader)
        )
      )
 -- recordBuilderT state ((Just Bypass{_bpAbort=True}, _, _), PacketStreamS2M psBwd)
 --   = (Init, (((), Ack psBwd, Ack psBwd), ))
 recordBuilderT state ((bypass, cfgDat, wbmDat), PacketStreamS2M psBwd)
-  = (nextState, (((), Ack cfgAck, Ack wbmAck), psFwd))
+  = (nextState, ((Ack bpAck, Ack cfgAck, Ack wbmAck), psFwd))
   where
     nextState
-      | psBwd     = state'
+      | psAck     = state'
       | otherwise = state
+    state' = fsm state mBypass
+    
+    mBypass = Df.dataToMaybe bypass
+    psAck = isJust psFwd && psBwd
 
-    state' = fsm state bypass
+    wbAck = case state of
+      Init            -> False
+      BaseWriteAddr{} -> False
+      BaseRetAddr{}   -> False
+      _               -> psAck
+    cfgAck = wbAck
+    wbmAck = wbAck
 
-    ack = case state of
+    bpAck = case state of
       Init -> False
-      _    -> psBwd
-    cfgAck = ack
-    wbmAck = ack
+      _    -> psAck
+
+    -- TODO: Issue: If psFwd is Nothing, psBwd cannot be read
 
     psFwd = case state of
-      Init -> case bypass of
+      Init -> case mBypass of
         Just bp -> let h = _bpHeader bp in
-          -- TODO: There is a bug here. 0 or header. no base address or w/e.
-          pkt (resize $ pack $ fromMaybe 0 (_bpBase bp)) False bypass
+          case _bpBase bp of
+            Just _  -> pkt (resize $ pack $ recordTxMetaMap h) False mBypass
+            Nothing -> pkt 0 False mBypass
         Nothing -> Nothing
-      PadWrites{}     -> pkt 0 False bypass
-      Header h _      -> pkt (resize $ pack $ recordTxMetaMap h) False bypass
-      BaseAddr _ b    -> basePkt b bypass
+      BaseWriteAddr{} -> pkt 0 False mBypass
+      PadWrites{}     -> pkt 0 False mBypass
+      Header h _      -> pkt (resize $ pack $ recordTxMetaMap h) True mBypass
+      BaseRetAddr _ b    -> basePkt b mBypass
       ReadValues h -> case Df.dataToMaybe (resPort h) >>= _resDat of
-        Just dat      -> pkt (pack dat) (lastPort h) bypass
+        Just dat      -> pkt (pack dat) (lastPort h) mBypass
         Nothing       -> Nothing
       WaitForLast     -> Nothing
 
@@ -161,12 +177,17 @@ recordBuilderT state ((bypass, cfgDat, wbmDat), PacketStreamS2M psBwd)
     fsm Init Nothing = Init
     fsm Init (Just Bypass{..})
       | _bpAbort   = Init
-      | wCount > 0 = PadWrites _bpHeader _bpBase wCount
-      | rCount > 0 = BaseAddr _bpHeader _bpBase
+      | wCount > 0 = BaseWriteAddr _bpHeader
+      | rCount > 0 = BaseRetAddr _bpHeader _bpBase
       | otherwise  = Init
       where
         wCount = _wCount _bpHeader
         rCount = _rCount _bpHeader
+    fsm BaseWriteAddr{..} bp
+      | _wCount _header == 1 = Header _header base
+      | otherwise            = PadWrites _header base (_wCount _header - 1) 
+      where
+        base = bp >>= _bpBase
     fsm PadWrites{..} bp
       | wCount' > 0 = PadWrites _header base wCount'
       | otherwise   = Header _header base
@@ -175,14 +196,14 @@ recordBuilderT state ((bypass, cfgDat, wbmDat), PacketStreamS2M psBwd)
         wCount' = wCount - 1
         base = _maybeBase <|> (bp >>= _bpBase)
     fsm Header{..} bp
-      | rCount > 0         = BaseAddr _header base
+      | rCount > 0         = BaseRetAddr _header base
       | cfgLast || wbmLast = Init
       | otherwise          = WaitForLast
       where
         base = _maybeBase <|> (bp >>= _bpBase)
         rCount = _rCount _header
-    fsm BaseAddr{..} bp
-      | isNothing base = BaseAddr _header Nothing
+    fsm BaseRetAddr{..} bp
+      | isNothing base = BaseRetAddr _header Nothing
       | otherwise      = ReadValues _header
       where
         base = _maybeBase <|> (bp >>= _bpBase)
@@ -206,7 +227,7 @@ recordBuilderC :: forall dom addrWidth dataWidth dat .
   , BitSize dat ~ dataWidth * 8
   , 4 <= dataWidth
   )
-  => Circuit ( CSignal dom (Maybe (Bypass addrWidth))
+  => Circuit ( Df.Df dom (Bypass addrWidth)
              , Df.Df dom (WishboneResult dat)  -- Config space
              , Df.Df dom (WishboneResult dat)  -- Wishbone space
              )

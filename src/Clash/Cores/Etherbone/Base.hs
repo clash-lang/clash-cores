@@ -24,7 +24,7 @@ data EBHeader = EBHeader
   , _pf       :: Bool
   , _addrSize :: BitVector 4
   , _portSize :: BitVector 4
-  } deriving (Generic, BitPack, NFDataX, Show, ShowX)
+  } deriving (Generic, BitPack, NFDataX, NFData, Show, ShowX, Eq)
 
 data RecordHeader = RecordHeader
   { _bca    :: Bool
@@ -79,7 +79,7 @@ data WishboneResult dat
   -- | Forwarded @_last@ signal. Indicates that this is the last (finished)
   -- operation from this packet.
   , _resLast :: Bool
-  } deriving (Generic, Show, NFDataX)
+  } deriving (Generic, Show, NFDataX, ShowX, NFData, Eq)
 
 -- | Extract @EBHeader@ data from a @PacketStream@ into the metadata.
 etherboneDepacketizerC :: forall dom dataWidth .
