@@ -79,7 +79,7 @@ data WishboneResult dat
   -- | Forwarded @_last@ signal. Indicates that this is the last (finished)
   -- operation from this packet.
   , _resLast :: Bool
-  } deriving (Generic, Show)
+  } deriving (Generic, Show, NFDataX)
 
 -- | Extract @EBHeader@ data from a @PacketStream@ into the metadata.
 etherboneDepacketizerC :: forall dom dataWidth .

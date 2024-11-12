@@ -55,6 +55,7 @@ data RecordProcessorState addrWidth
   -- | Handle Read operations.
   -- When @_readsLeft == 1@ the state is set back to @WriteOrReadAddr@.
   | Read  { _readsLeft :: Unsigned 8 }
+  | WaitForLast
   deriving (Show, Generic, ShowX, NFDataX)
 
 recordProcessorT :: forall dataWidth addrWidth dat selWidth .
@@ -173,8 +174,11 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
         rCount' = rCount - 1
 
         st'
-          | rCount' == 0 = WriteOrReadAddr
+          | rCount' == 0 = WaitForLast
           | otherwise    = Read rCount'
+    -- If there is more data than indicated in the header, the data is dropped.
+    -- When @_last@ is set, the state is set to @WriteOrReadAddr@
+    fsm WaitForLast _ = WaitForLast
 
 
 -- | Converts a @PacketStream@ of a Record into separate operations for the

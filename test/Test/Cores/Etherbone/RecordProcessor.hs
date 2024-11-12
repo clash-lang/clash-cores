@@ -1,5 +1,6 @@
 {-# OPTIONS -fplugin=Protocols.Plugin #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
 module Test.Cores.Etherbone.RecordProcessor (
@@ -23,55 +24,18 @@ import Protocols.PacketStream
 import Clash.Cores.Etherbone.Base
 import Protocols.Hedgehog hiding (Test)
 import Clash.Cores.Etherbone.RecordProcessor (recordProcessorC, Bypass(..))
-
-type WBData = C.BitVector 32
-type DataWidth = 4
-type AddrWidth = 32
-
--- Read / write values used in the tests
-readVal :: WBData
-readVal = 0x55555555
-writeVal :: WBData
-writeVal = 0xaaaaaaaa
+import Test.Cores.Etherbone.Internal
 
 genRecordProcessorInput :: Gen [PacketStreamM2S DataWidth RecordHeader]
 genRecordProcessorInput = do
-  _rCount' :: C.Unsigned 8 <- Gen.integral $ Range.linear 0 32
-  _wCount' :: C.Unsigned 8 <- Gen.integral $ Range.linear 0 32
-
-  -- Ensure that there is at least one read or one write
-  ( _rCount, _wCount ) <- Gen.filter (\(r, w) -> (r+w) > 0) $ do
-    return (_rCount', _wCount')
-
-  _cyc <- Gen.bool
-  _rca <- Gen.bool
-  _wca <- Gen.bool
-  _wff <- Gen.bool
+  hdr <- genRecordHeader (Range.linear 0 32) (Range.linear 0 32)
 
   readBase' :: WBData <- Gen.integral Range.linearBounded
   writeBase' :: WBData <- Gen.integral Range.linearBounded
 
   let
-    _bca = False
-    _rff = False
-    _res0 = 0
-    _res1 = 0
-    _byteEn = C.resize $ C.pack $ C.replicate (C.SNat @DataWidth) (1::C.Bit)
+    RecordHeader{..} = hdr
 
-    hdr = RecordHeader
-      { _bca
-      , _rca
-      , _rff
-      , _res0
-      , _cyc
-      , _wca
-      , _wff
-      , _res1
-      , _byteEn
-      , _wCount
-      , _rCount
-      }
-    
     readBase
       | _rCount > 0 = [readBase']
       | otherwise   = []
