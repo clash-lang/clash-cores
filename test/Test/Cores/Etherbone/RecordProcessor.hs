@@ -26,6 +26,14 @@ import Protocols.Hedgehog hiding (Test)
 import Clash.Cores.Etherbone.RecordProcessor (recordProcessorC, Bypass(..))
 import Test.Cores.Etherbone.Internal
 
+-- NOTE: For now, the bypass line is only checked for if a base address has come
+-- past if the model has one as well. Ideally the bypass line will be equal in
+-- both the model and the Circuit. But that would require the Circuit to be able
+-- to handle backpressure from the bypass line in the Read and Write states,
+-- which now it does not. This is impossible with the current Wishbone Classic
+-- implementation. It there is ever a Wishbone Pipelined implementation, this is
+-- something that needs to be fixed.
+
 genRecordProcessorInput :: Gen [PacketStreamM2S DataWidth RecordHeader]
 genRecordProcessorInput = do
   hdr <- genRecordHeader (Range.linear 0 32) (Range.linear 0 32)
@@ -75,34 +83,34 @@ prop_genRecordProcessorInput = property $ do
   -- Validate _last
   assert $ _last (last stream) == Just maxBound
 
+-- Check whether the WishboneOperations are formatted correctly. Also crudely
+-- checks the bypass signal to see if there is a base address when needed
 prop_recordProcessor_wishbone :: Property
-prop_recordProcessor_wishbone = withTests 1000 $ do
-  idWithModelSingleDomain @C.System
-    defExpectOptions
+prop_recordProcessor_wishbone =
+  propWithModelSingleDomain @C.System
+    defExpectOptions {eoSampleMax = 512}
     genRecordProcessorInput
-    (C.exposeClockResetEnable (snd . recordProcessorModel))
-    (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth @DataWidth @WBData))
+    (C.exposeClockResetEnable recordProcessorModel)
+    (C.exposeClockResetEnable (recordProcessorC @C.System @DataWidth @AddrWidth @WBData))
+    prop
   where
-    ckt :: forall dom dataWidth addrWidth selWidth dat . 
-      ( C.HiddenClockResetEnable dom
-      , C.KnownNat dataWidth
-      , C.KnownNat addrWidth
-      , C.BitPack dat
-      , C.BitSize dat ~ dataWidth C.* 8
-      , selWidth ~ dataWidth
-      , Show dat
-      )
-      => Circuit (PacketStream dom dataWidth RecordHeader)
-                 (Df.Df dom (WishboneOperation addrWidth selWidth dat))
-    ckt = Circuit go
+    prop m c = do
+      footnote $ show m
+      footnote $ show c
+
+      -- Check WishboneResults
+      snd m === snd c
+
+      -- Check Bypass. The number of bypass signals can differ, but if one has a
+      -- base the other should too
+      any hasBase (fst m) === any hasBase (fst c)
       where
-        go (iFwd, oBwd) = (oFwd, snd iBwd)
-          where
-            (oFwd, iBwd) = toSignals recordProcessorC (iFwd, (pure (), oBwd))
+        hasBase = isJust . _bpBase
 
-
+-- Check whether the Bypass data returned is formatted correctly. This does not
+-- fully test the backpressure behaviour.
 prop_recordProcessor_bypass :: Property
-prop_recordProcessor_bypass = withTests 1000 $ property $ do
+prop_recordProcessor_bypass = property $ do
   inputs' <- forAll genRecordProcessorInput
 
   let
@@ -115,7 +123,7 @@ prop_recordProcessor_bypass = withTests 1000 $ property $ do
       , C.Show dat
       )
       => Circuit (PacketStream dom dataWidth RecordHeader)
-                 (CSignal dom (Maybe (Bypass addrWidth)))
+                 (Df.Df dom (Bypass addrWidth))
     ckt = Circuit go
       where
         go (iFwd, oBwd) = (oFwd, fst iBwd)
@@ -123,13 +131,13 @@ prop_recordProcessor_bypass = withTests 1000 $ property $ do
             (oFwd, iBwd) = toSignals (recordProcessorC @_ @_ @_ @dat @dataWidth) (iFwd, (oBwd, pure $ Ack True))
 
     inputs = map Just inputs'
-    inputsS = zip inputs (repeat ())
+    inputsS = zip inputs (repeat $ Ack True)
 
     res = take (length inputs) $ C.simulate (C.bundle . go . C.unbundle) inputsS
       where
         go = toSignals (C.withClockResetEnable C.clockGen C.resetGen C.enableGen (ckt @C.System @DataWidth @AddrWidth @WBData))
 
-    bypass = map snd res
+    bypass = map (Df.fromData . snd) res
 
     modelBypass = fst $ (recordProcessorModel @DataWidth @AddrWidth @WBData) inputs'
   footnote $ "Circit output: " <> show bypass
@@ -137,7 +145,6 @@ prop_recordProcessor_bypass = withTests 1000 $ property $ do
 
   assert $ length bypass == length modelBypass
   assert $ bypass == modelBypass
-
 
 recordProcessorModel :: forall dataWidth addrWidth dat selWidth .
   ( C.KnownNat dataWidth
@@ -148,7 +155,7 @@ recordProcessorModel :: forall dataWidth addrWidth dat selWidth .
   , Show dat
   )
   => [PacketStreamM2S dataWidth RecordHeader]
-  -> ([Maybe (Bypass addrWidth)], [WishboneOperation addrWidth selWidth dat])
+  -> ([Bypass addrWidth], [WishboneOperation addrWidth selWidth dat])
 recordProcessorModel inputs = (bypass, wbmInput)
   where
     hdr = _meta $ head inputs
@@ -199,8 +206,7 @@ recordProcessorModel inputs = (bypass, wbmInput)
     -- @_last@, this is asserted to prevent a lock-up
     wbmInput = init wbmInput' <> [(last wbmInput') {_dropCyc = True}]
 
-    bypass = map Just $ zipWith createBypass inputs [0..]
-
+    bypass = zipWith createBypass inputs [0..]
 
 tests :: TestTree
 tests = $(testGroupGenerator)
