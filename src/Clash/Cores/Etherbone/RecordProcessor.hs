@@ -14,6 +14,7 @@ import qualified Protocols.Df as Df
 import qualified Data.Bifunctor as B
 import Data.Maybe
 import Control.DeepSeq (NFData)
+import Clash.Debug
 
 
 -- | This is the data sent over the bypass line.
@@ -66,9 +67,9 @@ recordProcessorT :: forall dataWidth addrWidth dat selWidth .
   , Show dat
   , selWidth ~ dataWidth)
   => RecordProcessorState addrWidth
-  -> ( Maybe (PacketStreamM2S dataWidth RecordHeader)
+  -> ( Unsigned 16, (Maybe (PacketStreamM2S dataWidth RecordHeader)
      , (Ack, Ack)
-     )
+     ))
   -> ( RecordProcessorState addrWidth
      , ( PacketStreamS2M
        , ( Df.Data (Bypass addrWidth)
@@ -77,18 +78,18 @@ recordProcessorT :: forall dataWidth addrWidth dat selWidth .
        )
      )
 -- No data in -> no data out
-recordProcessorT state (Nothing, _)
+recordProcessorT state (_, (Nothing, _))
   = (state, (PacketStreamS2M True, (Df.NoData, Df.NoData)))
 -- If in the initial state and abort is asserted, stay in this state.
-recordProcessorT WriteOrReadAddr (Just PacketStreamM2S{_abort=True}, _)
+recordProcessorT WriteOrReadAddr (_, (Just PacketStreamM2S{_abort=True}, _))
   = (WriteOrReadAddr, (PacketStreamS2M True, (Df.NoData, Df.NoData)))
-recordProcessorT state (Just psFwd, (Ack bpAck, Ack wbAck))
-  = (nextState, (PacketStreamS2M psBwd, (bpOut, wbOut)))
+recordProcessorT state (cnt, (Just psFwd, (Ack bpAck, Ack wbAck)))
+  = (trace ("PrNS " <> show cnt <> ": " <> show nextState) nextState, (PacketStreamS2M psBwd, (bpOut, trace ("ProcWb: " <> show wbOut) wbOut)))
   where
     nextState
       | ack       = state'
       | otherwise = state
-    state' = fsm state psFwd
+    state' = fsm (trace ("PrSt " <> show cnt <> ": " <> show state) state) (trace ("ProcPS " <> show cnt <> ": "<> show psFwd) psFwd)
 
     psWord = pack $ _data psFwd
     hdr = _meta psFwd
@@ -207,4 +208,6 @@ recordProcessorC :: forall dom dataWidth addrWidth dat selWidth .
              (Df.Df dom (Bypass addrWidth), Df.Df dom (WishboneOperation addrWidth selWidth dat))
 recordProcessorC = forceResetSanity |> Circuit (B.second unbundle . fsm . B.second bundle)
   where
-    fsm = mealyB recordProcessorT WriteOrReadAddr
+    fsm inp = mealyB recordProcessorT WriteOrReadAddr (cnt, bundle inp)
+
+    cnt = register (0 :: Unsigned 16) (cnt + 1)

@@ -10,8 +10,10 @@ import Protocols.Wishbone
 import Clash.Prelude
 import Clash.Cores.Etherbone.Base
 import Clash.Cores.Etherbone.RecordProcessor (recordProcessorC)
-import Clash.Cores.Etherbone.WishboneMaster (wishboneMasterC)
+import Clash.Cores.Etherbone.WishboneMaster (wishboneMasterC, ByteSize)
 import Clash.Cores.Etherbone.RecordBuilder (recordBuilderC)
+import qualified Protocols.Df as Df
+import Protocols.Idle
 
 
 recordHandlerC :: forall dom dataWidth addrWidth dat .
@@ -24,6 +26,7 @@ recordHandlerC :: forall dom dataWidth addrWidth dat .
   , ShowX dat
   , addrWidth <= dataWidth * 8
   , BitSize dat ~ dataWidth * 8
+  , dataWidth ~ ByteSize dat
   , 4 <= dataWidth
   )
   => Circuit (PacketStream dom dataWidth EBHeader)
@@ -31,17 +34,26 @@ recordHandlerC :: forall dom dataWidth addrWidth dat .
              , Wishbone dom Standard addrWidth dat)
 recordHandlerC = circuit $ \psIn -> do
   dpkt <- recordDepacketizerC -< psIn
-  [bypass, record] <- fanout -< dpkt
 
-  (procOut, wbmIn) <- recordProcessorC -< (record, wbmDat)
-  (wbmDat, wbmBus, wbmErr) <- wishboneMasterC -< wbmIn
+  (bypass, wbOp) <- recordProcessorC <| traceC "RecordIn" -< dpkt
+  --[wbmIn, cfgIn] <- Df.fanout -< wbOp
 
-  bypass' <- traceC "bypass" -< bypass
-  procOut' <- traceC "ProcOut/BuilderIn" -< procOut
-  psOut <- recordBuilderC (SNat @addrWidth) -< (procOut', bypass')
+  (wbmRes, wbBus, wbmErr) <- hideReset wishboneMasterC -< wbOp
+
+  -- TODO: Possibly idleSink keeps Ack False. Then the fanout always gives
+  -- backpressure
+  --idleSink -< cfgIn
+  cfgRes <- idleSource
+
+  psOut <- recordBuilderC -< (bypass, cfgRes, wbmRes)
   signalSink -< wbmErr
 
-  idC -< (psOut, wbmBus)
+  -- bypass' <- traceC "bypass" -< bypass
+  -- procOut' <- traceC "ProcOut/BuilderIn" -< procOut
+  -- psOut <- recordBuilderC (SNat @addrWidth) -< (procOut', bypass')
+  -- signalSink -< wbmErr
+
+  idC -< (psOut, wbBus)
 
   where
     signalSink :: Circuit (CSignal dom a) ()
@@ -58,13 +70,14 @@ etherboneC :: forall dom dataWidth addrWidth dat .
   , ShowX dat
   , BitSize dat ~ dataWidth * 8
   , addrWidth <= dataWidth * 8
+  , dataWidth ~ ByteSize dat -- This needs to go...
   , 4 <= dataWidth
   )
   => Circuit (PacketStream dom dataWidth ())
              ( PacketStream dom dataWidth ()
              , Wishbone dom Standard addrWidth dat)
 etherboneC = circuit $ \psIn -> do
-  [probe, record] <- receiverC (SNat @addrWidth) <| etherboneDepacketizerC -< psIn
+  [probe, record] <- receiverC (SNat @addrWidth) <| etherboneDepacketizerC <| traceC "PSIn" -< psIn
 
   probeOut <- probeHandlerC (SNat @addrWidth) -< probe
   (recordOut, wbmBus) <- recordHandlerC -< record
