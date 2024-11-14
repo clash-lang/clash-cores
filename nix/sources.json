@@ -18,10 +18,10 @@
         "homepage": null,
         "owner": "clash-lang",
         "repo": "clash-protocols",
-        "rev": "dac1bc4faf192843163248c6e4952b84337e3363",
-        "sha256": "0ilvsxy27yhm7d0qlmd6zxmr28f569iwzparbsgilbf7c0i9457x",
+        "rev": "d6f6bf622af5d2e9383f1d2c209239537f86afc0",
+        "sha256": "1dxxws8ab82cv2r7xlidgz29r03l078pd22jyk1xv0fir03gg0cj",
         "type": "tarball",
-        "url": "https://github.com/clash-lang/clash-protocols/archive/dac1bc4faf192843163248c6e4952b84337e3363.tar.gz",
+        "url": "https://github.com/clash-lang/clash-protocols/archive/d6f6bf622af5d2e9383f1d2c209239537f86afc0.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "doctest-parallel": {
