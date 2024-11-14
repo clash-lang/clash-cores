@@ -21,7 +21,7 @@ import Data.Maybe (isJust)
 import Data.Maybe.Extra (toMaybe)
 import Data.Type.Equality ((:~:) (Refl))
 
-import Protocols (Circuit, fromSignals)
+import Protocols (Circuit, fromSignals, (|>))
 import Protocols.PacketStream
 
 {- |
@@ -107,8 +107,6 @@ zero latency: transmits bytes the same clock cycle as they are received. Only
 runs at full throughput for packets that do not need padding. For packets that
 do need padding, it will assert backpressure in order to append the padding to
 the packet.
-
-__NB__: requires that all invalid bytes are set to @0x00@.
 -}
 paddingInserterC ::
   forall (dataWidth :: Nat) (padBytes :: Nat) (dom :: Domain).
@@ -119,4 +117,6 @@ paddingInserterC ::
   -- | The minimum size of output packets
   SNat padBytes ->
   Circuit (PacketStream dom dataWidth ()) (PacketStream dom dataWidth ())
-paddingInserterC SNat = fromSignals (mealyB (paddingInserterT @_ @padBytes) (Filling 0))
+paddingInserterC SNat =
+  zeroOutInvalidBytesC
+    |> fromSignals (mealyB (paddingInserterT @_ @padBytes) (Filling 0))

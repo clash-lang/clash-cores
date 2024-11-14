@@ -36,7 +36,7 @@ paddingInserterModel padBytes fragments =
  where
   padding =
     PacketStreamM2S
-      { _data = repeat 0x00
+      { _data = singleton 0x00
       , _last = Nothing
       , _meta = ()
       , _abort = False
@@ -45,10 +45,15 @@ paddingInserterModel padBytes fragments =
   insertPadding xs
     | n < 0 = xs
     | n > 0 =
-        fullPackets $ L.init xs L.++ ((L.last xs){_last = Nothing} : L.replicate n padding)
-    | otherwise = fullPackets xs
+        fullPackets $ L.init xs L.++ (lastTransfer{_data = lastData, _last = Nothing} : L.replicate n padding)
+    | otherwise = L.init xs L.++ [(lastTransfer{_data = lastData, _last = Just 1})]
    where
     n = padBytes - L.length xs
+    lastTransfer = L.last xs
+    lastData =
+      if _last lastTransfer == Just 0
+        then singleton 0x00
+        else _data lastTransfer
 
 -- | Test the padding inserter.
 paddingInserterTest ::
