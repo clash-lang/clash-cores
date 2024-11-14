@@ -9,14 +9,19 @@ and link-layer.
 module Clash.Cores.Ethernet.Mac (
   -- * Data types and constants
   module Clash.Cores.Ethernet.Mac.EthernetTypes,
-  -- * Frame check sequence
+
+  -- * Handling the Frame Check Sequence
   module Clash.Cores.Ethernet.Mac.FrameCheckSequence,
+
   -- * Interpacket gap
   module Clash.Cores.Ethernet.Mac.InterpacketGapInserter,
-  -- * MAC header
+
+  -- * (De)packetizing MAC headers
   module Clash.Cores.Ethernet.Mac.MacPacketizers,
+
   -- * Padding
   module Clash.Cores.Ethernet.Mac.PaddingInserter,
+  
   -- * Preamble
   module Clash.Cores.Ethernet.Mac.Preamble,
 ) where
