@@ -24,6 +24,7 @@ import Clash.Sized.Vector.Extra (appendVec)
 
 import Data.Maybe
 import Data.Maybe.Extra (toMaybe)
+import Data.Type.Equality ((:~:)(Refl))
 
 import Protocols
 import Protocols.PacketStream
@@ -233,7 +234,17 @@ fcsValidatorC ::
   Circuit
     (PacketStream dom dataWidth ())
     (PacketStream dom dataWidth ())
-fcsValidatorC = forceResetSanity |> fromSignals fcsValidator
+fcsValidatorC = case sameNat d1 (SNat @dataWidth) of
+  Just Refl ->
+    forceResetSanity
+      |> fromSignals fcsValidator
+  Nothing ->
+    -- If the data width is bigger than 1 byte, null bytes have to be set to
+    -- 0x00 for the CRC validator to work. At data width 1 it is not a problem,
+    -- because then we only feed valid bytes to the CRC validator.
+    forceResetSanity
+      |> zeroOutInvalidBytesC
+      |> fromSignals fcsValidator
 
 {- |
 Removes the last 4 bytes of each packet in the stream, the width of the
