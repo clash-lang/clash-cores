@@ -109,7 +109,7 @@ calculateChecksum fragments = checksum
  where
   dataToList PacketStreamM2S{..} = L.take validData $ Vec.toList _data
    where
-    validData = 1 + fromIntegral (fromMaybe maxBound _last)
+    validData = fromIntegral (fromMaybe maxBound _last)
   checksum =
     pureInternetChecksum $
       fmap (pack . Vec.unsafeFromList @2) $
