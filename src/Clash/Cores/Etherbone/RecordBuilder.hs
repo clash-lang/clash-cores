@@ -99,23 +99,26 @@ recordBuilderT :: forall addrWidth dataWidth dat .
        , Maybe (PacketStreamM2S dataWidth EBHeader)
        )
      )
--- recordBuilderT state ((Just Bypass{_bpAbort=True}, _, _), PacketStreamS2M psBwd)
---   = (Init, (((), Ack psBwd, Ack psBwd), ))
+-- TODO: Fix this impl for now. If I have time I want to rewrite this with
+-- pattern matching...
 recordBuilderT state ((bypass, cfgDat, wbmDat), PacketStreamS2M psBwd)
-  = (nextState, ((Ack bpAck, Ack cfgAck, Ack wbmAck), psFwd))
+  = (trace ("BNS " <> show nextState) nextState, ((Ack bpAck, Ack cfgAck, Ack wbmAck), psFwd))
   where
     nextState
       | psAck     = state'
       | otherwise = state
-    state' = fsm state mBypass
+    state' = fsm (trace ("BSt " <> show state) state) mBypass
     
-    mBypass = Df.dataToMaybe bypass
-    psAck = isJust psFwd && psBwd
+    mBypass = Df.dataToMaybe $ trace ("BuildBP: " <> show bypass) bypass
+    --psAck = isJust psFwd && psBwd
+    -- Default to no backpressure if no output
+    psAck = isNothing psFwd || psBwd
 
     wbAck = case state of
       Init            -> False
       BaseWriteAddr{} -> False
-      BaseRetAddr{}   -> False
+      BaseRetAddr{}   -> isNothing dataIn  -- This is a hack
+      WaitForLast     -> True
       _               -> psAck
     cfgAck = wbAck
     wbmAck = wbAck
@@ -135,7 +138,7 @@ recordBuilderT state ((bypass, cfgDat, wbmDat), PacketStreamS2M psBwd)
         Nothing -> Nothing
       BaseWriteAddr{} -> pkt 0 False mBypass
       PadWrites{}     -> pkt 0 False mBypass
-      Header h _      -> pkt (resize $ pack $ recordTxMetaMap h) True mBypass
+      Header h _      -> pkt (resize $ pack $ recordTxMetaMap h) (onlyWrites h) mBypass
       BaseRetAddr _ b    -> basePkt b mBypass
       ReadValues h -> case Df.dataToMaybe (resPort h) >>= _resDat of
         Just dat      -> pkt (pack dat) (lastPort h) mBypass
@@ -166,9 +169,15 @@ recordBuilderT state ((bypass, cfgDat, wbmDat), PacketStreamS2M psBwd)
           | _rca hdr  = cfgLast
           | otherwise = wbmLast
 
+        onlyWrites hdr = _rCount hdr == 0
+
 
     cfgLast = maybe False _resLast $ Df.dataToMaybe cfgDat
     wbmLast = maybe False _resLast $ Df.dataToMaybe wbmDat
+
+    dataIn
+      =   (Df.dataToMaybe cfgDat >>= _resDat)
+      <|> (Df.dataToMaybe wbmDat >>= _resDat)
 
     fsm
       :: RecordBuilderState addrWidth
@@ -219,6 +228,8 @@ recordBuilderT state ((bypass, cfgDat, wbmDat), PacketStreamS2M psBwd)
       | cfgLast || wbmLast = Init
       | otherwise          = WaitForLast
 
+-- TODO: Idea. Split the bypass path management (caching of incoming meta info)
+-- from the work FSM. So two FSMs.
 recordBuilderC :: forall dom addrWidth dataWidth dat .
   ( HiddenClockResetEnable dom
   , KnownNat addrWidth

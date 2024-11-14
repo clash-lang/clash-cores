@@ -9,6 +9,7 @@ import qualified Data.Bifunctor as B
 import qualified Protocols.Df as Df
 import Data.Maybe
 import Clash.Cores.Etherbone.Base
+import Clash.Debug
 
 type ByteSize dat = BitSize dat `DivRU` 8
 
@@ -26,12 +27,14 @@ data WishboneMasterState dat
 
 wishboneMasterT :: forall addrWidth dat selWidth .
   ( KnownNat addrWidth
+  , KnownNat selWidth
   , BitPack dat
   , NFDataX dat
   , selWidth ~ ByteSize dat
+  , Show dat
   )
   => WishboneMasterState dat
-  -> ( Bool
+  -> ( Unsigned 16, Bool
      , ( Df.Data (WishboneOperation addrWidth selWidth dat)
       , (Ack, WishboneS2M dat, ())
       )
@@ -44,14 +47,15 @@ wishboneMasterT :: forall addrWidth dat selWidth .
        )
      )
 -- This operation is for another @AddressSpace@.
-wishboneMasterT state (rst, (Df.Data WishboneOperation{_addrSpace=ConfigAddressSpace}, _))
+wishboneMasterT state (_, rst, (Df.Data WishboneOperation{_addrSpace=ConfigAddressSpace}, _))
   = (state, (Ack $ not rst, (Df.NoData, wbEmpty, Just 0)))
     where
       wbEmpty = emptyWishboneM2S
-wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
-  = (nextState, (Ack iBwd, (oFwd, wbFwd, errBit)))
+wishboneMasterT state (cnt, rst, (iFwd, (Ack oBwd, wbBwd, _)))
+  = (trace ("WMNS: " <> show nextState) nextState, (Ack $ trace ("WMAck" <> show iBwd) iBwd, (oFwd, wbFwd, errBit)))
   where
-    nextState = fsm state iFwd oBwd
+    nextState = fsm (trace ("WMS " <> show cnt <> ": " <> show state) state)
+      (trace ("WMI: " <> show iFwd) iFwd) oBwd
 
     wbErr = err wbBwd || retry wbBwd
     wbTerm = acknowledge wbBwd || wbErr
@@ -61,7 +65,7 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
       _                    -> Df.NoData
 
     iBwd = not rst && case state of
-      WaitForOp _  -> True
+      WaitForOp _  -> False
       Busy         -> False
       WaitForAck{} -> oBwd
 
@@ -128,15 +132,18 @@ wishboneMasterC
   , BitPack dat
   , selWidth ~ ByteSize dat
   , NFDataX dat
+  , Show dat
   )
-  => Clock dom
-  -> Reset dom
+  => Reset dom
   -> Circuit (Df.Df dom (WishboneOperation addrWidth selWidth dat))
              ( Df.Df dom (WishboneResult dat)
              , Wishbone dom Standard addrWidth dat
              , CSignal dom (Maybe Bit)
              )
-wishboneMasterC clk rst = Circuit $ B.second unbundle . fsm . B.second bundle
+wishboneMasterC rst = Circuit $ B.second unbundle . fsm . B.second bundle
   where
-    fsm inp = withClockResetEnable clk rst enableGen mealyB wishboneMasterT (WaitForOp False) (rst', bundle inp)
+    fsm inp = withEnable enableGen $ withReset rst mealyB wishboneMasterT (WaitForOp False) (cnt, rst', bundle inp)
     rst' = unsafeToActiveHigh rst
+
+    cnt = withReset rst $ withEnable enableGen register (0 :: Unsigned 16) (cnt+1)
+{-# OPAQUE wishboneMasterC #-}
