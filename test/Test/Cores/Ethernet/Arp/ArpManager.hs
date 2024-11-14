@@ -76,7 +76,7 @@ arpReceiverPropertyGenerator SNat =
   idWithModelSingleDomain
     @System
     defExpectOptions{eoStopAfterEmpty = 1000}
-    (genPackets (Range.linear 1 5) Abort genPkt)
+    (genPackets 1 5 genPkt)
     (exposeClockResetEnable model)
     (exposeClockResetEnable @System (arpReceiverC $ pure ourIPv4))
  where
@@ -89,10 +89,10 @@ arpReceiverPropertyGenerator SNat =
       <*> Gen.constant (if gratuitous then spa else ourIPv4)
       <*> genArpOperation
 
-  genPkt am =
+  genPkt =
     Gen.choice
       [ -- Random packet
-        genValidPacket (pure ()) (Range.linear 0 20) am
+        genValidPacket defPacketOptions (pure ()) (Range.linear 0 20)
       , -- Valid ARP reply/request
         do
           arpPkt <- genArpPacket False

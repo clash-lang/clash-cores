@@ -40,12 +40,12 @@ icmpResponderPropertyGenerator SNat =
   idWithModelSingleDomain
     @System
     defExpectOptions
-    (genPackets (Range.linear 1 5) Abort genValidIcmpRequestPacket)
+    (genPackets 1 5 genValidIcmpRequestPacket)
     (exposeClockResetEnable (L.concatMap model . chunkByPacket))
     (exposeClockResetEnable (icmpEchoResponderC $ pure ourIPv4))
  where
-  genValidIcmpRequestPacket am = do
-    dat <- genValidPacket (genIPv4HeaderLite ourIPv4) (Range.linear 0 10) am
+  genValidIcmpRequestPacket = do
+    dat <- genValidPacket defPacketOptions (genIPv4HeaderLite ourIPv4) (Range.linear 0 10)
     let checksum = calculateChecksum (packetizerModel id (const (IcmpHeader 8 0 0)) dat)
     pure $ packetizerModel id (const $ IcmpHeader 8 0 checksum) dat
 

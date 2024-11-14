@@ -46,7 +46,7 @@ appendVec
   :: forall n m a
    . KnownNat n
   => Num a
-  => Index n
+  => Index (n + 1)
   -> Vec n a
   -> Vec m a
   -> Vec (n + m) a
@@ -59,7 +59,7 @@ appendVec valid xs ys = results !! valid
                      extra :: Vec (n - (l + 1)) a
                      extra = repeat 0
                   _ -> error "appendVec: Absurd"
-    results = smap (\s _ -> go s) xs
+    results = (ys ++ repeat 0) :> smap (\s _ -> go s) xs
 
 -- | Fold a vector of @n@ elements into a single element using a binary function.
 -- | Between every "layer" of the fold, there is a register
