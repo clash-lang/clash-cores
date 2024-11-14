@@ -36,7 +36,7 @@ testIPPacketizer SNat =
   idWithModelSingleDomain
     @System
     defExpectOptions{eoSampleMax = 400, eoStopAfterEmpty = 400}
-    (genPackets (Range.linear 1 4) Abort (genValidPacket genIPv4Header (Range.linear 0 30)))
+    (genPackets 1 4 (genValidPacket defPacketOptions genIPv4Header (Range.linear 0 30)))
     (exposeClockResetEnable (packetizerModel _ipv4Destination id . setChecksums))
     (exposeClockResetEnable (ipPacketizerC @_ @dataWidth))
  where
@@ -54,26 +54,26 @@ testIPDepacketizer SNat =
   idWithModelSingleDomain
     @System
     defExpectOptions{eoStopAfterEmpty = 400}
-    (genPackets (Range.linear 1 10) Abort genPkt)
+    (genPackets 1 10 genPkt)
     (exposeClockResetEnable model)
     (exposeClockResetEnable (ipDepacketizerC @_ @dataWidth))
  where
-  validPkt = genValidPacket genEthernetHeader (Range.linear 0 10)
-  genPkt am =
+  validPkt = genValidPacket defPacketOptions genEthernetHeader (Range.linear 0 10)
+  genPkt =
     Gen.choice
       [ -- Random packet: extremely high chance to get aborted.
-        validPkt am
+        validPkt
       , -- Packet with valid header: should not get aborted.
         do
           hdr <- genIPv4Header
           packetizerModel
             id
             (const hdr{_ipv4Checksum = pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16))})
-            <$> validPkt am
+            <$> validPkt
       , -- Packet with valid header apart from (most likely) the checksum.
         do
           hdr <- genIPv4Header
-          packetizerModel id (const hdr{_ipv4Checksum = 0xABCD}) <$> validPkt am
+          packetizerModel id (const hdr{_ipv4Checksum = 0xABCD}) <$> validPkt
       ]
 
   model fragments = L.concat $ L.zipWith setAbort packets aborts

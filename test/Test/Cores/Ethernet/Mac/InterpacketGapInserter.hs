@@ -32,7 +32,7 @@ prop_interpacket_gap_inserter_id =
   idWithModelSingleDomain
     @System
     defExpectOptions
-    (genPackets (Range.linear 1 10) Abort (genValidPacket (pure ()) (Range.linear 0 20)))
+    (genPackets 1 10 (genValidPacket defPacketOptions (pure ()) (Range.linear 0 20)))
     (exposeClockResetEnable id)
     (exposeClockResetEnable (interpacketGapInserterC d12))
 
