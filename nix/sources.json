@@ -13,15 +13,15 @@
         "version": "1.8.1"
     },
     "clash-protocols": {
-        "branch": "packetstream-zero-byte-transfers",
+        "branch": "packetstream",
         "description": "a battery-included library for dataflow protocols",
         "homepage": null,
         "owner": "clash-lang",
         "repo": "clash-protocols",
-        "rev": "8acf9c99d10d569a2511f75e96a6362c5ca2f38a",
-        "sha256": "0xiwnf39rlj09q4qq0z9i7x39dygs43gdvxv373lzp3vp1bw3jvr",
+        "rev": "d6f6bf622af5d2e9383f1d2c209239537f86afc0",
+        "sha256": "1dxxws8ab82cv2r7xlidgz29r03l078pd22jyk1xv0fir03gg0cj",
         "type": "tarball",
-        "url": "https://github.com/clash-lang/clash-protocols/archive/8acf9c99d10d569a2511f75e96a6362c5ca2f38a.tar.gz",
+        "url": "https://github.com/clash-lang/clash-protocols/archive/d6f6bf622af5d2e9383f1d2c209239537f86afc0.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "doctest-parallel": {
