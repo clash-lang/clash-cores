@@ -28,7 +28,7 @@ preambleStripperModel packets = L.concatMap go (chunkByPacket packets)
  where
   go [] = []
   go (x : xs)
-    | head (_data x) == 0xD5 = xs
+    | (_last x /= Just 0) && head (_data x) == 0xD5 = xs
     | otherwise = go xs
 
 prop_preamble_stripper :: Property
