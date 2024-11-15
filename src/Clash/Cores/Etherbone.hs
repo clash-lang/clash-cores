@@ -58,6 +58,7 @@ recordHandlerC = circuit $ \psIn -> do
   where
     signalSink :: Circuit (CSignal dom a) ()
     signalSink = Circuit $ const (pure (), ())
+{-# OPAQUE recordHandlerC #-}
 
 
 etherboneC :: forall dom dataWidth addrWidth dat .
@@ -88,3 +89,4 @@ etherboneC = circuit $ \psIn -> do
   udpTx <- etherbonePacketizerC <| traceC "EBPktIn" -< pktOut
 
   idC -< (udpTx, wbmBus)
+{-# OPAQUE etherboneC #-}

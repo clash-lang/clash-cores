@@ -12,12 +12,12 @@ import Control.DeepSeq (NFData)
 etherboneVersion :: Natural
 etherboneVersion = 1
 
-etherboneMagic :: Unsigned 16
+etherboneMagic :: BitVector 16
 etherboneMagic = 0x4e6f
 
 data EBHeader = EBHeader
-  { _magic    :: Unsigned 16
-  , _version  :: Unsigned 4
+  { _magic    :: BitVector 16
+  , _version  :: BitVector 4
   , _res      :: Bit
   , _nr       :: Bool
   , _pr       :: Bool
@@ -162,6 +162,7 @@ probeHandlerC SNat = mapMeta metaMap
 
     portSizeMask = sizeMask $ natToInteger @dataWidth
     addrSizeMask = sizeMask $ natToInteger @(Div addrWidth 8)
+{-# OPAQUE probeHandlerC #-}
 
 -- arbiterC :: (HiddenClockResetEnable dom, KnownNat n, 1 <= n) =>
 --   Circuit (Vec n (PacketStream dom dataWidth meta)) (PacketStream dom dataWidth meta)
