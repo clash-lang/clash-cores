@@ -26,9 +26,9 @@ import Clash.Cores.Etherbone.Base
 import Protocols.Hedgehog hiding (Test)
 import Test.Cores.Etherbone.Internal
 import Clash.Cores.Etherbone.RecordProcessor (Bypass(..))
-import Clash.Cores.Etherbone.RecordBuilder (recordTxMetaMap, ebTxMeta)
+import Clash.Cores.Etherbone.RecordBuilder (hdrRx2Tx, ebTxMeta)
 import Clash.Cores.Etherbone.RecordBuilder (recordBuilderC)
-
+import Clash.Debug
 
 testBaseAddr :: C.BitVector AddrWidth
 testBaseAddr = 0xdeadbeef
@@ -40,53 +40,52 @@ genRecordBuilderInput wMax rMax = do
   let
     wCount = fromIntegral $ _wCount hdr
     rCount = fromIntegral $ _rCount hdr
-
-    bypassW
-      | wCount > 0 = replicate (wCount+1) Nothing
-      | otherwise  = []
-    bypassR
-      | rCount > 0 = [Just testBaseAddr] <> replicate rCount Nothing
-      | otherwise  = []
-    bypass = map (\x -> Bypass hdr x False) (bypassW <> bypassR)
     
     wbResW = replicate wCount $ WishboneResult Nothing False
     wbResR = replicate rCount $ WishboneResult (Just readVal) False
     wbRes' = wbResW <> wbResR
     wbRes = init wbRes' <> [(last wbRes') {_resLast=True}]
 
-    out = zip bypass wbRes
-  pure out
+    -- The bypass line is always kept constant. The base address is only used if
+    -- there are reads.
+    bypass = repeat $ Bypass hdr (Just testBaseAddr) False
+  pure $ zip bypass wbRes
 
 recordBuilderTest :: C.Unsigned 8 -> C.Unsigned 8 -> Property
 recordBuilderTest wMax rMax =
   idWithModelSingleDomain
-    defExpectOptions {eoTrace=False}
+    defExpectOptions {eoTrace=True}
     (genRecordBuilderInput wMax rMax)
     (C.exposeClockResetEnable recordBuilderModel)
     (C.exposeClockResetEnable (ckt @C.System))
   where
-    -- In the real implementation it is impossible for bypass signals to be
-    -- received _later_ than their corresponding wishboneResult signal. To
-    -- ensure this in simulation, the bypass and result lines are combined in a
-    -- single Df so that they receive the same backpressure.
-    -- This is not totaly identical to the real situation, but good enough for a
-    -- simple unit test.
-    ckt ::
+    -- TODO: Explain why bypass signal is in Df
+    ckt :: forall dom addrWidth dataWidth dat .
       ( C.HiddenClockResetEnable dom
-      , C.KnownNat dataWidth
       , C.KnownNat addrWidth
+      , C.KnownNat dataWidth
       , C.BitPack dat
       , C.BitSize dat ~ dataWidth C.* 8
       , 4 C.<= dataWidth
       )
-      => Circuit ( Df.Df dom (Bypass addrWidth, WishboneResult dat) )
+      => Circuit (Df.Df dom (Bypass addrWidth, WishboneResult dat))
                  (PacketStream dom dataWidth EBHeader)
-    ckt = circuit $ \inp -> do
-      [inp0, inp1] <- Df.fanout -< inp
-      bp <- Df.fst -< inp0
-      wb <- Df.snd -< inp1
-      [cfg, wbm] <- Df.fanout -< wb
-      recordBuilderC -< (bp, cfg, wbm)
+    ckt = circuit $ \input -> do
+      [in0, in1] <- Df.fanout -< input
+      wb <- Df.snd -< in0
+      bp <- bypassC <| Df.fst -< in1
+
+      [wb0, wb1] <- Df.fanout -< wb
+
+      recordBuilderC -< (bp, wb0, wb1)
+      where
+        bypassC ::
+          Circuit (Df.Df dom (Bypass addrWidth))
+                  (CSignal dom (Maybe(Bypass addrWidth)))
+        bypassC = Circuit $ C.unbundle . fmap go . C.bundle
+          where
+            go (f, _) = (Ack True, out)
+              where out = Df.dataToMaybe f
 
 recordBuilderModel
   :: [(Bypass AddrWidth, WishboneResult WBData)]
@@ -103,14 +102,12 @@ recordBuilderModel inp = out
     rCount = fromIntegral $ _rCount hdr
 
     ebHdr = ebTxMeta (C.SNat @DataWidth) (C.SNat @AddrWidth)
-    txHdr = recordTxMetaMap hdr
+    txHdr = hdrRx2Tx hdr
 
-    -- The generator and 'all inputs in one Df' format does not support
-    -- combined reads and writes. This requires a different number of bypass
-    -- signals than wishboneResult signals. And splitting them into separate Dfs
-    -- has the issue of unrealisitc amount of backpressure on the bypass line.
     outDat
-      | wCount > 0 && rCount > 0 = error "This model assumes only reads or writes."
+      | wCount > 0 && rCount > 0
+        = replicate (wCount+1) 0 <> [C.pack txHdr]
+        <> [fromJust base] <> replicate rCount readVal
       | wCount > 0 = replicate (wCount+1) 0 <> [C.pack txHdr]
       | rCount > 0 = [C.pack txHdr] <> [fromJust base] <> replicate rCount readVal
       | otherwise = error "This model assumes at least one read or write"
@@ -128,8 +125,8 @@ prop_recordBuilder_writes = recordBuilderTest 32 0
 prop_recordBuilder_reads :: Property
 prop_recordBuilder_reads = recordBuilderTest 0 32
 
--- prop_recordBuilder_writesAndReads :: Property
--- prop_recordBuilder_writesAndReads = recordBuilderTest 32 32
+prop_recordBuilder_writesAndReads :: Property
+prop_recordBuilder_writesAndReads = recordBuilderTest 32 32
 
 
 tests :: TestTree

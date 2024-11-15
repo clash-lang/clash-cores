@@ -87,25 +87,28 @@ prop_genRecordProcessorInput = property $ do
 -- checks the bypass signal to see if there is a base address when needed
 prop_recordProcessor_wishbone :: Property
 prop_recordProcessor_wishbone =
-  propWithModelSingleDomain @C.System
-    defExpectOptions {eoSampleMax = 512}
+  idWithModelSingleDomain @C.System
+    defExpectOptions {eoSampleMax = 256}
     genRecordProcessorInput
-    (C.exposeClockResetEnable recordProcessorModel)
-    (C.exposeClockResetEnable (recordProcessorC @C.System @DataWidth @AddrWidth @WBData))
-    prop
+    (C.exposeClockResetEnable (snd . recordProcessorModel))
+    (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth @DataWidth @WBData))
   where
-    prop m c = do
-      footnote $ show m
-      footnote $ show c
-
-      -- Check WishboneResults
-      snd m === snd c
-
-      -- Check Bypass. The number of bypass signals can differ, but if one has a
-      -- base the other should too
-      any hasBase (fst m) === any hasBase (fst c)
+    ckt :: forall dom dataWidth addrWidth selWidth dat . 
+      ( C.HiddenClockResetEnable dom
+      , C.KnownNat dataWidth
+      , C.KnownNat addrWidth
+      , C.BitPack dat
+      , C.BitSize dat ~ dataWidth C.* 8
+      , selWidth ~ dataWidth
+      , Show dat
+      )
+      => Circuit (PacketStream dom dataWidth RecordHeader)
+                 (Df.Df dom (WishboneOperation addrWidth selWidth dat))
+    ckt = Circuit go
       where
-        hasBase = isJust . _bpBase
+        go (iFwd, oBwd) = (iBwd, snd oFwd)
+          where
+            (iBwd, oFwd) = toSignals recordProcessorC (iFwd, (pure (), oBwd))
 
 -- Check whether the Bypass data returned is formatted correctly. This does not
 -- fully test the backpressure behaviour.
@@ -123,21 +126,21 @@ prop_recordProcessor_bypass = property $ do
       , C.Show dat
       )
       => Circuit (PacketStream dom dataWidth RecordHeader)
-                 (Df.Df dom (Bypass addrWidth))
+                 (CSignal dom (Maybe(Bypass addrWidth)))
     ckt = Circuit go
       where
-        go (iFwd, oBwd) = (oFwd, fst iBwd)
+        go (iFwd, oBwd) = (iBwd, fst oFwd)
           where
-            (oFwd, iBwd) = toSignals (recordProcessorC @_ @_ @_ @dat @dataWidth) (iFwd, (oBwd, pure $ Ack True))
+            (iBwd, oFwd) = toSignals (recordProcessorC @_ @_ @_ @dat @dataWidth) (iFwd, (oBwd, pure $ Ack True))
 
     inputs = map Just inputs'
-    inputsS = zip inputs (repeat $ Ack True)
+    inputsS = zip inputs (repeat ())
 
     res = take (length inputs) $ C.simulate (C.bundle . go . C.unbundle) inputsS
       where
         go = toSignals (C.withClockResetEnable C.clockGen C.resetGen C.enableGen (ckt @C.System @DataWidth @AddrWidth @WBData))
 
-    bypass = map (Df.fromData . snd) res
+    bypass = map (fromJust . snd) res
 
     modelBypass = fst $ (recordProcessorModel @DataWidth @AddrWidth @WBData) inputs'
   footnote $ "Circit output: " <> show bypass
