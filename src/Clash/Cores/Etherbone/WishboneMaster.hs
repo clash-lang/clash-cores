@@ -34,7 +34,7 @@ wishboneMasterT :: forall addrWidth dat selWidth .
   , Show dat
   )
   => WishboneMasterState dat
-  -> ( Unsigned 16, Bool
+  -> ( Bool
      , ( Df.Data (WishboneOperation addrWidth selWidth dat)
       , (Ack, WishboneS2M dat, ())
       )
@@ -47,14 +47,14 @@ wishboneMasterT :: forall addrWidth dat selWidth .
        )
      )
 -- This operation is for another @AddressSpace@.
-wishboneMasterT state (_, rst, (Df.Data WishboneOperation{_addrSpace=ConfigAddressSpace}, _))
+wishboneMasterT state (rst, (Df.Data WishboneOperation{_addrSpace=ConfigAddressSpace}, _))
   = (state, (Ack $ not rst, (Df.NoData, wbEmpty, Just 0)))
     where
       wbEmpty = emptyWishboneM2S
-wishboneMasterT state (cnt, rst, (iFwd, (Ack oBwd, wbBwd, _)))
+wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
   = (trace ("WMNS: " <> show nextState) nextState, (Ack $ trace ("WMAck" <> show iBwd) iBwd, (oFwd, wbFwd, errBit)))
   where
-    nextState = fsm (trace ("WMS " <> show cnt <> ": " <> show state) state)
+    nextState = fsm (trace ("WMS " <> show state) state)
       (trace ("WMI: " <> show iFwd) iFwd) oBwd
 
     wbErr = err wbBwd || retry wbBwd
@@ -142,8 +142,8 @@ wishboneMasterC
              )
 wishboneMasterC rst = Circuit $ B.second unbundle . fsm . B.second bundle
   where
-    fsm inp = withEnable enableGen $ withReset rst mealyB wishboneMasterT (WaitForOp False) (cnt, rst', bundle inp)
+    fsm inp = withEnable enableGen $ withReset rst mealyB wishboneMasterT (WaitForOp False) (rst', bundle inp)
     rst' = unsafeToActiveHigh rst
 
-    cnt = withReset rst $ withEnable enableGen register (0 :: Unsigned 16) (cnt+1)
+    -- cnt = withReset rst $ withEnable enableGen register (0 :: Unsigned 16) (cnt+1)
 {-# OPAQUE wishboneMasterC #-}

@@ -246,3 +246,6 @@ recordBuilderC :: forall dom addrWidth dataWidth dat .
 recordBuilderC = Circuit (B.first unbundle . go . B.first bundle)
   where
     go = mealyB recordBuilderT Init
+
+    -- Extract 'last' signal from cfg and wbm
+    -- mealy with bypass and last in, bypass out.
