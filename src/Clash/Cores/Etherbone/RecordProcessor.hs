@@ -68,22 +68,22 @@ recordProcessorT :: forall dataWidth addrWidth dat selWidth .
   , selWidth ~ dataWidth)
   => RecordProcessorState addrWidth
   -> ( Unsigned 16, (Maybe (PacketStreamM2S dataWidth RecordHeader)
-     , (Ack, Ack)
+     , ((), Ack)
      ))
   -> ( RecordProcessorState addrWidth
      , ( PacketStreamS2M
-       , ( Df.Data (Bypass addrWidth)
+       , ( Maybe (Bypass addrWidth)
          , Df.Data (WishboneOperation addrWidth selWidth dat)
          )
        )
      )
 -- No data in -> no data out
 recordProcessorT state (_, (Nothing, _))
-  = (state, (PacketStreamS2M True, (Df.NoData, Df.NoData)))
+  = (state, (PacketStreamS2M True, (Nothing, Df.NoData)))
 -- If in the initial state and abort is asserted, stay in this state.
 recordProcessorT WriteOrReadAddr (_, (Just PacketStreamM2S{_abort=True}, _))
-  = (WriteOrReadAddr, (PacketStreamS2M True, (Df.NoData, Df.NoData)))
-recordProcessorT state (cnt, (Just psFwd, (Ack bpAck, Ack wbAck)))
+  = (WriteOrReadAddr, (PacketStreamS2M True, (Nothing, Df.NoData)))
+recordProcessorT state (cnt, (Just psFwd, ((), Ack wbAck)))
   = (trace ("PrNS " <> show cnt <> ": " <> show nextState) nextState, (PacketStreamS2M psBwd, (bpOut, trace ("ProcWb: " <> show wbOut) wbOut)))
   where
     nextState
@@ -96,8 +96,8 @@ recordProcessorT state (cnt, (Just psFwd, (Ack bpAck, Ack wbAck)))
 
     -- Cannot read the Ack channels if the forward channels are NoData. 
     ack = case state of
-      WriteOrReadAddr -> bpAck
-      ReadAddr        -> bpAck
+      WriteOrReadAddr -> True
+      ReadAddr        -> True
       _               -> wbAck
     psBwd = ack
 
@@ -124,7 +124,7 @@ recordProcessorT state (cnt, (Just psFwd, (Ack bpAck, Ack wbAck)))
         rca = if _rca hdr then ConfigAddressSpace else WishboneAddressSpace
 
     -- The bypass line always receives data if data is streaming in.
-    bpOut = Df.Data $ Bypass hdr base (_abort psFwd)
+    bpOut = Just $ Bypass hdr base (_abort psFwd)
       where
         base = case (state, state') of
           (WriteOrReadAddr, Read _) -> Just $ resize psWord
@@ -205,7 +205,9 @@ recordProcessorC :: forall dom dataWidth addrWidth dat selWidth .
   , selWidth ~ dataWidth
   )
   => Circuit (PacketStream dom dataWidth RecordHeader)
-             (Df.Df dom (Bypass addrWidth), Df.Df dom (WishboneOperation addrWidth selWidth dat))
+             ( CSignal dom (Maybe (Bypass addrWidth))
+             , Df.Df dom (WishboneOperation addrWidth selWidth dat)
+             )
 recordProcessorC = forceResetSanity |> Circuit (B.second unbundle . fsm . B.second bundle)
   where
     fsm inp = mealyB recordProcessorT WriteOrReadAddr (cnt, bundle inp)
