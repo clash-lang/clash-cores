@@ -185,6 +185,7 @@ library
     Clash.Cores.Etherbone.RecordBuilder
     Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
+    Clash.Cores.Etherbone.ConfigMaster
 
   if !flag(clash-18)
     exposed-modules:
