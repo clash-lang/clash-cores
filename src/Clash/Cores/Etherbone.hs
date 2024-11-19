@@ -10,16 +10,18 @@ import Protocols.Wishbone
 import Clash.Prelude
 import Clash.Cores.Etherbone.Base
 import Clash.Cores.Etherbone.RecordProcessor (recordProcessorC)
-import Clash.Cores.Etherbone.WishboneMaster (wishboneMasterC, ByteSize)
+import Clash.Cores.Etherbone.WishboneMaster (wishboneMasterC)
 import Clash.Cores.Etherbone.RecordBuilder (recordBuilderC)
 import qualified Protocols.Df as Df
 import Protocols.Idle
+import Clash.Cores.Etherbone.ConfigMaster (configMasterC)
 
 
-recordHandlerC :: forall dom dataWidth addrWidth dat .
+recordHandlerC :: forall dom dataWidth addrWidth dat configRegs .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth
   , KnownNat addrWidth
+  , KnownNat configRegs
   , BitPack dat
   , NFDataX dat
   , Show dat
@@ -28,43 +30,32 @@ recordHandlerC :: forall dom dataWidth addrWidth dat .
   , BitSize dat ~ dataWidth * 8
   , dataWidth ~ ByteSize dat
   , 4 <= dataWidth
+  , Div 64 (BitSize dat) * BitSize dat ~ 64
   )
-  => Circuit (PacketStream dom dataWidth EBHeader)
+  => BitVector addrWidth
+  -> Signal dom (Vec configRegs (BitVector 64))
+  -> Circuit (PacketStream dom dataWidth EBHeader)
              ( PacketStream dom dataWidth EBHeader
              , Wishbone dom Standard addrWidth dat)
-recordHandlerC = circuit $ \psIn -> do
+recordHandlerC sdbAddr userConfigRegs = circuit $ \psIn -> do
   dpkt <- recordDepacketizerC -< psIn
 
   (bypass, wbOp) <- recordProcessorC <| traceC "RecordIn" -< dpkt
-  --[wbmIn, cfgIn] <- Df.fanout -< wbOp
+  [wbmIn, cfgIn] <- Df.fanout -< wbOp
 
-  (wbmRes, wbBus, wbmErr) <- hideReset wishboneMasterC -< wbOp
-
-  -- TODO: Possibly idleSink keeps Ack False. Then the fanout always gives
-  -- backpressure
-  --idleSink -< cfgIn
-  cfgRes <- idleSource
+  (wbmRes, wbBus, wbmErr) <- hideReset wishboneMasterC -< wbmIn
+  cfgRes <- configMasterC @_ @_ @dat sdbAddr userConfigRegs -< (cfgIn, wbmErr)
 
   psOut <- recordBuilderC -< (bypass, cfgRes, wbmRes)
-  signalSink -< wbmErr
-
-  -- bypass' <- traceC "bypass" -< bypass
-  -- procOut' <- traceC "ProcOut/BuilderIn" -< procOut
-  -- psOut <- recordBuilderC (SNat @addrWidth) -< (procOut', bypass')
-  -- signalSink -< wbmErr
-
   idC -< (psOut, wbBus)
-
-  where
-    signalSink :: Circuit (CSignal dom a) ()
-    signalSink = Circuit $ const (pure (), ())
 {-# OPAQUE recordHandlerC #-}
 
 
-etherboneC :: forall dom dataWidth addrWidth dat .
+etherboneC :: forall dom dataWidth addrWidth dat configRegs .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth
   , KnownNat addrWidth
+  , KnownNat configRegs
   , BitPack dat
   , NFDataX dat
   , Show dat
@@ -73,15 +64,18 @@ etherboneC :: forall dom dataWidth addrWidth dat .
   , addrWidth <= dataWidth * 8
   , dataWidth ~ ByteSize dat -- This needs to go...
   , 4 <= dataWidth
+  , Div 64 (BitSize dat) * BitSize dat ~ 64
   )
-  => Circuit (PacketStream dom dataWidth ())
+  => BitVector addrWidth
+  -> Signal dom (Vec configRegs (BitVector 64))
+  -> Circuit (PacketStream dom dataWidth ())
              ( PacketStream dom dataWidth ()
              , Wishbone dom Standard addrWidth dat)
-etherboneC = circuit $ \psIn -> do
+etherboneC sdbAddr userConfigRegs = circuit $ \psIn -> do
   [probe, record] <- receiverC (SNat @addrWidth) <| etherboneDepacketizerC <| traceC "PSIn" -< psIn
 
   probeOut <- probeHandlerC (SNat @addrWidth) -< probe
-  (recordOut, wbmBus) <- recordHandlerC -< record
+  (recordOut, wbmBus) <- recordHandlerC sdbAddr userConfigRegs -< record
 
   recordOut' <- traceC "BuilderOut/ArbIn" -< recordOut
 

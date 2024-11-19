@@ -81,6 +81,8 @@ data WishboneResult dat
   , _resLast :: Bool
   } deriving (Generic, Show, NFDataX, ShowX, NFData, Eq)
 
+type ByteSize dat = (BitSize dat) `DivRU` 8
+
 -- | Extract @EBHeader@ data from a @PacketStream@ into the metadata.
 etherboneDepacketizerC :: forall dom dataWidth .
  ( HiddenClockResetEnable dom, KnownNat dataWidth, 4 <= dataWidth )

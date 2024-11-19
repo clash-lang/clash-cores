@@ -11,8 +11,6 @@ import Data.Maybe
 import Clash.Cores.Etherbone.Base
 import Clash.Debug
 
-type ByteSize dat = BitSize dat `DivRU` 8
-
 data WishboneMasterState dat
   -- | Wait for an incoming wishbone operation. If an op is available, it is
   -- direclty forwarded to the wishbone bus.
