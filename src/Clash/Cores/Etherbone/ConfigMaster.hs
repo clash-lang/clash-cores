@@ -7,7 +7,6 @@ import Protocols
 import qualified Protocols.Df as Df
 import Clash.Cores.Etherbone.Base
 import Data.Maybe
-import Protocols.PacketStream
 
 -- | Transact (read) operations on the Config space.
 --

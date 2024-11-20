@@ -4,21 +4,16 @@
 module Clash.Cores.Etherbone.RecordBuilder where
 
 import Clash.Prelude
-
 import Clash.Cores.Etherbone.Base
-
-import Protocols.PacketStream
-import Protocols
-
-import Data.Maybe
-import qualified Data.Bifunctor as B
-import Debug.Trace
 import Clash.Cores.Etherbone.RecordProcessor (Bypass (..))
+import Protocols
 import qualified Protocols.Df as Df
+import Protocols.PacketStream
+
 import Control.DeepSeq
-import Protocols.Avalon.MemMap (AvalonMmSharedConfig(addrWidth))
+import Data.Maybe
 
-
+-- Convert a RecordHeader from incoming to outgoing
 hdrRx2Tx :: RecordHeader -> RecordHeader
 hdrRx2Tx hdr
   = hdr { _bca = False
@@ -30,6 +25,7 @@ hdrRx2Tx hdr
         , _wCount = _rCount hdr
         }
 
+-- EBHeader properly formatted for an outgoing packet.
 ebTxMeta :: forall dataWidth addrWidth. SNat dataWidth -> SNat addrWidth -> EBHeader
 ebTxMeta SNat SNat = EBHeader
   { _magic    = etherboneMagic
@@ -44,7 +40,6 @@ ebTxMeta SNat SNat = EBHeader
   where
     portSizeMask = sizeMask $ natToInteger @dataWidth
     addrSizeMask = sizeMask $ natToInteger @(Div addrWidth 8)
-
 
 data RecordBuilderState
   -- | Wait for a new packet.
@@ -65,10 +60,6 @@ data RecordBuilderState
   -- | Write the returned values from the @WishboneMaster@.
   | ReadValues
   deriving (Generic, NFDataX, NFData, Show, ShowX, Eq)
-
--- TODO: Check how difficult it would be to make it configurable whether we wait
--- for writes to finish or directly reply.
-
 
 recordBuilderT :: forall addrWidth dataWidth dat .
   ( KnownNat addrWidth
@@ -175,7 +166,7 @@ recordBuilderT st@BaseRetAddr (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
   where
     st'
       | _bpAbort          = Init
-      | isNothing _bpBase = BaseRetAddr  -- This should not happen right?
+      | isNothing _bpBase = BaseRetAddr
       | otherwise         = ReadValues
     nextState
       | isJust psFwd && psBwd = st'
@@ -221,7 +212,9 @@ data BypassLatchState addrWidth
   | Last    { _bp :: Bypass addrWidth }
   deriving (Generic, NFDataX, Show)
 
--- Abort is handled by recordBuilderT. 
+-- Abort is handled by recordBuilderT. If an abort is received, @recordBuilderT@
+-- constructs a response fragment with @_abort@ and @_last@ set. This resets
+-- this state machine.
 bypassLatchT ::
   ( KnownNat addrWidth )
   => BypassLatchState addrWidth
@@ -249,6 +242,13 @@ bypassLatchT Last{..} (_, lst) = case lst of
   Just True -> (Last _bp, Just _bp)
   _         -> (Waiting, Nothing)
 
+-- | This combines @WishboneResult@s from the @WishboneMaster@ and
+-- @ConfigMaster@ into a response packet. The header and @retBaseAddr@ comes
+-- through the bypass line.
+--
+-- The bypass line is used so that the builder does not have to wait on the
+-- wishbone bus to start constructing a packet. The data on the bypass line is
+-- latched in @bypassLatchT@ for as long as a packet takes to be completed. 
 recordBuilderC :: forall dom addrWidth dataWidth dat .
   ( HiddenClockResetEnable dom
   , KnownNat addrWidth
@@ -268,12 +268,7 @@ recordBuilderC = Circuit go
       where
         (wbBwd, psFwd) = mealyB recordBuilderT Init (bypassLatch, cfg, wbm, psBwd)
 
-        -- isLast = (\x y -> getLast x || getLast y) <$> cfg <*> wbm
-        --   where
-        --     getLast x = maybe False _resLast (Df.dataToMaybe x)
-
-        wbPorts = (\a b -> Df.dataToMaybe a <|> Df.dataToMaybe b) <$> wbm <*> cfg
-        isLast = fmap _resLast <$> wbPorts
+        isLast = fmap (isJust . _last) <$> psFwd
 
         -- The bypass signals are latched for the duration of a packet.
         -- The Bypass record returned has a bias for earlier received fields for
