@@ -5,9 +5,8 @@ module Clash.Cores.Etherbone.Base where
 import Clash.Prelude
 import Protocols
 import Protocols.PacketStream
-import Debug.Trace
-import qualified Protocols.Df as Df
 import Control.DeepSeq (NFData)
+import Debug.Trace
 
 etherboneVersion :: Natural
 etherboneVersion = 1
@@ -165,10 +164,6 @@ probeHandlerC SNat = mapMeta metaMap
     portSizeMask = sizeMask $ natToInteger @dataWidth
     addrSizeMask = sizeMask $ natToInteger @(Div addrWidth 8)
 {-# OPAQUE probeHandlerC #-}
-
--- arbiterC :: (HiddenClockResetEnable dom, KnownNat n, 1 <= n) =>
---   Circuit (Vec n (PacketStream dom dataWidth meta)) (PacketStream dom dataWidth meta)
--- arbiterC = packetArbiterC RoundRobin
 
 -- TODO: Remove this from the library
 traceC :: forall dom dataWidth meta .
