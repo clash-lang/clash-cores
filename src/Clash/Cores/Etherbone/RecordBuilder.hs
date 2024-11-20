@@ -59,6 +59,7 @@ data RecordBuilderState
   | BaseRetAddr
   -- | Write the returned values from the @WishboneMaster@.
   | ReadValues
+  | Aborted
   deriving (Generic, NFDataX, NFData, Show, ShowX, Eq)
 
 recordBuilderT :: forall addrWidth dataWidth dat .
@@ -94,7 +95,7 @@ recordBuilderT st@Init (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
       BaseWriteAddr -> Just 0
       BaseRetAddr   -> Just $ pack $ hdrRx2Tx hdr
       Init          -> Nothing
-      _             -> error "Invalid next state? This should be impossible."
+      _             -> error "Invalid next state? This is impossible."
 
     psFwd = (\x -> PacketStreamM2S x Nothing meta False) . bitCoerce . resize <$> datOut
     meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
@@ -103,15 +104,14 @@ recordBuilderT st@BaseWriteAddr (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
   where
     hdr = _bpHeader
     st'
-      | _bpAbort         = Init
+      | _bpAbort         = Aborted
       | _wCount hdr == 1 = Header
       | otherwise        = PadWrites (_wCount hdr - 1)
     nextState
       | psBwd     = st'
       | otherwise = st
 
-    psFwd = Just $ PacketStreamM2S (repeat 0) lst meta _bpAbort
-    lst = if _bpAbort then Just maxBound else Nothing
+    psFwd = Just $ PacketStreamM2S (repeat 0) Nothing meta False
     meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT st@PadWrites{..} (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
   = (nextState, (Ack psBwd, psFwd))
@@ -120,7 +120,7 @@ recordBuilderT st@PadWrites{..} (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBw
     wCount' = _writesLeft - 1
 
     st'
-      | _bpAbort    = Init
+      | _bpAbort    = Aborted
       | wCount' > 0 = PadWrites wCount'
       | otherwise   = Header
     nextState
@@ -132,10 +132,9 @@ recordBuilderT st@PadWrites{..} (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBw
       | otherwise = wbm
 
     psFwd = case port of
-      Df.Data _ -> Just $ PacketStreamM2S (repeat 0) lst meta _bpAbort
+      Df.Data _ -> Just $ PacketStreamM2S (repeat 0) Nothing meta False
       Df.NoData -> Nothing
       where
-        lst = if _bpAbort then Just maxBound else Nothing
         meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT st@Header (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
   = (nextState, (Ack psBwd, psFwd))
@@ -143,7 +142,7 @@ recordBuilderT st@Header (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
     hdr = _bpHeader
 
     st'
-      | _bpAbort        = Init
+      | _bpAbort        = Aborted
       | _rCount hdr > 0 = BaseRetAddr
       | otherwise       = Init
     nextState
@@ -155,17 +154,17 @@ recordBuilderT st@Header (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
       | otherwise = wbm
 
     psFwd = case port of
-      Df.Data r -> Just $ PacketStreamM2S (prepDat hdr) (lst r) meta _bpAbort
+      Df.Data r -> Just $ PacketStreamM2S (prepDat hdr) (lst r) meta False
       Df.NoData -> Nothing
       where
         prepDat = bitCoerce . resize . pack . hdrRx2Tx
-        lst r = if _bpAbort || _resLast r then Just maxBound else Nothing
+        lst r = if _resLast r then Just maxBound else Nothing
         meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT st@BaseRetAddr (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
   = (nextState, (Ack False, psFwd))
   where
     st'
-      | _bpAbort          = Init
+      | _bpAbort          = Aborted
       | isNothing _bpBase = BaseRetAddr
       | otherwise         = ReadValues
     nextState
@@ -173,9 +172,8 @@ recordBuilderT st@BaseRetAddr (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
       | otherwise             = st
 
     psFwd = case _bpBase of
-      Just base -> Just $ PacketStreamM2S (bitCoerce $ resize base) lst meta _bpAbort
+      Just base -> Just $ PacketStreamM2S (bitCoerce $ resize base) Nothing meta False
       Nothing   -> Nothing
-    lst = if _bpAbort then Just maxBound else Nothing
     meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
   = (nextState, (Ack psBwd, psFwd))
@@ -183,7 +181,7 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
     hdr = _bpHeader
 
     st'
-      | _bpAbort = Init
+      | _bpAbort  = Aborted
       | otherwise = case port of
         Df.Data p -> if _resLast p then Init else ReadValues
         Df.NoData -> ReadValues
@@ -197,14 +195,24 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
 
     psFwd = case port of
       Df.Data WishboneResult{_resDat=Just d, _resLast}
-        -> Just $ PacketStreamM2S (bitCoerce d) (lst _resLast) meta _bpAbort
+        -> Just $ PacketStreamM2S (bitCoerce d) (lst _resLast) meta False
       Df.Data WishboneResult{_resDat=Nothing}
-        -> Nothing
+        -> Nothing  -- This should not happen
       Df.NoData -> Nothing
       where
-        lst r = if _bpAbort || r then Just maxBound else Nothing
+        lst r = if r then Just maxBound else Nothing
         meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
-recordBuilderT _ (Nothing, _, _, _) = error "This should not be possible. Only the 'Init' state can receive an empty Bypass signal."
+recordBuilderT Aborted (_, _, _, PacketStreamS2M psBwd)
+  = (nextState, (Ack psBwd, psFwd))
+  where
+    nextState
+      | psBwd     = Init
+      | otherwise = Aborted
+
+    psFwd = Just $ PacketStreamM2S (repeat 0) (Just 0) meta True
+    meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
+recordBuilderT _ (Nothing, _, _, _)
+  = error "This should not be possible. Only the 'Init' and 'Aborted' states can receive an empty Bypass signal."
 
 data BypassLatchState addrWidth
   = Waiting
@@ -212,9 +220,9 @@ data BypassLatchState addrWidth
   | Last    { _bp :: Bypass addrWidth }
   deriving (Generic, NFDataX, Show)
 
--- Abort is handled by recordBuilderT. If an abort is received, @recordBuilderT@
--- constructs a response fragment with @_abort@ and @_last@ set. This resets
--- this state machine.
+-- If an abort is sent, @wishboneMasterC@ and @configMasterC@ __may not__ send
+-- any data. As such, we don't have to wait before setting the state back to
+-- @Waiting@
 bypassLatchT ::
   ( KnownNat addrWidth )
   => BypassLatchState addrWidth
@@ -222,22 +230,30 @@ bypassLatchT ::
   -> (BypassLatchState addrWidth, Maybe (Bypass addrWidth))
 bypassLatchT Waiting (Nothing, Just True) = error "Cannot get a last signal with no bypass data and nothing latched."
 bypassLatchT Waiting (Nothing, _) = (Waiting, Nothing)
-bypassLatchT Waiting (Just b, Just True) = (Last b, Just b)
-bypassLatchT Waiting (Just b, _) = (Latched b, Just b)
+bypassLatchT Waiting (Just b, lst) = (st' , Just b)
+  where
+    st'
+      | _bpAbort b = Waiting
+      | otherwise  = case lst of
+        Just True -> Last b
+        _         -> Latched b
 bypassLatchT Latched{..} (Just b, lst) = (st', Just res)
   where
     res = Bypass { _bpHeader = _bpHeader _bp
                  , _bpBase   = _bpBase _bp <|> _bpBase b
                  , _bpAbort  = _bpAbort b
                  }
-    st' = case lst of
-      Just True -> Last res
-      _         -> Latched res
+    st'
+      | _bpAbort b = Waiting
+      | otherwise  = case lst of
+      Just True   -> Last res
+      _           -> Latched res
 bypassLatchT Latched{..} (Nothing, lst) = (st', Just _bp)
   where
     st' = case lst of
       Just True -> Last _bp
       _         -> Latched _bp
+-- XXX: Do we need to handle the abort case explicitly here as well?
 bypassLatchT Last{..} (_, lst) = case lst of
   Just True -> (Last _bp, Just _bp)
   _         -> (Waiting, Nothing)
@@ -268,7 +284,9 @@ recordBuilderC = Circuit go
       where
         (wbBwd, psFwd) = mealyB recordBuilderT Init (bypassLatch, cfg, wbm, psBwd)
 
-        isLast = fmap (isJust . _last) <$> psFwd
+        -- isLast = fmap (isJust . _last) <$> psFwd
+        wbPorts = (\a b -> Df.dataToMaybe a <|> Df.dataToMaybe b) <$> wbm <*> cfg
+        isLast = fmap _resLast <$> wbPorts
 
         -- The bypass signals are latched for the duration of a packet.
         -- The Bypass record returned has a bias for earlier received fields for
