@@ -27,24 +27,29 @@ genWishboneOperation :: Gen (WishboneOperation 32 4 WBData)
 genWishboneOperation = do
   _opAddr :: C.BitVector 32 <- Gen.integral Range.linearBounded
   _opDat :: Maybe WBData <- Gen.maybe $ Gen.integral Range.linearBounded
-  _opLast <- Gen.bool
-  _dropCyc <- Gen.bool
+  isLast <- Gen.bool
+  _opDropCyc <- Gen.bool
   let
     _opSel = 0xf :: C.BitVector 4
 
     -- For now, no testing for _abort
+    -- TODO: Add testing of abort
     _opAbort = False
-    _addrSpace = WishboneAddressSpace
+    _opAddrSpace = WishboneAddressSpace
+
+    _opEOR = isLast
+    _opEOP = isLast
 
     input =
       WishboneOperation
         { _opAddr
         , _opDat
         , _opSel
-        , _opLast
+        , _opDropCyc
+        , _opAddrSpace
+        , _opEOR
+        , _opEOP
         , _opAbort
-        , _dropCyc
-        , _addrSpace
         }
   pure input
 
@@ -76,10 +81,6 @@ prop_wishboneMasterT = property $ do
     mapInput (x, ack, wbAck) =
       (False, (x, (Ack ack, (emptyWishboneS2M @WBData){readData = readData, acknowledge = wbAck}, ())))
 
-    -- (Ack False,
-    --   (NoData, WishboneM2S [  CYC  STB !WE, ADR = 0b0000_0000_0000_0000_0000_0000_0000_0000, DAT = undefined, SEL = 0b1111, CTE = classic, BTE = linear ],Just 0
-    --   )
-    -- )
     getWb (_, (_, x, _)) = x
     getOutDat (_, (Df.Data x, _, _)) = x
     getOutDat (_, (_, _, _)) = error "No data at the expected cycle"
@@ -91,10 +92,10 @@ prop_wishboneMasterT = property $ do
   -- Check if it passes the correct states
   assert $ outStates !! beginWait == WaitForOp False
   assert $ outStates !! (beginWait + 1) == Busy
-  assert $ last outStates == WaitForOp (not $ _dropCyc input)
+  assert $ last outStates == WaitForOp (not $ _opDropCyc input)
 
   -- Check if dropCyc works as expected
-  assert $ busCycle (getWb $ last out) == not (_dropCyc input)
+  assert $ busCycle (getWb $ last out) == not (_opDropCyc input)
 
   -- Check if data was read from the wishbone bus if a read op was submitted,
   -- otherwise check if the returned data was 'Nothing'
@@ -102,8 +103,8 @@ prop_wishboneMasterT = property $ do
     _resDat (getOutDat $ out !! (beginWait + wbTime'))
       == if isJust (_opDat input) then Nothing else Just readData
 
-  -- Check if last was set correctly
-  assert $ _resLast (getOutDat $ out !! (beginWait + wbTime')) == _opLast input
+  -- Check if EOR was set correctly
+  assert $ _resEOR (getOutDat $ out !! (beginWait + wbTime')) == _opEOR input
 
 tests :: TestTree
 tests = $(testGroupGenerator)

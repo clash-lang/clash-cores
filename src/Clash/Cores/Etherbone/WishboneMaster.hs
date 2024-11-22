@@ -2,14 +2,14 @@
 
 module Clash.Cores.Etherbone.WishboneMaster where
 
+import Clash.Cores.Etherbone.Base
 import Clash.Prelude
 import Protocols
-import Protocols.Wishbone
-import qualified Data.Bifunctor as B
 import qualified Protocols.Df as Df
+import Protocols.Wishbone
+
+import qualified Data.Bifunctor as B
 import Data.Maybe
-import Clash.Cores.Etherbone.Base
-import Clash.Debug
 
 data WishboneMasterState dat
   -- | Wait for an incoming wishbone operation. If an op is available, it is
@@ -20,7 +20,7 @@ data WishboneMasterState dat
   -- | Forward result and wait for an Ack. In this state, a new operation can
   -- already be sent on the input, though only in the @WaitForOp@ state is it
   -- being handled.
-  | WaitForAck { _wbmCyc :: Bool, _retDat :: Maybe dat, _isLast :: Bool}
+  | WaitForAck { _wbmCyc :: Bool, _retDat :: Maybe dat, _isEOR :: Bool, isEOP :: Bool}
   deriving (Generic, NFDataX, Show, Eq)
 
 wishboneMasterT :: forall addrWidth dat selWidth .
@@ -45,22 +45,21 @@ wishboneMasterT :: forall addrWidth dat selWidth .
        )
      )
 -- This operation is for another @AddressSpace@.
-wishboneMasterT state (rst, (Df.Data WishboneOperation{_addrSpace=ConfigAddressSpace}, _))
-  = (state, (Ack $ not rst, (Df.NoData, wbEmpty, Just 0)))
+wishboneMasterT state (rst, (Df.Data WishboneOperation{_opAddrSpace=ConfigAddressSpace}, _))
+  = (state, (Ack $ not rst, (Df.NoData, wbEmpty, Nothing)))
     where
       wbEmpty = emptyWishboneM2S
 wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
-  = (trace ("WMNS: " <> show nextState) nextState, (Ack $ trace ("WMAck" <> show iBwd) iBwd, (oFwd, wbFwd, errBit)))
+  = (nextState, (Ack iBwd, (oFwd, wbFwd, errBit)))
   where
-    nextState = fsm (trace ("WMS " <> show state) state)
-      (trace ("WMI: " <> show iFwd) iFwd) oBwd
+    nextState = fsm state iFwd oBwd
 
     wbErr = err wbBwd || retry wbBwd
     wbTerm = acknowledge wbBwd || wbErr
 
     oFwd = case state of
-      WaitForAck _ dat lst -> Df.Data $ WishboneResult dat lst
-      _                    -> Df.NoData
+      WaitForAck _ dat eor eop -> Df.Data $ WishboneResult dat eor eop
+      _                        -> Df.NoData
 
     iBwd = not rst && case state of
       WaitForOp _  -> False
@@ -78,7 +77,7 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
       (WaitForOp _, Df.Data i) -> (wbPkt i) { strobe=True,  busCycle=True }
       (Busy, Df.NoData)        -> error "No input data in Busy state, this should be impossible!"
       (Busy, Df.Data i)        -> (wbPkt i) { strobe=True,  busCycle=True }
-      (WaitForAck c _ _, _)    -> wbEmpty   { strobe=False, busCycle=c }
+      (WaitForAck c _ _ _, _)  -> wbEmpty   { strobe=False, busCycle=c }
     wbPkt WishboneOperation{..} = WishboneM2S
       { addr                = _opAddr
       , writeData           = fromMaybe undefined _opDat
@@ -103,7 +102,7 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
       | otherwise = Busy
     fsm Busy{} Df.NoData _ = error "Sender did not keep Df channel constant!" 
     fsm Busy{} (Df.Data x) _
-      | wbTerm    = WaitForAck (not $ _dropCyc x) (dat $ _opDat x) (_opLast x)
+      | wbTerm    = WaitForAck (not $ _opDropCyc x) (dat $ _opDat x) (_opEOR x) (_opEOP x)
       | otherwise = Busy
       where
         dat Nothing  = Just $ readData wbBwd

@@ -2,11 +2,14 @@
 
 module Clash.Cores.Etherbone.ConfigMaster where
 
+import Clash.Cores.Etherbone.Base
 import Clash.Prelude
 import Protocols
 import qualified Protocols.Df as Df
-import Clash.Cores.Etherbone.Base
+
 import Data.Maybe
+
+type ConfigReg = BitVector 64
 
 -- | Transact (read) operations on the Config space.
 --
@@ -16,9 +19,10 @@ import Data.Maybe
 -- you would need two writes to read a full register.
 --
 -- The ConfigSpace has the following registers (at the specified index):
---  0: Error register. Shift register that keeps track of errors on the WB bus.
---  1: Self-describing bus base address.
---  2: Packet counter. Counts the number of correctly received packets.
+--
+-- 0. Error register. Shift register that keeps track of errors on the WB bus.
+-- 1. Self-describing bus base address.
+-- 2. Packet counter. Counts the number of correctly received packets.
 configMasterC
   :: forall dom addrWidth dat selWidth configRegs.
   ( HiddenClockResetEnable dom
@@ -32,7 +36,7 @@ configMasterC
   , Div 64 (BitSize dat) * BitSize dat ~ 64
   )
   => BitVector addrWidth
-  -> Signal dom (Vec configRegs (BitVector 64))
+  -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit ( Df.Df dom (WishboneOperation addrWidth selWidth dat)
              , CSignal dom (Maybe Bit)
              )
@@ -42,7 +46,7 @@ configMasterC sdbAddress userConfigRegs = Circuit go
     go ((iFwd, errBit), oBwd) = ((oBwd, pure ()), oFwd)
       where
         -- Shift register keeping track of wishbone bus errors.
-        errorReg = register (0 :: BitVector 64) $ errorRegT <$> errBit <*> errorReg
+        errorReg = register (0 :: ConfigReg) $ errorRegT <$> errBit <*> errorReg
         errorRegT Nothing  er = er
         errorRegT (Just b) er = shiftL er 1 .|. resize (pack b)
 
@@ -52,28 +56,37 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         -- Count the number of packages received.
         -- This is counting the number of 'last' operations where the 'abort'
         -- bit was not set.
-        packetCounter = register (0 :: BitVector 64)
+        packetCounter = register (0 :: ConfigReg)
           $ mux (    isLast <$> iFwd
                 .&&. not <$> prevLast
                 .&&. not . isAbort <$> iFwd
                 ) (packetCounter + 1) packetCounter
         prevLast = register False (isLast <$> iFwd)
-        isLast (Df.Data WishboneOperation{_opLast=True}) = True
+        isLast (Df.Data WishboneOperation{_opEOP=True}) = True
         isLast _ = False
         isAbort (Df.Data WishboneOperation{_opAbort=True}) = True
         isAbort _ = False
 
-        configSpace = (++) <$> bundle (errorReg :> sdbAddress' :> packetCounter :> Nil) <*> userConfigRegs
+        -- The Etherbone internal config registers
+        etherboneConfigRegs
+          =  errorReg
+          :> sdbAddress'
+          :> packetCounter
+          :> Nil
+
+        configSpace = (++) <$> bundle etherboneConfigRegs <*> userConfigRegs
 
         reMap ::
-          BitVector 64 -> Vec (Div 64 (BitSize dat)) (BitVector (BitSize dat))
+          ConfigReg -> Vec (Div 64 (BitSize dat)) (BitVector (BitSize dat))
         reMap = bitCoerce
 
         configSpaceRemapped = fmap (concatMap reMap) configSpace
         outData = regSelect <$> iFwd <*> configSpaceRemapped
-        out dat inp = WishboneResult <$> dat <*> (_opLast <$> inp)
+        out dat inp = WishboneResult <$> dat <*> (_opEOR <$> inp) <*> (_opEOP <$> inp)
         oFwd = out <$> outData <*> iFwd
 
+        -- Drops ops for the @WishboneAddressSpace@, write ops and ops with
+        -- abort set. Selects to correct Word from the @configSpace@.
         regSelect ::
           ( KnownNat n )
           => Df.Data (WishboneOperation addrWidth selWidth dat)
@@ -81,7 +94,7 @@ configMasterC sdbAddress userConfigRegs = Circuit go
           -> Df.Data (Maybe dat)
         regSelect Df.NoData _ = Df.NoData
         regSelect (Df.Data WishboneOperation{..}) cs
-          | _addrSpace == WishboneAddressSpace
+          | _opAddrSpace == WishboneAddressSpace
                           = Df.NoData
           | _opAbort      = Df.NoData
           | isJust _opDat = Df.Data Nothing

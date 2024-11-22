@@ -23,18 +23,12 @@ import Prelude
 import Protocols.PacketStream
 import Clash.Cores.Etherbone.Base
 import Protocols.Hedgehog hiding (Test)
-import Clash.Cores.Etherbone.RecordProcessor (recordProcessorC, Bypass(..))
+import Clash.Cores.Etherbone.RecordProcessor (recordProcessorC)
 import Test.Cores.Etherbone.Internal
 
--- NOTE: For now, the bypass line is only checked for if a base address has come
--- past if the model has one as well. Ideally the bypass line will be equal in
--- both the model and the Circuit. But that would require the Circuit to be able
--- to handle backpressure from the bypass line in the Read and Write states,
--- which now it does not. This is impossible with the current Wishbone Classic
--- implementation. It there is ever a Wishbone Pipelined implementation, this is
--- something that needs to be fixed.
+-- TODO: Add multi-record tests
 
-genRecordProcessorInput :: Gen [PacketStreamM2S DataWidth RecordHeader]
+genRecordProcessorInput :: Gen [PacketStreamM2S DataWidth (Bool, RecordHeader)]
 genRecordProcessorInput = do
   hdr <- genRecordHeader (Range.linear 0 32) (Range.linear 0 32)
 
@@ -56,13 +50,15 @@ genRecordProcessorInput = do
 
     rawData = writeBase <> writeVals <> readBase <> readVals
 
-    pkt :: WBData -> PacketStreamM2S DataWidth RecordHeader
-    pkt dat = PacketStreamM2S (C.bitCoerce dat) Nothing hdr False
+    pkt :: WBData -> PacketStreamM2S DataWidth (Bool, RecordHeader)
+    pkt dat = PacketStreamM2S (C.bitCoerce dat) Nothing (False, hdr) False
 
     stream' = map pkt rawData
     stream = setLast stream'
-    setLast [] = []
-    setLast xs = init xs <> [(last xs) {_last = Just 4}]
+      where
+        setLast [] = []
+        setLast xs = init xs <> [lastPs (last xs)]
+        lastPs x = x {_last = Just maxBound, _meta = (True, snd $ _meta x)}
 
   pure stream
 
@@ -70,8 +66,9 @@ prop_genRecordProcessorInput :: Property
 prop_genRecordProcessorInput = property $ do
   stream <- forAll genRecordProcessorInput
   let
-    wCount = _wCount $ _meta $ head stream
-    rCount = _rCount $ _meta $ head stream
+    hdr = snd $ _meta $ head stream
+    wCount = _wCount hdr
+    rCount = _rCount hdr
 
   footnote ("rCount:" <> show rCount)
   footnote ("wCount:" <> show wCount)
@@ -102,7 +99,7 @@ prop_recordProcessor_wishbone =
       , selWidth ~ dataWidth
       , Show dat
       )
-      => Circuit (PacketStream dom dataWidth RecordHeader)
+      => Circuit (PacketStream dom dataWidth (Bool, RecordHeader))
                  (Df.Df dom (WishboneOperation addrWidth selWidth dat))
     ckt = Circuit go
       where
@@ -125,7 +122,7 @@ prop_recordProcessor_bypass = property $ do
       , C.BitSize dat ~ dataWidth C.* 8
       , C.Show dat
       )
-      => Circuit (PacketStream dom dataWidth RecordHeader)
+      => Circuit (PacketStream dom dataWidth (Bool, RecordHeader))
                  (CSignal dom (Maybe(Bypass addrWidth)))
     ckt = Circuit go
       where
@@ -157,11 +154,12 @@ recordProcessorModel :: forall dataWidth addrWidth dat selWidth .
   , selWidth ~ dataWidth
   , Show dat
   )
-  => [PacketStreamM2S dataWidth RecordHeader]
+  => [PacketStreamM2S dataWidth (Bool, RecordHeader)]
   -> ([Bypass addrWidth], [WishboneOperation addrWidth selWidth dat])
 recordProcessorModel inputs = (bypass, wbmInput)
   where
-    hdr = _meta $ head inputs
+    meta = _meta $ head inputs
+    hdr = snd meta
     wCount = fromIntegral $ _wCount hdr
     rCount = _rCount hdr
 
@@ -173,7 +171,7 @@ recordProcessorModel inputs = (bypass, wbmInput)
       | wCount > 0 = drop (wCount + 2) inputs
       | otherwise  = tail inputs
 
-    createBypass input i = Bypass (_meta input) readBase (_abort input)
+    createBypass input i = Bypass (snd $ _meta input) readBase (_abort input)
       where
         readBase
           | rCount > 0 && i == iBase = Just $ addrConv input
@@ -183,8 +181,18 @@ recordProcessorModel inputs = (bypass, wbmInput)
           | otherwise  = 0
         addrConv = C.resize . C.pack . _data
 
-    createWriteInput input i =
-      WishboneOperation addr (Just dat) (C.resize $ _byteEn hdr) (isJust $ _last input) (_abort input) False space
+    createWriteInput input i
+      = WishboneOperation  -- addr (Just dat) (C.resize $ _byteEn hdr) (isJust $ _last input) (_abort input) False space
+        { _opAddr = addr
+        , _opDat = Just dat
+        , _opSel = C.resize $ _byteEn hdr
+        , _opDropCyc = False
+        , _opAddrSpace = space
+        , _opEOR = isJust $ _last input
+        -- XXX: Only one record per packet is tested here. So _opEOR = _opEOP
+        , _opEOP = isJust $ _last input
+        , _opAbort = _abort input
+        }
       where
         addr
           | _wff hdr  = writeBase
@@ -194,20 +202,31 @@ recordProcessorModel inputs = (bypass, wbmInput)
           | _wca hdr  = ConfigAddressSpace
           | otherwise = WishboneAddressSpace
 
-    createReadInput input =
-      WishboneOperation addr Nothing (C.resize $ _byteEn hdr) (isJust $ _last input) (_abort input) False space
+    createReadInput input
+      = WishboneOperation  --addr Nothing (C.resize $ _byteEn hdr) (isJust $ _last input) (_abort input) False space
+        { _opAddr = addr
+        , _opDat = Nothing
+        , _opSel = C.resize $ _byteEn hdr
+        , _opDropCyc = False
+        , _opAddrSpace = space
+        , _opEOR = isJust $ _last input
+        -- XXX: Only one record per packet is tested here. So _opEOR = _opEOP
+        , _opEOP = isJust $ _last input
+        , _opAbort = _abort input
+        }
       where
         addr = C.resize $ C.pack $ _data input
         space
           | _rca hdr  = ConfigAddressSpace
           | otherwise = WishboneAddressSpace
 
-    wbmInput' = zipWith createWriteInput inputWrites [0..]
+    wbmInput'
+      = zipWith createWriteInput inputWrites [0..]
       <> map createReadInput inputReads
     
-    -- Set the last operation to drop Cyc. Since the last field is always
-    -- @_last@, this is asserted to prevent a lock-up
-    wbmInput = init wbmInput' <> [(last wbmInput') {_dropCyc = True}]
+    -- Set the last operation to drop Cyc. 
+    -- The last fragment should always drop CYC to prevent a lock-up.
+    wbmInput = init wbmInput' <> [(last wbmInput') {_opDropCyc = True}]
 
     bypass = zipWith createBypass inputs [0..]
 

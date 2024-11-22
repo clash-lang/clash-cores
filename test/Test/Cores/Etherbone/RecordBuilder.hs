@@ -13,7 +13,6 @@ import Test.Tasty.Hedgehog
 import Test.Tasty.TH
 
 import Hedgehog
-import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
 import qualified Clash.Prelude as C
@@ -25,10 +24,9 @@ import Protocols.PacketStream
 import Clash.Cores.Etherbone.Base
 import Protocols.Hedgehog hiding (Test)
 import Test.Cores.Etherbone.Internal
-import Clash.Cores.Etherbone.RecordProcessor (Bypass(..))
-import Clash.Cores.Etherbone.RecordBuilder (hdrRx2Tx, ebTxMeta)
-import Clash.Cores.Etherbone.RecordBuilder (recordBuilderC)
-import Clash.Debug
+import Clash.Cores.Etherbone.RecordBuilder (hdrRx2Tx, ebTxMeta, recordBuilderC)
+
+-- TODO: Add multi-record testing
 
 testBaseAddr :: C.BitVector AddrWidth
 testBaseAddr = 0xdeadbeef
@@ -40,11 +38,11 @@ genRecordBuilderInput wMax rMax = do
   let
     wCount = fromIntegral $ _wCount hdr
     rCount = fromIntegral $ _rCount hdr
-    
-    wbResW = replicate wCount $ WishboneResult Nothing False
-    wbResR = replicate rCount $ WishboneResult (Just readVal) False
+
+    wbResW = replicate wCount $ WishboneResult Nothing False False
+    wbResR = replicate rCount $ WishboneResult (Just readVal) False False
     wbRes' = wbResW <> wbResR
-    wbRes = init wbRes' <> [(last wbRes') {_resLast=True}]
+    wbRes = init wbRes' <> [(last wbRes') {_resEOR=True, _resEOP=True}]
 
     -- The bypass line is always kept constant. The base address is only used if
     -- there are reads.
@@ -54,7 +52,7 @@ genRecordBuilderInput wMax rMax = do
 recordBuilderTest :: C.Unsigned 8 -> C.Unsigned 8 -> Property
 recordBuilderTest wMax rMax =
   idWithModelSingleDomain
-    defExpectOptions {eoTrace=True}
+    defExpectOptions {eoTrace=False}
     (genRecordBuilderInput wMax rMax)
     (C.exposeClockResetEnable recordBuilderModel)
     (C.exposeClockResetEnable (ckt @C.System))
@@ -115,7 +113,7 @@ recordBuilderModel inp = out
     pkt dat = PacketStreamM2S (C.bitCoerce dat) Nothing ebHdr False
     out' = map pkt outDat
 
-    lst = _resLast (last wb)
+    lst = _resEOP (last wb)
     out = init out' <> [(last out') {_last=l}]
       where l = if lst then Just maxBound else Nothing
 
