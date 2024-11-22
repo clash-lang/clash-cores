@@ -15,7 +15,7 @@ module Clash.Cores.Ethernet.Mac.MacPacketizers (
 import Clash.Prelude
 
 import Protocols (Circuit)
-import Protocols.PacketStream (depacketizerC, packetizerC, PacketStream)
+import Protocols.PacketStream (PacketStream, depacketizerC, packetizerC)
 
 import Clash.Cores.Ethernet.Mac.EthernetTypes (EthernetHeader)
 

@@ -62,7 +62,8 @@ paddingInserterT ::
     )
   )
 -- If state is Filling, forward the input from sink with updated _last
-paddingInserterT st@(Filling i) (Just fwdIn, bwdIn) = (nextStOut, (bwdIn, Just fwdOut))
+paddingInserterT st@(Filling i) (Just fwdIn, bwdIn) =
+  (nextStOut, (bwdIn, Just fwdOut))
  where
   done = i == maxBound
   -- If we are not done filling, then set _last to @Nothing@. Otherwise, set
@@ -87,7 +88,8 @@ paddingInserterT Full (Just fwdIn, bwdIn) = (nextStOut, (bwdIn, Just fwdIn))
   nextStOut = if _ready bwdIn && isJust (_last fwdIn) then Filling 0 else Full
 
 -- If state is Padding, send out null-bytes to source and backpressure to sink
-paddingInserterT st@(Padding i) (_, bwdIn) = (nextStOut, (PacketStreamS2M False, Just fwdOut))
+paddingInserterT st@(Padding i) (_, bwdIn) =
+  (nextStOut, (PacketStreamS2M False, Just fwdOut))
  where
   done = i == maxBound
   fwdOut =

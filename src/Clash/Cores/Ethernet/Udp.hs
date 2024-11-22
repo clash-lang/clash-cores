@@ -112,11 +112,13 @@ udpDepacketizerC ::
   Circuit
     (PacketStream dom dataWidth IPv4HeaderLite)
     (PacketStream dom dataWidth (IPv4Address, UdpHeaderLite))
-udpDepacketizerC = depacketizerC (\udph ipv4lh -> (_ipv4lSource ipv4lh, toUdpLite udph))
+udpDepacketizerC =
+  depacketizerC (\udph ipv4lh -> (_ipv4lSource ipv4lh, toUdpLite udph))
 
 {- |
 Serializes UDP headers to an IPv4 stream. The first element of the metadata
-is the destination IP for outgoing packets. No checksum is included in the UDP header.
+is the destination IP for outgoing packets. No checksum is included in the
+UDP header.
 
 Inherits latency and throughput from 'packetizerC', where @headerBytes = 8@.
 -}
