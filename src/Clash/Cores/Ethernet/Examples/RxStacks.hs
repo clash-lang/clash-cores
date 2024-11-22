@@ -68,7 +68,7 @@ ipRxStack
   -> Reset domEth
   -> Enable domEth
   -> Signal dom MacAddress
-  -> Signal dom (IPv4Address, IPv4Address)
+  -> Signal dom (IPv4Address, IPv4SubnetMask)
   -> Circuit (PacketStream domEth 1 ()) (PacketStream dom dataWidth IPv4HeaderLite)
 ipRxStack ethClk ethRst ethEn macAddressS ipS = circuit $ \raw -> do
   ethernetFrames <- macRxStack ethClk ethRst ethEn macAddressS -< raw
@@ -76,4 +76,4 @@ ipRxStack ethClk ethRst ethEn macAddressS ipS = circuit $ \raw -> do
   ipDepacketizerLiteC |> filterMetaS (isForMyIp <$> ipS) -< ip
   where
     isIpv4 = (== 0x0800) . _etherType
-    isForMyIp (ip, subnet) (_ipv4lDestination -> to) = to == ip || to == ipv4Broadcast ip subnet
+    isForMyIp (ip, subnet) (_ipv4lDestination -> to) = to == ip || to == subnetBroadcast subnet ip
