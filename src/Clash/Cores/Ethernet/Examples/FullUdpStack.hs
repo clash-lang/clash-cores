@@ -2,13 +2,11 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
 
-{-|
-Description : Provides the entire transmit stack as a circuit.
-Module      : Clash.Cores.Ethernet.Examples.TxStack
-Copyright   : (C) 2024, Matthijs Muis
-Description : Provides a standard Ethernet MAC transmit stack.
-License     : BSD2 (see the file LICENSE)
-Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
+{- |
+Copyright   :  (C) 2024, Matthijs Muis
+                   2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Here, we illustrate the use of of ARP, MAC and IP and UDP components for
 construction of a fully featured UDP + ARP + ICMP + IP + MAC stack. In short, this stack:

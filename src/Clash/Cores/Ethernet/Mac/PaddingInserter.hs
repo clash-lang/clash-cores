@@ -2,9 +2,9 @@
 {-# OPTIONS_HADDOCK hide #-}
 
 {- |
-  Copyright   : (C) 2024, QBayLogic B.V.
-  License     : BSD2 (see the file LICENSE)
-  Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Provides a component which pads packets with null bytes, to a customizable
 minimum packet size.
