@@ -243,7 +243,7 @@ fullStackC ::
   -- | Our MAC address
   Signal dom MacAddress ->
   -- | (Our IPv4 address, Our subnet mask)
-  Signal dom (IPv4Address, IPv4Address) ->
+  Signal dom (IPv4Address, IPv4SubnetMask) ->
   -- | Input: (Packets from application layer, Packets from MAC RX Stack)
   --
   --   Output: (Packets to application layer, Packets to MAC TX stack)
@@ -272,7 +272,7 @@ arpIcmpUdpStackC ::
   -- | Our MAC address
   Signal dom MacAddress ->
   -- | (Our IPv4 address, Our subnet mask)
-  Signal dom (IPv4Address, IPv4Address) ->
+  Signal dom (IPv4Address, IPv4SubnetMask) ->
   -- | Input: (Packets from application layer, Packets from MAC RX Stack)
   --
   --   Output: (Packets to application layer, Packets to MAC TX stack)
@@ -293,7 +293,7 @@ arpIcmpUdpStackC ourMacS ipS = circuit $ \(udpOut, ethIn) -> do
   ethOut <- packetArbiterC RoundRobin -< [arpEthOut, ipEthOut]
   idC -< (udpIn, ethOut)
  where
-  isForMyIp (ip, subnet) (_ipv4lDestination -> to) = to == ip || to == ipv4Broadcast ip subnet
+  isForMyIp (ip, subnet) (_ipv4lDestination -> to) = to == ip || isBroadcast subnet to
 
 icmpUdpStackC ::
   forall (dataWidth :: Nat) (dom :: Domain).
@@ -301,7 +301,7 @@ icmpUdpStackC ::
   (KnownNat dataWidth) =>
   (1 <= dataWidth) =>
   -- | (Our IPv4 address, Our subnet mask)
-  Signal dom (IPv4Address, IPv4Address) ->
+  Signal dom (IPv4Address, IPv4SubnetMask) ->
   -- | Input: (Packets from application layer, Packets from IP RX Stack)
   --
   --   Output: (Packets to application layer, Packets to IP TX stack)
