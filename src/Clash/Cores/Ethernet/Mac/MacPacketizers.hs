@@ -1,8 +1,11 @@
 {-# OPTIONS_HADDOCK hide #-}
 
-{-|
-Module      : Clash.Cores.Ethernet.Mac.MacPacketizers
-Description : Specialized (de)packetizers for Ethernet headers.
+{- |
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Specialized (de)packetizers for Ethernet headers.
 -}
 module Clash.Cores.Ethernet.Mac.MacPacketizers (
   macPacketizerC,

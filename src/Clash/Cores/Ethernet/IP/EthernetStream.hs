@@ -2,6 +2,15 @@
 {-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
 {-# OPTIONS_HADDOCK hide #-}
 
+{- |
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Provides a component which maps the associated destination IPv4 address
+of packets in the input stream to their corresponding MAC address by querying
+the ARP service.
+-}
 module Clash.Cores.Ethernet.IP.EthernetStream (
   toEthernetStreamC,
 ) where

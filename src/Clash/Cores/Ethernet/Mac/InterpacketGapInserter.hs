@@ -1,8 +1,12 @@
 {-# OPTIONS_HADDOCK hide #-}
 
-{-|
-Module      : Clash.Cores.Ethernet.Mac.InterpacketGapInserter
-Description : Provides a circuit which inserts a configurable-length interpacket gap between packets.
+{- |
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Provides a circuit which inserts a configurable-length interpacket gap between
+packets.
 -}
 module Clash.Cores.Ethernet.Mac.InterpacketGapInserter (
   interpacketGapInserterC,
