@@ -21,7 +21,7 @@ module Clash.Cores.Ethernet.Mac (
 
   -- * Padding
   module Clash.Cores.Ethernet.Mac.PaddingInserter,
-  
+
   -- * Preamble
   module Clash.Cores.Ethernet.Mac.Preamble,
 ) where
