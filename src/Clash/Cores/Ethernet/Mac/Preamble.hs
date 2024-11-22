@@ -2,8 +2,11 @@
 {-# OPTIONS_HADDOCK hide #-}
 
 {- |
-Module      : Clash.Cores.Ethernet.Mac.Preamble
-Description : Provides components which insert and strip the Ethernet preamble.
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Provides components which insert and strip the Ethernet preamble.
 -}
 module Clash.Cores.Ethernet.Mac.Preamble (
   preambleInserterC,

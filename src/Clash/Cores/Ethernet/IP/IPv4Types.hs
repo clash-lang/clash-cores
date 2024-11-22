@@ -1,9 +1,12 @@
 {-# language RecordWildCards #-}
 {-# OPTIONS_HADDOCK hide #-}
 
-{-|
-Module      : Clash.Cores.Ethernet.IP.IPv4Types
-Description : Provides various data types, aliases and constants for IPv4.
+{- |
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Provides various data types, aliases and constants for IPv4.
 -}
 module Clash.Cores.Ethernet.IP.IPv4Types
   ( IPv4Address(..)

@@ -1,11 +1,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 {- |
-Copyright   : (C) 2024, QBayLogic B.V.
-Description : Provides standard transmit stacks.
-License     : BSD2 (see the file LICENSE)
-Maintainer  : QBayLogic B.V. <devops@qbaylogic.com>
-Module      : Clash.Cores.Ethernet.Examples.TxStacks
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
 This module contains an example of a fully modular MAC transmit stack which
 allows the transmission of packets over Ethernet II and supports any data width
