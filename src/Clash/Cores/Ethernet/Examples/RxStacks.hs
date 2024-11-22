@@ -2,9 +2,12 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -fplugin Protocols.Plugin #-}
 
-{-|
-Module      : Clash.Cores.Ethernet.Examples.RxStacks
-Description : Provides the entire receive stack as a circuit.
+{- |
+Copyright   :  (C) 2024, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Provides the entire receive stack as a circuit.
 -}
 module Clash.Cores.Ethernet.Examples.RxStacks
   ( macRxStack
