@@ -4,17 +4,16 @@ module Clash.Cores.Etherbone (
   etherboneC
 ) where
 
-import Protocols
-import Protocols.PacketStream
-import Protocols.Wishbone
-import Clash.Prelude
 import Clash.Cores.Etherbone.Base
+import Clash.Cores.Etherbone.ConfigMaster (configMasterC, ConfigReg)
+import Clash.Cores.Etherbone.RecordBuilder (recordBuilderC)
 import Clash.Cores.Etherbone.RecordProcessor (recordProcessorC)
 import Clash.Cores.Etherbone.WishboneMaster (wishboneMasterC)
-import Clash.Cores.Etherbone.RecordBuilder (recordBuilderC)
+import Clash.Prelude
+import Protocols
 import qualified Protocols.Df as Df
-import Protocols.Idle
-import Clash.Cores.Etherbone.ConfigMaster (configMasterC)
+import Protocols.PacketStream
+import Protocols.Wishbone
 
 
 recordHandlerC :: forall dom dataWidth addrWidth dat configRegs .
@@ -33,14 +32,14 @@ recordHandlerC :: forall dom dataWidth addrWidth dat configRegs .
   , Div 64 (BitSize dat) * BitSize dat ~ 64
   )
   => BitVector addrWidth
-  -> Signal dom (Vec configRegs (BitVector 64))
+  -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit (PacketStream dom dataWidth EBHeader)
              ( PacketStream dom dataWidth EBHeader
              , Wishbone dom Standard addrWidth dat)
 recordHandlerC sdbAddr userConfigRegs = circuit $ \psIn -> do
   dpkt <- recordDepacketizerC -< psIn
 
-  (bypass, wbOp) <- recordProcessorC <| traceC "RecordIn" -< dpkt
+  (bypass, wbOp) <- recordProcessorC -< dpkt
   [wbmIn, cfgIn] <- Df.fanout -< wbOp
 
   (wbmRes, wbBus, wbmErr) <- hideReset wishboneMasterC -< wbmIn
@@ -50,7 +49,18 @@ recordHandlerC sdbAddr userConfigRegs = circuit $ \psIn -> do
   idC -< (psOut, wbBus)
 {-# OPAQUE recordHandlerC #-}
 
-
+-- | The top Etherbone circuit.
+--
+-- @sdbAddr@ is the [Self-describing bus](https://ohwr.org/project/fpga-config-space)
+-- data base address. Each Etherbone node is supposed to have a SDB structure
+-- connected to the Wishbone bus according to the spec. It does function without
+-- but the default tooling and APIs from CERN make use of this.
+--
+-- @userConfigRegs@ are additional 64-bit registers that are placed in the
+-- config-space. The current implementation of the config-space is read-only.
+--
+-- The Wishbone bus attatched to this circuit determines the bus and address
+-- widths.
 etherboneC :: forall dom dataWidth addrWidth dat configRegs .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth
@@ -62,25 +72,27 @@ etherboneC :: forall dom dataWidth addrWidth dat configRegs .
   , ShowX dat
   , BitSize dat ~ dataWidth * 8
   , addrWidth <= dataWidth * 8
-  , dataWidth ~ ByteSize dat -- This needs to go...
   , 4 <= dataWidth
+  -- These need to go...
+  , dataWidth ~ ByteSize dat
   , Div 64 (BitSize dat) * BitSize dat ~ 64
   )
   => BitVector addrWidth
-  -> Signal dom (Vec configRegs (BitVector 64))
+  -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit (PacketStream dom dataWidth ())
              ( PacketStream dom dataWidth ()
              , Wishbone dom Standard addrWidth dat)
 etherboneC sdbAddr userConfigRegs = circuit $ \psIn -> do
-  [probe, record] <- receiverC (SNat @addrWidth) <| etherboneDepacketizerC <| traceC "PSIn" -< psIn
+  [probe, record] <- receiverC (SNat @addrWidth) <| etherboneDepacketizerC -< psIn
 
   probeOut <- probeHandlerC (SNat @addrWidth) -< probe
-  (recordOut, wbmBus) <- recordHandlerC sdbAddr userConfigRegs -< record
 
-  recordOut' <- traceC "BuilderOut/ArbIn" -< recordOut
+  record' <- etherbonePaddingStripperC -< record
+  (recordOut, wbmBus) <- recordHandlerC sdbAddr userConfigRegs -< record'
+  recordOut' <- etherbonePaddingAdderC -< recordOut
 
-  pktOut <- packetArbiterC RoundRobin -< [recordOut', probeOut]
-  udpTx <- etherbonePacketizerC <| traceC "EBPktIn" -< pktOut
+  pktOut <- packetArbiterC Parallel -< [recordOut', probeOut]
+  udpTx <- etherbonePacketizerC -< pktOut
 
   idC -< (udpTx, wbmBus)
 {-# OPAQUE etherboneC #-}

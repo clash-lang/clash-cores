@@ -3,9 +3,8 @@
 
 module Clash.Cores.Etherbone.RecordBuilder where
 
-import Clash.Prelude
 import Clash.Cores.Etherbone.Base
-import Clash.Cores.Etherbone.RecordProcessor (Bypass (..))
+import Clash.Prelude
 import Protocols
 import qualified Protocols.Df as Df
 import Protocols.PacketStream
@@ -25,7 +24,7 @@ hdrRx2Tx hdr
         , _wCount = _rCount hdr
         }
 
--- EBHeader properly formatted for an outgoing packet.
+-- EBHeader properly formatted for an outgoing packet
 ebTxMeta :: forall dataWidth addrWidth. SNat dataWidth -> SNat addrWidth -> EBHeader
 ebTxMeta SNat SNat = EBHeader
   { _magic    = etherboneMagic
@@ -59,6 +58,8 @@ data RecordBuilderState
   | BaseRetAddr
   -- | Write the returned values from the @WishboneMaster@.
   | ReadValues
+  -- | Send an abort @PacketStream@ signal. This state is used to decouple the
+  -- @Bypass@ input input from the @PacketStream@ output.
   | Aborted
   deriving (Generic, NFDataX, NFData, Show, ShowX, Eq)
 
@@ -67,6 +68,7 @@ recordBuilderT :: forall addrWidth dataWidth dat .
   , KnownNat dataWidth
   , BitPack dat
   , BitSize dat ~ dataWidth * 8
+  , 4 <= dataWidth
   )
   => RecordBuilderState
   -> ( Maybe (Bypass addrWidth)
@@ -90,14 +92,14 @@ recordBuilderT st@Init (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
     nextState
       | isJust psFwd && psBwd = st'
       | otherwise             = st
-    
+
     datOut = case st' of
-      BaseWriteAddr -> Just 0
-      BaseRetAddr   -> Just $ pack $ hdrRx2Tx hdr
+      BaseWriteAddr -> Just $ repeat 0
+      BaseRetAddr   -> Just $ bitCoerce (pack $ hdrRx2Tx hdr) ++ repeat 0
       Init          -> Nothing
       _             -> error "Invalid next state? This is impossible."
 
-    psFwd = (\x -> PacketStreamM2S x Nothing meta False) . bitCoerce . resize <$> datOut
+    psFwd = (\x -> PacketStreamM2S x Nothing meta False) <$> datOut
     meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT st@BaseWriteAddr (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
   = (nextState, (Ack False, psFwd))
@@ -154,11 +156,11 @@ recordBuilderT st@Header (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
       | otherwise = wbm
 
     psFwd = case port of
-      Df.Data r -> Just $ PacketStreamM2S (prepDat hdr) (lst r) meta False
+      Df.Data r -> Just $ PacketStreamM2S headerDat (lst r) meta False
       Df.NoData -> Nothing
       where
-        prepDat = bitCoerce . resize . pack . hdrRx2Tx
-        lst r = if _resLast r then Just maxBound else Nothing
+        headerDat = bitCoerce (pack (hdrRx2Tx hdr)) ++ repeat @(dataWidth - 4) 0
+        lst r = if _resEOP r then Just maxBound else Nothing
         meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT st@BaseRetAddr (Just Bypass{..}, _, _, PacketStreamS2M psBwd)
   = (nextState, (Ack False, psFwd))
@@ -183,7 +185,7 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
     st'
       | _bpAbort  = Aborted
       | otherwise = case port of
-        Df.Data p -> if _resLast p then Init else ReadValues
+        Df.Data p -> if _resEOR p then Init else ReadValues
         Df.NoData -> ReadValues
     nextState
       | isJust psFwd && psBwd = st'
@@ -194,8 +196,8 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
       | otherwise = wbm
 
     psFwd = case port of
-      Df.Data WishboneResult{_resDat=Just d, _resLast}
-        -> Just $ PacketStreamM2S (bitCoerce d) (lst _resLast) meta False
+      Df.Data WishboneResult{_resDat=Just d, _resEOP}
+        -> Just $ PacketStreamM2S (bitCoerce d) (lst _resEOP) meta False
       Df.Data WishboneResult{_resDat=Nothing}
         -> Nothing  -- This should not happen
       Df.NoData -> Nothing
@@ -203,7 +205,7 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
         lst r = if r then Just maxBound else Nothing
         meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT Aborted (_, _, _, PacketStreamS2M psBwd)
-  = (nextState, (Ack psBwd, psFwd))
+  = (nextState, (Ack False, psFwd))
   where
     nextState
       | psBwd     = Init
@@ -265,6 +267,9 @@ bypassLatchT Last{..} (_, lst) = case lst of
 -- The bypass line is used so that the builder does not have to wait on the
 -- wishbone bus to start constructing a packet. The data on the bypass line is
 -- latched in @bypassLatchT@ for as long as a packet takes to be completed. 
+--
+-- This implementation waits not only for reads, but also for writes when
+-- constructing a response.
 recordBuilderC :: forall dom addrWidth dataWidth dat .
   ( HiddenClockResetEnable dom
   , KnownNat addrWidth
@@ -284,15 +289,17 @@ recordBuilderC = Circuit go
       where
         (wbBwd, psFwd) = mealyB recordBuilderT Init (bypassLatch, cfg, wbm, psBwd)
 
-        -- isLast = fmap (isJust . _last) <$> psFwd
+        -- Check for an end-of-record from any of the masters. After each record
+        -- the @bypassLatch@ should be reset.
+        -- A master __may not__ send anything when it had not received an
+        -- operation specifically meant for it.
         wbPorts = (\a b -> Df.dataToMaybe a <|> Df.dataToMaybe b) <$> wbm <*> cfg
-        isLast = fmap _resLast <$> wbPorts
+        isLast = fmap _resEOR <$> wbPorts
 
         -- The bypass signals are latched for the duration of a packet.
         -- The Bypass record returned has a bias for earlier received fields for
         -- @_bpHeader@ and @_bpBase@. For @_bpAbort@ the newest signal is always
         -- returned.
-        bypassLatch ::
-          Signal dom (Maybe (Bypass addrWidth))
+        bypassLatch :: Signal dom (Maybe (Bypass addrWidth))
         bypassLatch = mealyB bypassLatchT Waiting (bypass, isLast)
 {-# OPAQUE recordBuilderC #-}
