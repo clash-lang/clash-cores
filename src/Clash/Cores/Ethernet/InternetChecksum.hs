@@ -14,7 +14,7 @@ module Clash.Cores.Ethernet.InternetChecksum (
 
 import Clash.Prelude
 
-import Data.Maybe
+import Data.Maybe (isJust)
 
 {- |
 Computes the one's complement sum of two 16-bit numbers. An important property
@@ -24,7 +24,6 @@ of this function is that it never produces @0x0000@ (positive zero) as a result.
 >>> import Clash.Prelude
 
 === Examples
-
 >>> onesComplementAdd 0x0001 0x0004 == 0x0005
 True
 >>> onesComplementAdd 0x1111 0xEEEE == 0xFFFF
@@ -34,31 +33,32 @@ True
 -}
 onesComplementAdd :: BitVector 16 -> BitVector 16 -> BitVector 16
 onesComplementAdd a b = carry + truncated
-  where
-    c :: BitVector 17 = add a b
-    (zeroExtend -> carry, truncated) = split c
+ where
+  c :: BitVector 17 = add a b
+  (zeroExtend -> carry, truncated) = split c
 
--- | computes the un-complimented internet checksum of a stream of 16-bit words according to https://datatracker.ietf.org/doc/html/rfc1071
--- The checksum and reset are delayed by one clock cycle.
--- Keep in mind that if "reset" is True in the input tuple, the checksum is
--- reset to 0 the next cycle so the value of the bitvector is disgarded
-internetChecksum
-  :: forall (dom :: Domain).
-  HiddenClockResetEnable dom
-  => Signal dom Bool
-  -- ^ Reset signal, resets the checksum to 0 the next cycle
-  -> Signal dom (Maybe (BitVector 16))
-  -- ^ Input data which gets added to the checksum
-  -> Signal dom (BitVector 16)
- -- ^ Resulting checksum
-internetChecksum reset inputM = checkSumWithCarry
-  where
-    inp = fromMaybe 0 <$> inputM
+{- |
+Computes the un-complemented internet checksum of a stream of 16-bit words
+according to [IETF RFC 1071](https://datatracker.ietf.org/doc/html/rfc1071).
 
-    checkSum :: Signal dom (BitVector 17)
-    checkSum = register 0 $ mux reset 0 nextCheckSum
+The checksum is delayed by one clock cycle.
+Keep in mind that if the reset input is @True@, the checksum is
+reset to @0@ the next cycle so the the input data is thrown away.
+-}
+internetChecksum ::
+  forall (dom :: Domain).
+  (HiddenClockResetEnable dom) =>
+  -- | Reset signal, resets the checksum to 0 the next cycle
+  Signal dom Bool ->
+  -- | Input data which gets added to the checksum
+  Signal dom (Maybe (BitVector 16)) ->
+  -- | Resulting un-complemented checksum
+  Signal dom (BitVector 16)
+internetChecksum reset inputM = checksum
+ where
+  enable = reset .||. isJust <$> inputM
 
-    (fmap zeroExtend -> carry, truncated) = unbundle $ split <$> checkSum
+  checksum :: Signal dom (BitVector 16)
+  checksum = regEn 0 enable $ mux reset 0 nextChecksum
 
-    checkSumWithCarry = carry + truncated
-    nextCheckSum = add <$> inp <*> checkSumWithCarry
+  nextChecksum = liftA2 onesComplementAdd (fromJustX <$> inputM) checksum
