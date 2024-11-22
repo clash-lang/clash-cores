@@ -24,7 +24,7 @@ import Clash.Sized.Vector.Extra (appendVec)
 
 import Data.Maybe
 import Data.Maybe.Extra (toMaybe)
-import Data.Type.Equality ((:~:)(Refl))
+import Data.Type.Equality ((:~:) (Refl))
 
 import Protocols
 import Protocols.PacketStream

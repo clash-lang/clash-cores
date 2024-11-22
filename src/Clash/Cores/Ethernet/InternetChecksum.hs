@@ -18,7 +18,8 @@ import Data.Maybe (isJust)
 
 {- |
 Computes the one's complement sum of two 16-bit numbers. An important property
-of this function is that it never produces @0x0000@ (positive zero) as a result.
+of this function is that it never produces @0x0000@ (positive zero) as a
+result.
 
 === __doctests setup__
 >>> import Clash.Prelude

@@ -113,8 +113,8 @@ and we will adjust it to @0x0000@:
 0b0000_0000_0000_0000
 
 Recalculating it from scratch yields @0xFFFF@, and your operating system will
-reject the packet because @0xFFFF@ is not @0x0000@. This is a limitation of one's
-complement, because @0x0000@ and @0xFFFF@ both represent the number zero.
+reject the packet because @0xFFFF@ is not @0x0000@. This is a limitation of
+one's complement, because @0x0000@ and @0xFFFF@ both represent the number zero.
 Because this case rarely happens in practice and because losing a single
 echo reply packet is not a big deal, this should not be a problem.
 -}
@@ -144,5 +144,5 @@ icmpEchoResponderC ourIPv4S =
         }
 
     newChecksum =
-      complement $
-        onesComplementAdd (complement $ _checksumL icmp) 0xF7FF
+      complement
+        $ onesComplementAdd (complement $ _checksumL icmp) 0xF7FF
