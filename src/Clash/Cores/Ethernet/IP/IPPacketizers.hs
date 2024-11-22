@@ -40,7 +40,7 @@ ipLitePacketizerC
   , 1 <= dataWidth
   , KnownNat dataWidth)
   => Circuit (PacketStream dom dataWidth IPv4HeaderLite) (PacketStream dom dataWidth IPv4Address)
-ipLitePacketizerC = fromLiteC |> ipPacketizerC
+ipLitePacketizerC = mapMeta fromLite |> ipPacketizerC
 
 -- | Packetize a packet stream with the IPv4Header meta data.
 ipPacketizerC
@@ -128,7 +128,7 @@ ipDepacketizerLiteC
      , 1 <= n
      )
   => Circuit (PacketStream dom n EthernetHeader) (PacketStream dom n IPv4HeaderLite)
-ipDepacketizerLiteC = ipDepacketizerC |> toLiteC
+ipDepacketizerLiteC = ipDepacketizerC |> mapMeta toLite
 
 data VerifyChecksumS n
   = DeCheck (BitVector 16) (Index (20 `DivRU` n)) (BitVector 8)
