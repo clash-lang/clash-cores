@@ -6,8 +6,8 @@ License     :  BSD2 (see the file LICENSE)
 Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
 This module contains an example of a fully modular MAC transmit stack which
-allows the transmission of packets over Ethernet II and supports any data width
-bigger than zero.
+allows the transmission of packets over Ethernet II and supports any input
+data width bigger than zero.
 
 Example usage:
 
@@ -30,8 +30,8 @@ dummyTxPhy ::
 dummyTxPhy = undefined
 :}
 
-For example, the Lattice ECP5 board uses an RGMII PHY, found at
-'Clash.Cores.Ethernet.Rgmii.rgmiiTxC'.
+For example, the Lattice ECP5 Colorlight 5A-75B board uses an RGMII PHY,
+found at 'Clash.Cores.Ethernet.Rgmii.rgmiiTxC'.
 
 'macTxStack' is the most common Ethernet MAC TX stack that will be sufficient
 for most people. That is, it inserts an interpacket gap of 12 bytes, pads the
@@ -43,7 +43,7 @@ and the TX PHY you want to use.
 The stack uses 'Clash.Cores.Crc.crcEngine' internally to calculate the frame
 check sequence of each transmitted Ethernet frame, so that it can be appended
 to the packet. To be able to use this component, we need to use
-'Clash.Cores.Crc.deriveHardwareCrc' to derive a necessary instance.
+'Clash.Cores.Crc.deriveHardwareCrc' to derive the necessary instance.
 
 >>> :{
 $(deriveHardwareCrc Crc32_ethernet d8 d1)
@@ -62,11 +62,11 @@ myTxStack ethTxClk ethTxRst ethTxEn =
 While this pre-defined stack is very simple to use, it might not be want you
 want. Maybe you want to use a vendor-specific async fifo, or maybe you want
 some components that are currently operating in the internal domain @dom@ to
-operate in the Ethernet TX domain @domEthTx@ (or vice versa). Timing requirements
-differ greatly across different PHY protocols and FPGA boards or ASICs. Maybe
-you need to add skid buffers ('registerBoth') between components to make timing
-pass, or maybe you can remove them if they are not necessary in order to save
-resources.
+operate in the Ethernet TX domain @domEthTx@ (or vice versa). Timing
+requirements differ greatly across different PHY protocols and FPGA boards or
+ASICs. Maybe you need to add skid buffers (`registerBoth`, `registerBwd`, or
+`registerFwd`) between components to make timing pass, or maybe you can remove
+them if they are not necessary in order to save resources.
 
 In our standard stack, FCS insertion is done in the Ethernet TX domain, because
 that allows us to do it at data width 1. This saves a significant amount of
@@ -119,8 +119,8 @@ import Protocols (Circuit, (|>))
 import Protocols.PacketStream
 
 {- |
-Processes bytes to transmit over Ethernet. Assumes @dom@ is a slower clock
-domain than @domEthTx@. For this stack to work, the input @dataWidth@
+Ethernet MAC TX block. Assumes @dom@ is a different domain than
+@domEthTx@. For this stack to work, the input @dataWidth@
 __MUST__ satisfy the following formula:
 
 @DomainPeriod dom <= DomainPeriod domEthTx * dataWidth@
@@ -132,16 +132,16 @@ at 'macPacketizerC', which prepends this header to the stream. This header
 contains the source and destination MAC addresses, and the EtherType of the
 payload.
 
-2. Because the clock domain of the Ethernet TX PHY is usually different from
-the clock domain that is used internally, `asyncFifoC` is used to cross clock
-domains.
+5. `asyncFifoC` is used to cross clock domains, because the clock domain of
+the Ethernet TX PHY is usually different from the clock domain that is used
+internally.
 
 3. A pipeline skid buffer ('registerBoth') is inserted along the path in order
 to improve timing.
 
-4. 'downConverterC' downsizes the stream from @n@ bytes to @1@ byte wide. This
-makes the coming upcoming components more resource-efficient, and it is
-possible because we now operate in a faster domain.
+4. 'downConverterC' downsizes the stream from @dataWidth@ bytes to @1@ byte
+wide. This makes the coming upcoming components more resource-efficient, and
+it is possible because we now operate in a faster domain.
 
 5. 'paddingInserterC' pads the Ethernet frame to 60 bytes with null bytes if
 necessary. Just 60 bytes, because the FCS is not inserted yet. Inserting that
@@ -195,7 +195,7 @@ macTxStack ethTxClk ethTxRst ethTxEn =
       |> preambleInserterC
       |> interpacketGapInserterC d12
 
--- | Sends IP packets to a known mac address
+-- | Sends IP packets to a known MAC address
 ipTxStack ::
   forall
     (dataWidth :: Nat)
