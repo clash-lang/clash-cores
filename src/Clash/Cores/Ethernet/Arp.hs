@@ -36,16 +36,18 @@ import Clash.Cores.Ethernet.Mac.EthernetTypes
 {- |
 A fully functional ARP stack which handles ARP lookups from client circuits.
 Maintains a multi-entry ARP table which the client circuit can query via the
-'ArpLookup' input. If the client-supplied IPv4 address is not found in the table,
-it broadcasts an ARP request for this specific address. The circuit will assert
-backpressure until either a reply has been received, or a timeout occurs. The
-maximum number of milliseconds the stack will wait for a reply to this request is
-configurable. The timeout (in seconds) of ARP table entries is configurable as well.
+'ArpLookup' input. If the client-supplied IPv4 address is not found in the
+table, it broadcasts an ARP request for this specific address. The circuit will
+assert backpressure until either a reply has been received, or a timeout
+occurs. The maximum number of milliseconds the stack will wait for a reply to
+this request is configurable. The timeout (in seconds) of ARP table entries is
+configurable as well.
 
-Moreover, it takes in an Ethernet packet stream with the ARP etherType (0x0806),
-and updates the ARP table upon receiving a valid ARP reply or gratuitous ARP packet.
-If an ARP request directed to our IPv4 address is received, it transmits a reply.
-Outbound requests receive priority over outbound replies in the output stream.
+Moreover, it takes in an Ethernet packet stream with the ARP etherType
+(0x0806), and updates the ARP table upon receiving a valid ARP reply or
+gratuitous ARP packet. If an ARP request directed to our IPv4 address is
+received, it transmits a reply. Outbound requests receive priority over
+outbound replies in the output stream.
 
 For more specific information, refer to the documentation of the individual
 components.
