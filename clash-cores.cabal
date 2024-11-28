@@ -149,6 +149,10 @@ library
     Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
     Clash.Cores.Etherbone.ConfigMaster
+    Clash.Cores.Etherbone.Examples.FullEthernetCircuit
+    Clash.Cores.Etherbone.Examples.Interconnect
+    Clash.Cores.Etherbone.Examples.WishboneBus
+    Clash.Cores.Etherbone.Examples.XilinxDemo
     Clash.Cores.Ethernet.Arp
     Clash.Cores.Ethernet.Arp.ArpManager
     Clash.Cores.Ethernet.Arp.ArpTable
