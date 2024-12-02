@@ -86,7 +86,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
           , _opDat = Just dat
           , _opSel = sel
           , _opDropCyc = dropCyc $ i + _rCount hdr
-          , _opAddrSpace = if _wca hdr then ConfigAddressSpace else WishboneAddressSpace
+          , _opAddrSpace = if _writeConfigAddr hdr then ConfigAddressSpace else WishboneAddressSpace
           , _opEOR = isLast
           , _opEOP = eop
           , _opAbort = abort
@@ -97,7 +97,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
           , _opDat = Nothing
           , _opSel = sel
           , _opDropCyc = dropCyc i
-          , _opAddrSpace = if _rca hdr then ConfigAddressSpace else WishboneAddressSpace
+          , _opAddrSpace = if _readConfigAddr hdr then ConfigAddressSpace else WishboneAddressSpace
           , _opEOR = isLast
           , _opEOP = eop
           , _opAbort = abort
@@ -128,7 +128,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
     -- If this is the last fragment of the packet, jump back to the initial
     -- state.
     fsm _ PacketStreamM2S{_last}
-      | _last == Just maxBound = WriteOrReadAddr
+      | isJust _last = WriteOrReadAddr
     fsm st@WriteOrReadAddr PacketStreamM2S{..} = st'
       where
         meta' = snd _meta
@@ -147,22 +147,19 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
         rCount = _rCount meta'
 
         addr'
-          -- If @wff@ is set, the write address is a FIFO and should not
+          -- If @writeFifo@ is set, the write address is a FIFO and should not
           -- increment.
-          | _wff meta' = _addr
-          | otherwise  = _addr + (natToNum @dataWidth)
-        
+          | _writeFifo meta' = _addr
+          | otherwise        = _addr + (natToNum @dataWidth)
+
         st'
           | wCount' == 0 =
             if rCount > 0
               then ReadAddr
               else WriteOrReadAddr
           | otherwise = Write wCount' addr'
-    fsm ReadAddr PacketStreamM2S{..} = Read rCount
-      where
-        meta' = snd _meta
-        rCount = _rCount meta'
-    fsm Read{..} PacketStreamM2S{} = st'
+    fsm ReadAddr PacketStreamM2S{..} = (Read . _rCount . snd) _meta
+    fsm Read{..} _ = st'
       where
         rCount = _readsLeft
         rCount' = rCount - 1
@@ -186,9 +183,10 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
 -- the rest of a packet if it was toggled. This means that there is no need to
 -- have an additional state to handle aborts.
 --
--- This circuit assumes that @_last@ is set to @maxBound@ for the final
--- fragment of a Record packet. The @Bool@ in the @_meta@ field indicates the
--- end of a whole Etherbone packet, and is forwarded.
+-- This circuit assumes that @_last@ is set to @maxBound@ for the final fragment
+-- of a Record packet, so that no additional edge-cases need to be handled here.
+-- The @Bool@ in the @_meta@ field indicates the end of a whole Etherbone
+-- packet, and is forwarded.
 recordProcessorC :: forall dom dataWidth addrWidth dat selWidth .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth

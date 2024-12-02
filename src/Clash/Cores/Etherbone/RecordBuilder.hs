@@ -15,26 +15,26 @@ import Data.Maybe
 -- Convert a RecordHeader from incoming to outgoing
 hdrRx2Tx :: RecordHeader -> RecordHeader
 hdrRx2Tx hdr
-  = hdr { _bca = False
-        , _rca = False
-        , _rff = False
-        , _wca = _bca hdr
-        , _wff = _rff hdr
-        , _rCount = 0
-        , _wCount = _rCount hdr
+  = hdr { _baseConfigAddr   = False
+        , _readConfigAddr   = False
+        , _readFifo         = False
+        , _writeConfigAddr  = _baseConfigAddr hdr
+        , _writeFifo        = _readFifo hdr
+        , _rCount           = 0
+        , _wCount           = _rCount hdr
         }
 
 -- EBHeader properly formatted for an outgoing packet
 ebTxMeta :: forall dataWidth addrWidth. SNat dataWidth -> SNat addrWidth -> EBHeader
 ebTxMeta SNat SNat = EBHeader
-  { _magic    = etherboneMagic
-  , _version  = fromIntegral etherboneVersion
-  , _res      = 0
-  , _nr       = True
-  , _pr       = False
-  , _pf       = False
-  , _addrSize = addrSizeMask
-  , _portSize = portSizeMask
+  { _magic      = etherboneMagic
+  , _version    = fromIntegral etherboneVersion
+  , _res        = 0
+  , _noReads    = True
+  , _probeResp  = False
+  , _probeFlag  = False
+  , _addrSize   = addrSizeMask
+  , _portSize   = portSizeMask
   }
   where
     portSizeMask = sizeMask $ natToInteger @dataWidth
@@ -42,19 +42,20 @@ ebTxMeta SNat SNat = EBHeader
 
 data RecordBuilderState
   -- | Wait for a new packet.
-  -- For a write, write zeros and jump to @PadWrites@
-  -- For a read, write the response header and jump to @BaseRetAddr@
+  -- For a write, write zeros and jump to @PadWrites@.
+  -- For a read, write the response header and jump to @BaseRetAddr@.
   -- This state always gives backpressure, to make up for the lost cycle form
   -- the record header depacketizer.
   = Init
+  -- | Write zeros in the spot of the @baseWriteAddr@ in the reponse.
+  | BaseWriteAddr
   -- | Write zeros for each queued (or finished) write.
   -- If second-to-last write, jump to @Header@.
-  | BaseWriteAddr
   | PadWrites {_writesLeft :: Unsigned 8}
   -- | Write the response record header
   | Header
-  -- | Write the @BaseRetAddr@. This is know either through the stored
-  -- @_baseAddr@ value, or through the current data on the bypass line.
+  -- | Write the @BaseRetAddr@. By now this is known and sent over the bypass
+  -- line.
   | BaseRetAddr
   -- | Write the returned values from the @WishboneMaster@.
   | ReadValues
@@ -63,6 +64,11 @@ data RecordBuilderState
   | Aborted
   deriving (Generic, NFDataX, NFData, Show, ShowX, Eq)
 
+-- In the case of an abort, the state machine will be put into the @Aborted@
+-- state for one cycle. It then sends an 'end-of-packet' (by setting @_last@)
+-- with no data and @_abort@ asserted as well.
+-- The ConfigMaster and WishboneMaster __may not__ send anything after an abort
+-- was asserted. So there is no need to manage the incoming Df data lines.
 recordBuilderT :: forall addrWidth dataWidth dat .
   ( KnownNat addrWidth
   , KnownNat dataWidth
@@ -130,7 +136,7 @@ recordBuilderT st@PadWrites{..} (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBw
       | otherwise             = st
 
     port
-      | _wca hdr  = cfg
+      | _writeConfigAddr hdr  = cfg
       | otherwise = wbm
 
     psFwd = case port of
@@ -152,7 +158,7 @@ recordBuilderT st@Header (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
       | otherwise             = st
 
     port
-      | _wca hdr  = cfg
+      | _writeConfigAddr hdr  = cfg
       | otherwise = wbm
 
     psFwd = case port of
@@ -192,14 +198,14 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
       | otherwise             = st
 
     port
-      | _rca hdr  = cfg
+      | _readConfigAddr hdr  = cfg
       | otherwise = wbm
 
     psFwd = case port of
       Df.Data WishboneResult{_resDat=Just d, _resEOP}
         -> Just $ PacketStreamM2S (bitCoerce d) (lst _resEOP) meta False
       Df.Data WishboneResult{_resDat=Nothing}
-        -> Nothing  -- This should not happen
+        -> deepErrorX "Each result should hold valid data."
       Df.NoData -> Nothing
       where
         lst r = if r then Just maxBound else Nothing
@@ -216,21 +222,24 @@ recordBuilderT Aborted (_, _, _, PacketStreamS2M psBwd)
 recordBuilderT _ (Nothing, _, _, _)
   = error "This should not be possible. Only the 'Init' and 'Aborted' states can receive an empty Bypass signal."
 
+-- We cannot watch the @oBwd@ signal, so to identify correct handling of the
+-- last transaction a @Last@ state is added. The FSM jumps to @Waiting@ only
+-- when last was asserted and then deasserted.
 data BypassLatchState addrWidth
   = Waiting
   | Latched { _bp :: Bypass addrWidth }
   | Last    { _bp :: Bypass addrWidth }
   deriving (Generic, NFDataX, Show)
 
--- If an abort is sent, @wishboneMasterC@ and @configMasterC@ __may not__ send
+-- If an abort is sent, 'wishboneMasterC' and 'configMasterC' __may not__ send
 -- any data. As such, we don't have to wait before setting the state back to
 -- @Waiting@
 bypassLatchT ::
   ( KnownNat addrWidth )
   => BypassLatchState addrWidth
-  -> (Maybe (Bypass addrWidth), Maybe Bool )
+  -> (Maybe (Bypass addrWidth), Maybe Bool)
   -> (BypassLatchState addrWidth, Maybe (Bypass addrWidth))
-bypassLatchT Waiting (Nothing, Just True) = error "Cannot get a last signal with no bypass data and nothing latched."
+bypassLatchT Waiting (Nothing, Just True) = errorX "Cannot get a last signal with no bypass data and nothing latched."
 bypassLatchT Waiting (Nothing, _) = (Waiting, Nothing)
 bypassLatchT Waiting (Just b, lst) = (st' , Just b)
   where
@@ -239,7 +248,7 @@ bypassLatchT Waiting (Just b, lst) = (st' , Just b)
       | otherwise  = case lst of
         Just True -> Last b
         _         -> Latched b
-bypassLatchT Latched{..} (Just b, lst) = (st', Just res)
+bypassLatchT Latched{_bp} (Just b, lst) = (st', Just res)
   where
     res = Bypass { _bpHeader = _bpHeader _bp
                  , _bpBase   = _bpBase _bp <|> _bpBase b
@@ -248,15 +257,14 @@ bypassLatchT Latched{..} (Just b, lst) = (st', Just res)
     st'
       | _bpAbort b = Waiting
       | otherwise  = case lst of
-      Just True   -> Last res
+      Just True   -> Last _bp
       _           -> Latched res
-bypassLatchT Latched{..} (Nothing, lst) = (st', Just _bp)
+bypassLatchT Latched{_bp} (Nothing, lst) = (st', Just _bp)
   where
     st' = case lst of
       Just True -> Last _bp
       _         -> Latched _bp
--- XXX: Do we need to handle the abort case explicitly here as well?
-bypassLatchT Last{..} (_, lst) = case lst of
+bypassLatchT Last{_bp} (_, lst) = case lst of
   Just True -> (Last _bp, Just _bp)
   _         -> (Waiting, Nothing)
 
@@ -266,7 +274,7 @@ bypassLatchT Last{..} (_, lst) = case lst of
 --
 -- The bypass line is used so that the builder does not have to wait on the
 -- wishbone bus to start constructing a packet. The data on the bypass line is
--- latched in @bypassLatchT@ for as long as a packet takes to be completed. 
+-- latched in @bypassLatchT@ for as long as a packet takes to be completed.
 --
 -- This implementation waits not only for reads, but also for writes when
 -- constructing a response.

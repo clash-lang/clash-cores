@@ -13,7 +13,7 @@ import Data.Maybe
 
 data WishboneMasterState dat
   -- | Wait for an incoming wishbone operation. If an op is available, it is
-  -- direclty forwarded to the wishbone bus.
+  -- directly forwarded to the wishbone bus.
   = WaitForOp  { _wbmCyc :: Bool }
   -- | Wait for a termination signal from the wishbone bus.
   | Busy
@@ -23,33 +23,29 @@ data WishboneMasterState dat
   | WaitForAck { _wbmCyc :: Bool, _retDat :: Maybe dat, _isEOR :: Bool, isEOP :: Bool}
   deriving (Generic, NFDataX, Show, Eq)
 
-wishboneMasterT :: forall addrWidth dat selWidth .
+wishboneMasterT :: forall addrWidth dat .
   ( KnownNat addrWidth
-  , KnownNat selWidth
   , BitPack dat
   , NFDataX dat
-  , selWidth ~ ByteSize dat
   , Show dat
   )
   => WishboneMasterState dat
-  -> ( Bool
-     , ( Df.Data (WishboneOperation addrWidth selWidth dat)
-      , (Ack, WishboneS2M dat, ())
-      )
+  -> ( Df.Data (WishboneOperation addrWidth (ByteSize dat) dat)
+     , (Ack, WishboneS2M dat, ())
      )
   -> ( WishboneMasterState dat
      , ( Ack
        , ( Df.Data (WishboneResult dat)
-         , WishboneM2S addrWidth selWidth dat
+         , WishboneM2S addrWidth (ByteSize dat) dat
          , Maybe Bit)
        )
      )
 -- This operation is for another @AddressSpace@.
-wishboneMasterT state (rst, (Df.Data WishboneOperation{_opAddrSpace=ConfigAddressSpace}, _))
-  = (state, (Ack $ not rst, (Df.NoData, wbEmpty, Nothing)))
+wishboneMasterT state (Df.Data WishboneOperation{_opAddrSpace=ConfigAddressSpace}, _)
+  = (state, (Ack True, (Df.NoData, wbEmpty, Nothing)))
     where
       wbEmpty = emptyWishboneM2S
-wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
+wishboneMasterT state (iFwd, (Ack oBwd, wbBwd, _))
   = (nextState, (Ack iBwd, (oFwd, wbFwd, errBit)))
   where
     nextState = fsm state iFwd oBwd
@@ -61,7 +57,7 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
       WaitForAck _ dat eor eop -> Df.Data $ WishboneResult dat eor eop
       _                        -> Df.NoData
 
-    iBwd = not rst && case state of
+    iBwd = case state of
       WaitForOp _  -> False
       Busy         -> False
       WaitForAck{} -> oBwd
@@ -75,16 +71,16 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
     wbFwd = case (state, iFwd) of
       (WaitForOp c, Df.NoData) -> wbEmpty   { strobe=False, busCycle=c }
       (WaitForOp _, Df.Data i) -> (wbPkt i) { strobe=True,  busCycle=True }
-      (Busy, Df.NoData)        -> error "No input data in Busy state, this should be impossible!"
+      (Busy, Df.NoData)        -> errorX "No input data in Busy state, this should be impossible!"
       (Busy, Df.Data i)        -> (wbPkt i) { strobe=True,  busCycle=True }
       (WaitForAck c _ _ _, _)  -> wbEmpty   { strobe=False, busCycle=c }
     wbPkt WishboneOperation{..} = WishboneM2S
       { addr                = _opAddr
-      , writeData           = fromMaybe undefined _opDat
+      , writeData           = fromJustX _opDat
       , busSelect           = _opSel
       , lock                = False
-      , busCycle            = undefined
-      , strobe              = undefined
+      , busCycle            = deepErrorX "busCycle was not set"
+      , strobe              = deepErrorX "strobe was not set"
       , writeEnable         = isJust _opDat
       , cycleTypeIdentifier = Classic
       , burstTypeExtension  = LinearBurst
@@ -93,14 +89,14 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
 
     fsm
       :: WishboneMasterState dat  -- state
-      -> Df.Data (WishboneOperation addrWidth selWidth dat)  -- iFwd
+      -> Df.Data (WishboneOperation addrWidth (ByteSize dat) dat)  -- iFwd
       -> Bool                     -- oBwd
       -> WishboneMasterState dat  -- nextState
     fsm st@WaitForOp{} Df.NoData _ = st
     fsm WaitForOp{} (Df.Data WishboneOperation{..}) _
       | _opAbort  = WaitForOp False
       | otherwise = Busy
-    fsm Busy{} Df.NoData _ = error "Sender did not keep Df channel constant!" 
+    fsm Busy{} Df.NoData _ = error "Sender did not keep Df channel constant!"
     fsm Busy{} (Df.Data x) _
       | wbTerm    = WaitForAck (not $ _opDropCyc x) (dat $ _opDat x) (_opEOR x) (_opEOP x)
       | otherwise = Busy
@@ -109,7 +105,6 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
         dat (Just _) = Nothing
     fsm st@WaitForAck{} _ False = st
     fsm WaitForAck{..} _ True = WaitForOp _wbmCyc
-
 
 -- | Transact operations on the wishbone bus.
 --
@@ -121,26 +116,21 @@ wishboneMasterT state (rst, (iFwd, (Ack oBwd, wbBwd, _)))
 --
 -- The @busCycle@ is controlled by the @_dropCyc@ bool in the incoming
 -- operation. If this is set, the @CYC@ line is dropped in the @WaitForAck@
--- state and kept low until a new operation arives. 
+-- state and kept low until a new operation arives.
 wishboneMasterC
-  :: forall dom addrWidth dat selWidth .
-  ( HiddenClock dom
+  :: forall dom addrWidth dat .
+  ( HiddenClockResetEnable dom
   , KnownNat addrWidth
   , BitPack dat
-  , selWidth ~ ByteSize dat
   , NFDataX dat
   , Show dat
   )
-  => Reset dom
-  -> Circuit (Df.Df dom (WishboneOperation addrWidth selWidth dat))
+  => Circuit (Df.Df dom (WishboneOperation addrWidth (ByteSize dat) dat))
              ( Df.Df dom (WishboneResult dat)
              , Wishbone dom Standard addrWidth dat
              , CSignal dom (Maybe Bit)
              )
-wishboneMasterC rst = Circuit $ B.second unbundle . fsm . B.second bundle
+wishboneMasterC = Circuit $ B.second unbundle . fsm . B.second bundle
   where
-    fsm inp = withEnable enableGen $ withReset rst mealyB wishboneMasterT (WaitForOp False) (rst', bundle inp)
-    rst' = unsafeToActiveHigh rst
-
-    -- cnt = withReset rst $ withEnable enableGen register (0 :: Unsigned 16) (cnt+1)
+    fsm = mealyB wishboneMasterT (WaitForOp False)
 {-# OPAQUE wishboneMasterC #-}

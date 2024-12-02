@@ -25,13 +25,15 @@ recordHandlerC :: forall dom dataWidth addrWidth dat configRegs .
   , NFDataX dat
   , Show dat
   , ShowX dat
-  , addrWidth <= dataWidth * 8
   , BitSize dat ~ dataWidth * 8
-  , dataWidth ~ ByteSize dat
+  , ByteSize dat ~ dataWidth
+  , addrWidth <= dataWidth * 8
   , 4 <= dataWidth
-  , Div 64 (BitSize dat) * BitSize dat ~ 64
+  , DivRU 64 (BitSize dat) * BitSize dat ~ 64
   )
+  -- | Self-describing bus base address
   => BitVector addrWidth
+  -- | Optional user-defined config registers
   -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit (PacketStream dom dataWidth EBHeader)
              ( PacketStream dom dataWidth EBHeader
@@ -42,7 +44,7 @@ recordHandlerC sdbAddr userConfigRegs = circuit $ \psIn -> do
   (bypass, wbOp) <- recordProcessorC -< dpkt
   [wbmIn, cfgIn] <- Df.fanout -< wbOp
 
-  (wbmRes, wbBus, wbmErr) <- hideReset wishboneMasterC -< wbmIn
+  (wbmRes, wbBus, wbmErr) <- wishboneMasterC -< wbmIn
   cfgRes <- configMasterC @_ @_ @dat sdbAddr userConfigRegs -< (cfgIn, wbmErr)
 
   psOut <- recordBuilderC -< (bypass, cfgRes, wbmRes)
@@ -71,13 +73,14 @@ etherboneC :: forall dom dataWidth addrWidth dat configRegs .
   , Show dat
   , ShowX dat
   , BitSize dat ~ dataWidth * 8
+  , ByteSize dat ~ dataWidth
   , addrWidth <= dataWidth * 8
   , 4 <= dataWidth
-  -- These need to go...
-  , dataWidth ~ ByteSize dat
-  , Div 64 (BitSize dat) * BitSize dat ~ 64
+  , DivRU 64 (BitSize dat) * BitSize dat ~ 64
   )
+  -- | Self-describing bus base address
   => BitVector addrWidth
+  -- | Optional user-defined config registers
   -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit (PacketStream dom dataWidth ())
              ( PacketStream dom dataWidth ()

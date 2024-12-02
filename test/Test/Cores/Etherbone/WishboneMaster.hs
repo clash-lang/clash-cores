@@ -79,7 +79,7 @@ prop_wishboneMasterT = property $ do
       (state, result) = wishboneMasterT (last states) inp
 
     mapInput (x, ack, wbAck) =
-      (False, (x, (Ack ack, (emptyWishboneS2M @WBData){readData = readData, acknowledge = wbAck}, ())))
+      (x, (Ack ack, (emptyWishboneS2M @WBData){readData = readData, acknowledge = wbAck}, ()))
 
     getWb (_, (_, x, _)) = x
     getOutDat (_, (Df.Data x, _, _)) = x
@@ -88,7 +88,6 @@ prop_wishboneMasterT = property $ do
   footnote (show outStates)
   footnote (show out)
 
-  -- assert (last (fst res) == WaitForOp (not $ _dropCyc input))
   -- Check if it passes the correct states
   assert $ outStates !! beginWait == WaitForOp False
   assert $ outStates !! (beginWait + 1) == Busy

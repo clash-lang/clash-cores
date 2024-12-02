@@ -142,6 +142,12 @@ library
     Clash.Cores.Crc
     Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
+    Clash.Cores.Etherbone
+    Clash.Cores.Etherbone.Base
+    Clash.Cores.Etherbone.RecordBuilder
+    Clash.Cores.Etherbone.RecordProcessor
+    Clash.Cores.Etherbone.WishboneMaster
+    Clash.Cores.Etherbone.ConfigMaster
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
@@ -179,13 +185,6 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
-
-    Clash.Cores.Etherbone
-    Clash.Cores.Etherbone.Base
-    Clash.Cores.Etherbone.RecordBuilder
-    Clash.Cores.Etherbone.RecordProcessor
-    Clash.Cores.Etherbone.WishboneMaster
-    Clash.Cores.Etherbone.ConfigMaster
 
   if !flag(clash-18)
     exposed-modules:

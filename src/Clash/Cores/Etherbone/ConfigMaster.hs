@@ -15,8 +15,9 @@ type ConfigReg = BitVector 64
 --
 -- Any @WishboneOperation@ with @ConfigAddressSpace@ is handled by this circuit.
 -- Write are silently ignored. Read operations access the @configSpace@. Each
--- register in this space is 64-bits. With @dataWidth@ configured as 32-bits,
--- you would need two writes to read a full register.
+-- register in this space is 64-bits, as defiend in the Etherbone specification.
+-- With @dataWidth@ configured as 32-bits, you would need two writes to read a
+-- full register.
 --
 -- The ConfigSpace has the following registers (at the specified index):
 --
@@ -33,9 +34,11 @@ configMasterC
   , Show dat
   , 4 <= ByteSize dat
   , 1 <= BitSize dat
-  , Div 64 (BitSize dat) * BitSize dat ~ 64
+  , DivRU 64 (BitSize dat) * BitSize dat ~ 64
   )
+  -- | Self-describing bus base address
   => BitVector addrWidth
+  -- | Optional user-defined config registers
   -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit ( Df.Df dom (WishboneOperation addrWidth selWidth dat)
              , CSignal dom (Maybe Bit)
@@ -48,24 +51,21 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         -- Shift register keeping track of wishbone bus errors.
         errorReg = register (0 :: ConfigReg) $ errorRegT <$> errBit <*> errorReg
         errorRegT Nothing  er = er
-        errorRegT (Just b) er = shiftL er 1 .|. resize (pack b)
+        errorRegT (Just b) er = er .<<+ b
 
         -- The SDB base address
         sdbAddress' = pure $ resize sdbAddress
 
         -- Count the number of packages received.
-        -- This is counting the number of 'last' operations where the 'abort'
-        -- bit was not set.
+        -- This is counting the number of 'end-of-packet' signals without an
+        -- 'abort'.
         packetCounter = register (0 :: ConfigReg)
-          $ mux (    isLast <$> iFwd
-                .&&. not <$> prevLast
-                .&&. not . isAbort <$> iFwd
-                ) (packetCounter + 1) packetCounter
-        prevLast = register False (isLast <$> iFwd)
-        isLast (Df.Data WishboneOperation{_opEOP=True}) = True
-        isLast _ = False
-        isAbort (Df.Data WishboneOperation{_opAbort=True}) = True
-        isAbort _ = False
+          $ packetCounterT <$> packetCounter <*> iFwd <*> oBwd
+        packetCounterT cnt fwd (Ack bwd)
+          | isLast fwd && bwd && not (isAbort fwd) = cnt + 1
+          | otherwise = cnt
+        isLast  x = fromMaybe False $ Df.dataToMaybe (fmap _opEOP x)
+        isAbort x = fromMaybe False $ Df.dataToMaybe (fmap _opAbort x)
 
         -- The Etherbone internal config registers
         etherboneConfigRegs
@@ -77,7 +77,7 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         configSpace = (++) <$> bundle etherboneConfigRegs <*> userConfigRegs
 
         reMap ::
-          ConfigReg -> Vec (Div 64 (BitSize dat)) (BitVector (BitSize dat))
+          ConfigReg -> Vec (DivRU 64 (BitSize dat)) (BitVector (BitSize dat))
         reMap = bitCoerce
 
         configSpaceRemapped = fmap (concatMap reMap) configSpace
