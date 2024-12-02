@@ -1,5 +1,4 @@
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RecordWildCards #-}
 
 module Test.Cores.Etherbone.Internal where
 import qualified Clash.Prelude as C
@@ -32,25 +31,25 @@ genRecordHeader wRange rRange = do
     return (_rCount', _wCount')
 
   _cyc <- Gen.bool
-  _rca <- Gen.bool
-  _wca <- Gen.bool
-  _wff <- Gen.bool
+  _readConfigAddr <- Gen.bool
+  _writeConfigAddr <- Gen.bool
+  _writeFifo <- Gen.bool
 
   let
-    _bca = False
-    _rff = False
+    _baseConfigAddr = False
+    _readFifo = False
     _res0 = 0
     _res1 = 0
     _byteEn = C.resize $ C.pack $ C.replicate (C.SNat @DataWidth) (1::C.Bit)
 
   pure RecordHeader
-      { _bca
-      , _rca
-      , _rff
+      { _baseConfigAddr
+      , _readConfigAddr
+      , _readFifo
       , _res0
       , _cyc
-      , _wca
-      , _wff
+      , _writeConfigAddr
+      , _writeFifo
       , _res1
       , _byteEn
       , _wCount

@@ -90,7 +90,7 @@ prop_recordProcessor_wishbone =
     (C.exposeClockResetEnable (snd . recordProcessorModel))
     (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth @DataWidth @WBData))
   where
-    ckt :: forall dom dataWidth addrWidth selWidth dat . 
+    ckt :: forall dom dataWidth addrWidth selWidth dat .
       ( C.HiddenClockResetEnable dom
       , C.KnownNat dataWidth
       , C.KnownNat addrWidth
@@ -114,7 +114,7 @@ prop_recordProcessor_bypass = property $ do
   inputs' <- forAll genRecordProcessorInput
 
   let
-    ckt :: forall dom dataWidth addrWidth dat . 
+    ckt :: forall dom dataWidth addrWidth dat .
       ( C.HiddenClockResetEnable dom
       , C.KnownNat dataWidth
       , C.KnownNat addrWidth
@@ -182,7 +182,7 @@ recordProcessorModel inputs = (bypass, wbmInput)
         addrConv = C.resize . C.pack . _data
 
     createWriteInput input i
-      = WishboneOperation  -- addr (Just dat) (C.resize $ _byteEn hdr) (isJust $ _last input) (_abort input) False space
+      = WishboneOperation
         { _opAddr = addr
         , _opDat = Just dat
         , _opSel = C.resize $ _byteEn hdr
@@ -195,15 +195,15 @@ recordProcessorModel inputs = (bypass, wbmInput)
         }
       where
         addr
-          | _wff hdr  = writeBase
-          | otherwise = writeBase + (i * 4)
+          | _writeFifo hdr = writeBase
+          | otherwise      = writeBase + (i * 4)
         dat = C.bitCoerce $ _data input
         space
-          | _wca hdr  = ConfigAddressSpace
-          | otherwise = WishboneAddressSpace
+          | _writeConfigAddr hdr = ConfigAddressSpace
+          | otherwise            = WishboneAddressSpace
 
     createReadInput input
-      = WishboneOperation  --addr Nothing (C.resize $ _byteEn hdr) (isJust $ _last input) (_abort input) False space
+      = WishboneOperation
         { _opAddr = addr
         , _opDat = Nothing
         , _opSel = C.resize $ _byteEn hdr
@@ -217,14 +217,14 @@ recordProcessorModel inputs = (bypass, wbmInput)
       where
         addr = C.resize $ C.pack $ _data input
         space
-          | _rca hdr  = ConfigAddressSpace
-          | otherwise = WishboneAddressSpace
+          | _readConfigAddr hdr = ConfigAddressSpace
+          | otherwise           = WishboneAddressSpace
 
     wbmInput'
       = zipWith createWriteInput inputWrites [0..]
       <> map createReadInput inputReads
-    
-    -- Set the last operation to drop Cyc. 
+
+    -- Set the last operation to drop Cyc.
     -- The last fragment should always drop CYC to prevent a lock-up.
     wbmInput = init wbmInput' <> [(last wbmInput') {_opDropCyc = True}]
 

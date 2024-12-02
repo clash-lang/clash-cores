@@ -57,7 +57,10 @@ recordBuilderTest wMax rMax =
     (C.exposeClockResetEnable recordBuilderModel)
     (C.exposeClockResetEnable (ckt @C.System))
   where
-    -- TODO: Explain why bypass signal is in Df
+    -- The @withModel@ functions do not support @CSignal@. Additionally, the
+    -- bypass signal and the @WishboneResult@ are always related. So they are
+    -- put in the same @Df@ signal, where the backwards signal on bypass is
+    -- being dropped.
     ckt :: forall dom addrWidth dataWidth dat .
       ( C.HiddenClockResetEnable dom
       , C.KnownNat addrWidth
@@ -90,8 +93,7 @@ recordBuilderModel
   -> [PacketStreamM2S DataWidth EBHeader]
 recordBuilderModel inp = out
   where
-    bypass = map fst inp
-    wb = map snd inp
+    (bypass, wb) = unzip inp
 
     hdr = _bpHeader $ head bypass
     base = _bpBase $ head bypass
