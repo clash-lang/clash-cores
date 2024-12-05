@@ -38,6 +38,20 @@ tests-release:
     matrix:
       - GHC_VERSION: [9.6.6, 9.4.8, 9.2.8]
 
+tests-master:
+  stage: test
+  rules:
+    - if: $CLASH_BRANCH == "master"
+  needs: []
+  trigger:
+    include: .ci/gitlab/test.yaml
+    strategy: depend
+  variables:
+    CLASH_BRANCH: "$CLASH_BRANCH"
+  parallel:
+    matrix:
+      - GHC_VERSION: 9.10.1
+
 stack-build:
   extends: .common-local
   image: fpco/stack-build:lts-22.33
