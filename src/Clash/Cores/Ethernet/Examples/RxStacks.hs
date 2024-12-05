@@ -21,7 +21,7 @@ import Protocols.PacketStream
 import Clash.Cores.Ethernet.IP.IPPacketizers
 import Clash.Cores.Ethernet.IP.IPv4Types
 import Clash.Cores.Ethernet.Mac.EthernetTypes
-import Clash.Cores.Ethernet.Mac.FrameCheckSequence ( fcsValidatorC )
+import Clash.Cores.Ethernet.Mac.FrameCheckSequence ( fcsValidatorC, fcsStripperC )
 import Clash.Cores.Ethernet.Mac.MacPacketizers ( macDepacketizerC )
 import Clash.Cores.Ethernet.Mac.Preamble ( preambleStripperC )
 
@@ -44,6 +44,7 @@ macRxStack ethClk ethRst ethEn macAddressS =
     |> upConverterC'
     |> asyncFifoC'
     |> fcsValidatorC
+    |> fcsStripperC
     |> macDepacketizerC
     |> filterMetaS (isForMyMac <$> macAddressS)
   where
