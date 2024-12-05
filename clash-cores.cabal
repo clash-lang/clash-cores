@@ -207,6 +207,8 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+    Clash.Cores.Xilinx.Ethernet.Gmii
+    Clash.Cores.Xilinx.Ethernet.Gmii.Internal
 
   if !flag(clash-18)
     exposed-modules:
