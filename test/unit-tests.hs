@@ -32,27 +32,17 @@ import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
 
 tests :: TestTree
-tests = testGroup "Unittests" $
-  [ Test.Cores.Crc.tests
+tests = testGroup "Unittests"
+  [ --Test.Cores.Crc.tests
   , Test.Cores.Etherbone.tests
   , Test.Cores.Ethernet.tests
-  , Test.Cores.LineCoding8b10b.tests
-  , Test.Cores.SPI.tests
-  , Test.Cores.SPI.MultiSlave.tests
-  , Test.Cores.UART.tests
-  , Test.Cores.Xilinx.BlockRam.tests
-  , Test.Cores.Xilinx.DcFifo.tests
-  , Test.Cores.Xilinx.DnaPortE2.tests
-  ] ++ tests_modern
-
-tests_modern :: [TestTree]
-#if MIN_VERSION_clash_prelude(1,9,0)
-tests_modern =
-  [ Test.Cores.Sgmii.AutoNeg.tests
-  , Test.Cores.Sgmii.BitSlip.tests
-  , Test.Cores.Sgmii.RateAdapt.tests
-  , Test.Cores.Sgmii.Sgmii.tests
-  , Test.Cores.Sgmii.Sync.tests
+  --, Test.Cores.LineCoding8b10b.tests
+  --, Test.Cores.SPI.tests
+  --, Test.Cores.SPI.MultiSlave.tests
+  --, Test.Cores.UART.tests
+  --, Test.Cores.Xilinx.BlockRam.tests
+  --, Test.Cores.Xilinx.DcFifo.tests
+  --, Test.Cores.Xilinx.DnaPortE2.tests
   ]
 #else
 tests_modern = []

@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_HADDOCK hide #-}
 
 {-|
 Module      : Clash.Cores.Ethernet.Arp.ArpTypes
