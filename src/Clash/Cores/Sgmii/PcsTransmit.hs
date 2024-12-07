@@ -32,7 +32,7 @@ pcsTransmit ::
   Signal dom CodeGroup
 pcsTransmit txEn txEr dw xmit txConfReg = cg
  where
-  (_, cg, txEven, cgSent) =
+  (_, cg, txEven, txInd) =
     mooreB
       codeGroupT
       codeGroupO
@@ -43,6 +43,6 @@ pcsTransmit txEn txEr dw xmit txConfReg = cg
     mealyB
       orderedSetT
       (IdleS Idle False)
-      (txEn, txEr, dw, xmit, txEven, cgSent)
+      (txEn, txEr, dw, xmit, txEven, txInd)
 
 {-# OPAQUE pcsTransmit #-}

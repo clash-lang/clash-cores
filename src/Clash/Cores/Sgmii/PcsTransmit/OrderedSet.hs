@@ -77,151 +77,155 @@ orderedSetT ::
   (Bool, Bool, BitVector 8, Maybe Xmit, Even, Bool) ->
   -- | The new state and the new output values
   (OrderedSetState, (OrderedSetState, OrderedSet))
-orderedSetT s@Configuration{} (txEn, txEr, _, xmit, txEven, tx) =
+orderedSetT s@Configuration{} (txEn, txEr, _, xmit, txEven, txInd) =
   (nextState, out)
  where
   nextState = fromMaybe (Configuration xmit' xmitChange) s'
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetC)
-orderedSetT s@IdleS{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
+orderedSetT s@IdleS{} (txEn, txEr, _, xmit, txEven, txInd) = (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | xmit' == Data && not txEn && not txEr && tx = XmitData xmit' xmitChange
+    | xmit' == Data && not txEn && not txEr && txInd = XmitData xmit' xmitChange
     | otherwise = IdleS xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetI)
-orderedSetT s@XmitData{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
+orderedSetT s@XmitData{} (txEn, txEr, _, xmit, txEven, txInd) = (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | txEn && not txEr && tx = StartOfPacket xmit' xmitChange
-    | txEn && txEr && tx = StartError xmit' xmitChange
+    | txEn && not txEr && txInd = StartOfPacket xmit' xmitChange
+    | txEn && txEr && txInd = StartError xmit' xmitChange
     | otherwise = XmitData xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetI)
-orderedSetT s@StartOfPacket{} (txEn, txEr, _, xmit, txEven, tx) =
+orderedSetT s@StartOfPacket{} (txEn, txEr, _, xmit, txEven, txInd) =
   (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | txEn && tx = TxData xmit' xmitChange
-    | not txEn && not txEr && tx = EndOfPacketNoExt xmit' xmitChange
-    | not txEn && txEr && tx = EndOfPacketExt xmit' xmitChange
+    | txEn && txInd = TxData xmit' xmitChange
+    | not txEn && not txEr && txInd = EndOfPacketNoExt xmit' xmitChange
+    | not txEn && txEr && txInd = EndOfPacketExt xmit' xmitChange
     | otherwise = StartOfPacket xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetS)
-orderedSetT s@TxData{} (txEn, txEr, dw, xmit, txEven, tx) = (nextState, out)
+orderedSetT s@TxData{} (txEn, txEr, dw, xmit, txEven, txInd) = (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | txEn && tx = TxData xmit' xmitChange
-    | not txEn && not txEr && tx = EndOfPacketNoExt xmit' xmitChange
-    | not txEn && txEr && tx = EndOfPacketExt xmit' xmitChange
+    | txEn && txInd = TxData xmit' xmitChange
+    | not txEn && not txEr && txInd = EndOfPacketNoExt xmit' xmitChange
+    | not txEn && txEr && txInd = EndOfPacketExt xmit' xmitChange
     | otherwise = TxData xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   txOSet = void OSetD txEn txEr dw
   out = (s, txOSet)
-orderedSetT s@EndOfPacketNoExt{} (txEn, txEr, _, xmit, txEven, tx) =
+orderedSetT s@EndOfPacketNoExt{} (txEn, txEr, _, xmit, txEven, txInd) =
   (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | tx = Epd2NoExt xmit' xmitChange
+    | txInd = Epd2NoExt xmit' xmitChange
     | otherwise = EndOfPacketNoExt xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetT)
-orderedSetT s@Epd2NoExt{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
+orderedSetT s@Epd2NoExt{} (txEn, txEr, _, xmit, txEven, txInd) =
+  (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | txEven == Odd && tx = XmitData xmit' xmitChange
-    | txEven == Even && tx = Epd3 xmit' xmitChange
+    | txEven == Odd && txInd = XmitData xmit' xmitChange
+    | txEven == Even && txInd = Epd3 xmit' xmitChange
     | otherwise = Epd2NoExt xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetR)
-orderedSetT s@Epd3{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
+orderedSetT s@Epd3{} (txEn, txEr, _, xmit, txEven, txInd) = (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | tx = XmitData xmit' xmitChange
+    | txInd = XmitData xmit' xmitChange
     | otherwise = Epd3 xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetR)
-orderedSetT s@EndOfPacketExt{} (txEn, txEr, dw, xmit, txEven, tx) =
+orderedSetT s@EndOfPacketExt{} (txEn, txEr, dw, xmit, txEven, txInd) =
   (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | not txEr && tx = ExtendBy1 xmit' xmitChange
-    | txEr && tx = CarrierExtend xmit' xmitChange
+    | not txEr && txInd = ExtendBy1 xmit' xmitChange
+    | txEr && txInd = CarrierExtend xmit' xmitChange
     | otherwise = EndOfPacketExt xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   txOSet = void OSetT txEn txEr dw
   out = (s, txOSet)
-orderedSetT s@ExtendBy1{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
- where
-  nextState
-    | Just x <- s' = x
-    | tx = Epd2NoExt xmit' xmitChange
-    | otherwise = ExtendBy1 xmit' xmitChange
-
-  (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
-  out = (s, OSetR)
-orderedSetT s@CarrierExtend{} (txEn, txEr, dw, xmit, txEven, tx) =
+orderedSetT s@ExtendBy1{} (txEn, txEr, _, xmit, txEven, txInd) =
   (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | not txEn && not txEr && tx = ExtendBy1 xmit' xmitChange
-    | txEn && txEr && tx = StartError xmit' xmitChange
-    | txEn && not txEr && tx = StartOfPacket xmit' xmitChange
+    | txInd = Epd2NoExt xmit' xmitChange
+    | otherwise = ExtendBy1 xmit' xmitChange
+
+  (xmit', xmitChange) = xmitUpdate s xmit
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
+  out = (s, OSetR)
+orderedSetT s@CarrierExtend{} (txEn, txEr, dw, xmit, txEven, txInd) =
+  (nextState, out)
+ where
+  nextState
+    | Just x <- s' = x
+    | not txEn && not txEr && txInd = ExtendBy1 xmit' xmitChange
+    | txEn && txEr && txInd = StartError xmit' xmitChange
+    | txEn && not txEr && txInd = StartOfPacket xmit' xmitChange
     | otherwise = CarrierExtend xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   txOSet = void OSetR txEn txEr dw
   out = (s, txOSet)
-orderedSetT s@StartError{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
+orderedSetT s@StartError{} (txEn, txEr, _, xmit, txEven, txInd) =
+  (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | tx = TxDataError xmit' xmitChange
+    | txInd = TxDataError xmit' xmitChange
     | otherwise = StartError xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetS)
-orderedSetT s@TxDataError{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
+orderedSetT s@TxDataError{} (txEn, txEr, _, xmit, txEven, txInd) =
+  (nextState, out)
  where
   nextState
     | Just x <- s' = x
-    | txEn && tx = TxData xmit' xmitChange
-    | not txEn && not txEr && tx = EndOfPacketNoExt xmit' xmitChange
-    | not txEn && txEr && tx = EndOfPacketExt xmit' xmitChange
+    | txEn && txInd = TxData xmit' xmitChange
+    | not txEn && not txEr && txInd = EndOfPacketNoExt xmit' xmitChange
+    | not txEn && txEr && txInd = EndOfPacketExt xmit' xmitChange
     | otherwise = TxDataError xmit' xmitChange
 
   (xmit', xmitChange) = xmitUpdate s xmit
-  s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
+  s' = txTestXmit txEn txEr xmit' txEven txInd xmitChange
   out = (s, OSetV)
 
 {-# OPAQUE orderedSetT #-}
