@@ -242,7 +242,7 @@ pcsReceiveO s = case s of
     (s, Nothing, Nothing, Nothing, orNothing (_xmit s == Conf) RudiInvalid)
   IdleD{} -> (s, Just False, Just False, Nothing, Just RudiI)
   FalseCarrier{} -> (s, Nothing, Just True, Just (Cw 0b00001110), Nothing)
-  StartOfPacket{} -> (s, Just True, Just False, Just (Cw 0b01010101), Nothing)
+  StartOfPacket{} -> (s, Just True, Just False, Just dwD21_2, Nothing)
   EarlyEnd{} -> (s, Nothing, Just True, Nothing, Nothing)
   TriRri{} -> (s, Just False, Just False, Nothing, Nothing)
   TrrExtend{} -> (s, Just False, Just True, Just (Cw 0b00001111), Nothing)

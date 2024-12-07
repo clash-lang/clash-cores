@@ -116,6 +116,11 @@ dwD05_6 = Dw 0b11000101
 dwD16_2 :: Symbol8b10b
 dwD16_2 = Dw 0b01010000
 
+-- | Data word corresponding to the first octet of the preamble of a packet,
+--   this replaces @Start_of_Packet@ (/S/) for newly received packets.
+dwD21_2 :: Symbol8b10b
+dwD21_2 = Dw 0b01010101
+
 -- | Data word corresponding to the decoded version of code group D21.5, used
 --   for alternating configuration transmission
 dwD21_5 :: Symbol8b10b
