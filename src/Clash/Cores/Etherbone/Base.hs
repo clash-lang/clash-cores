@@ -40,25 +40,25 @@ data EBHeader = EBHeader
 data RecordHeader = RecordHeader
   -- | Whether the @BaseRetAddr@ for the read values is in config space of the
   -- originating device.
-  { _baseConfigAddr  :: Bool
+  { _baseIsConfig  :: Bool
   -- | The read operations are meant for the config space.
-  , _readConfigAddr  :: Bool
+  , _readIsConfig  :: Bool
   -- | Read results should be written to a FIFO at BaseRetAddr at the remote.
-  , _readFifo        :: Bool
-  , _res0            :: Bit
+  , _readFifo      :: Bool
+  , _res0          :: Bit
   -- | Whether the @CYC@ line should be dropped after this record.
-  , _cyc             :: Bool
+  , _cyc           :: Bool
   -- | The write operations are meant for the config space.
-  , _writeConfigAddr :: Bool
+  , _writeIsConfig :: Bool
   -- | Write to a local FIFO
-  , _writeFifo       :: Bool
-  , _res1            :: Bit
+  , _writeFifo     :: Bool
+  , _res1          :: Bit
   -- | Wishbone byte enable field
-  , _byteEn          :: BitVector 8
+  , _byteEn        :: BitVector 8
   -- | Number of write entries in this record
-  , _wCount          :: Unsigned 8
+  , _wCount        :: Unsigned 8
   -- | Number of read entries in this record
-  , _rCount          :: Unsigned 8
+  , _rCount        :: Unsigned 8
   } deriving (Generic, BitPack, NFDataX, NFData, Show, ShowX, Eq)
 
 -- | The address space a WishboneOperation is meant for.

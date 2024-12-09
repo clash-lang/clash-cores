@@ -80,35 +80,32 @@ prop_genRecordProcessorInput = property $ do
   -- Validate _last
   assert $ _last (last stream) == Just maxBound
 
--- Check whether the WishboneOperations are formatted correctly. Also crudely
--- checks the bypass signal to see if there is a base address when needed
+-- Check whether the WishboneOperations are formatted correctly.
 prop_recordProcessor_wishbone :: Property
 prop_recordProcessor_wishbone =
   idWithModelSingleDomain @C.System
     defExpectOptions {eoSampleMax = 256}
     genRecordProcessorInput
     (C.exposeClockResetEnable (snd . recordProcessorModel))
-    (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth @DataWidth @WBData))
+    (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth @WBData))
   where
-    ckt :: forall dom dataWidth addrWidth selWidth dat .
+    ckt :: forall dom dataWidth addrWidth dat .
       ( C.HiddenClockResetEnable dom
       , C.KnownNat dataWidth
       , C.KnownNat addrWidth
       , C.BitPack dat
       , C.BitSize dat ~ dataWidth C.* 8
-      , selWidth ~ dataWidth
       , Show dat
       )
       => Circuit (PacketStream dom dataWidth (Bool, RecordHeader))
-                 (Df.Df dom (WishboneOperation addrWidth selWidth dat))
+                 (Df.Df dom (WishboneOperation addrWidth dataWidth dat))
     ckt = Circuit go
       where
         go (iFwd, oBwd) = (iBwd, snd oFwd)
           where
             (iBwd, oFwd) = toSignals recordProcessorC (iFwd, (pure (), oBwd))
 
--- Check whether the Bypass data returned is formatted correctly. This does not
--- fully test the backpressure behaviour.
+-- Check whether the Bypass data returned is formatted correctly.
 prop_recordProcessor_bypass :: Property
 prop_recordProcessor_bypass = property $ do
   inputs' <- forAll genRecordProcessorInput
@@ -128,7 +125,7 @@ prop_recordProcessor_bypass = property $ do
       where
         go (iFwd, oBwd) = (iBwd, fst oFwd)
           where
-            (iBwd, oFwd) = toSignals (recordProcessorC @_ @_ @_ @dat @dataWidth) (iFwd, (oBwd, pure $ Ack True))
+            (iBwd, oFwd) = toSignals (recordProcessorC @_ @_ @_ @dat) (iFwd, (oBwd, pure $ Ack True))
 
     inputs = map Just inputs'
     inputsS = zip inputs (repeat ())
@@ -146,16 +143,15 @@ prop_recordProcessor_bypass = property $ do
   assert $ length bypass == length modelBypass
   assert $ bypass == modelBypass
 
-recordProcessorModel :: forall dataWidth addrWidth dat selWidth .
+recordProcessorModel :: forall dataWidth addrWidth dat .
   ( C.KnownNat dataWidth
   , C.KnownNat addrWidth
   , C.BitPack dat
   , C.BitSize dat ~ dataWidth C.* 8
-  , selWidth ~ dataWidth
   , Show dat
   )
   => [PacketStreamM2S dataWidth (Bool, RecordHeader)]
-  -> ([Bypass addrWidth], [WishboneOperation addrWidth selWidth dat])
+  -> ([Bypass addrWidth], [WishboneOperation addrWidth dataWidth dat])
 recordProcessorModel inputs = (bypass, wbmInput)
   where
     meta = _meta $ head inputs
@@ -199,8 +195,8 @@ recordProcessorModel inputs = (bypass, wbmInput)
           | otherwise      = writeBase + (i * 4)
         dat = C.bitCoerce $ _data input
         space
-          | _writeConfigAddr hdr = ConfigAddressSpace
-          | otherwise            = WishboneAddressSpace
+          | _writeIsConfig hdr = ConfigAddressSpace
+          | otherwise          = WishboneAddressSpace
 
     createReadInput input
       = WishboneOperation
@@ -217,8 +213,8 @@ recordProcessorModel inputs = (bypass, wbmInput)
       where
         addr = C.resize $ C.pack $ _data input
         space
-          | _readConfigAddr hdr = ConfigAddressSpace
-          | otherwise           = WishboneAddressSpace
+          | _readIsConfig hdr = ConfigAddressSpace
+          | otherwise         = WishboneAddressSpace
 
     wbmInput'
       = zipWith createWriteInput inputWrites [0..]

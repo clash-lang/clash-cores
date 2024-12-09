@@ -19,8 +19,8 @@ data RecordProcessorState addrWidth
   -- or @Read@.
   = WriteOrReadAddr
   -- | State to handle Write operations.
-  -- When @_writesLeft == 1@ the state progresses to @ReadAddr@ or back to
-  -- @WriteOrReadAddr@.
+  -- When @_writesLeft == 1@ the state progresses to @ReadAddr@ or to
+  -- @WaitForLast@.
   | Write { _writesLeft :: Unsigned 8
           -- ^ Number of write operations left to fullfill.
           , _addr :: BitVector addrWidth
@@ -31,16 +31,17 @@ data RecordProcessorState addrWidth
   -- | Handle Read operations.
   -- When @_readsLeft == 1@ the state is set back to @WriteOrReadAddr@.
   | Read  { _readsLeft :: Unsigned 8 }
+  -- Wait until @_last@ was set.
   | WaitForLast
   deriving (Show, Generic, ShowX, NFDataX)
 
-recordProcessorT :: forall dataWidth addrWidth dat selWidth .
+recordProcessorT :: forall dataWidth addrWidth dat .
   ( KnownNat dataWidth
   , KnownNat addrWidth
   , BitPack dat
   , BitSize dat ~ dataWidth * 8
   , Show dat
-  , selWidth ~ dataWidth)
+  )
   => RecordProcessorState addrWidth
   -> (Maybe (PacketStreamM2S dataWidth (Bool, RecordHeader))
      , ((), Ack)
@@ -48,7 +49,7 @@ recordProcessorT :: forall dataWidth addrWidth dat selWidth .
   -> ( RecordProcessorState addrWidth
      , ( PacketStreamS2M
        , ( Maybe (Bypass addrWidth)
-         , Df.Data (WishboneOperation addrWidth selWidth dat)
+         , Df.Data (WishboneOperation addrWidth dataWidth dat)
          )
        )
      )
@@ -86,7 +87,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
           , _opDat = Just dat
           , _opSel = sel
           , _opDropCyc = dropCyc $ i + _rCount hdr
-          , _opAddrSpace = if _writeConfigAddr hdr then ConfigAddressSpace else WishboneAddressSpace
+          , _opAddrSpace = if _writeIsConfig hdr then ConfigAddressSpace else WishboneAddressSpace
           , _opEOR = isLast
           , _opEOP = eop
           , _opAbort = abort
@@ -97,7 +98,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
           , _opDat = Nothing
           , _opSel = sel
           , _opDropCyc = dropCyc i
-          , _opAddrSpace = if _readConfigAddr hdr then ConfigAddressSpace else WishboneAddressSpace
+          , _opAddrSpace = if _readIsConfig hdr then ConfigAddressSpace else WishboneAddressSpace
           , _opEOR = isLast
           , _opEOP = eop
           , _opAbort = abort
@@ -126,7 +127,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
       -> PacketStreamM2S dataWidth (Bool, RecordHeader)
       -> RecordProcessorState addrWidth
     -- If this is the last fragment of the packet, jump back to the initial
-    -- state.
+    -- state. This can happen from any of the states.
     fsm _ PacketStreamM2S{_last}
       | isJust _last = WriteOrReadAddr
     fsm st@WriteOrReadAddr PacketStreamM2S{..} = st'
@@ -156,7 +157,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
           | wCount' == 0 =
             if rCount > 0
               then ReadAddr
-              else WriteOrReadAddr
+              else WaitForLast
           | otherwise = Write wCount' addr'
     fsm ReadAddr PacketStreamM2S{..} = (Read . _rCount . snd) _meta
     fsm Read{..} _ = st'
@@ -187,18 +188,17 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
 -- of a Record packet, so that no additional edge-cases need to be handled here.
 -- The @Bool@ in the @_meta@ field indicates the end of a whole Etherbone
 -- packet, and is forwarded.
-recordProcessorC :: forall dom dataWidth addrWidth dat selWidth .
+recordProcessorC :: forall dom dataWidth addrWidth dat .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth
   , KnownNat addrWidth
   , BitPack dat
   , Show dat
   , BitSize dat ~ dataWidth * 8
-  , selWidth ~ dataWidth
   )
   => Circuit (PacketStream dom dataWidth (Bool, RecordHeader))
              ( CSignal dom (Maybe (Bypass addrWidth))
-             , Df.Df dom (WishboneOperation addrWidth selWidth dat)
+             , Df.Df dom (WishboneOperation addrWidth dataWidth dat)
              )
 recordProcessorC = forceResetSanity |> Circuit (B.second unbundle . fsm . B.second bundle)
   where

@@ -14,9 +14,9 @@ type ConfigReg = BitVector 64
 -- | Transact (read) operations on the Config space.
 --
 -- Any @WishboneOperation@ with @ConfigAddressSpace@ is handled by this circuit.
--- Write are silently ignored. Read operations access the @configSpace@. Each
+-- Writes are silently ignored. Read operations access the @configSpace@. Each
 -- register in this space is 64-bits, as defiend in the Etherbone specification.
--- With @dataWidth@ configured as 32-bits, you would need two writes to read a
+-- With @dataWidth@ configured as 32-bits, you would need two reads to read a
 -- full register.
 --
 -- The ConfigSpace has the following registers (at the specified index):
@@ -25,7 +25,7 @@ type ConfigReg = BitVector 64
 -- 1. Self-describing bus base address.
 -- 2. Packet counter. Counts the number of correctly received packets.
 configMasterC
-  :: forall dom addrWidth dat selWidth configRegs.
+  :: forall dom addrWidth dat configRegs.
   ( HiddenClockResetEnable dom
   , KnownNat addrWidth
   , KnownNat configRegs
@@ -40,7 +40,7 @@ configMasterC
   => BitVector addrWidth
   -- | Optional user-defined config registers
   -> Signal dom (Vec configRegs ConfigReg)
-  -> Circuit ( Df.Df dom (WishboneOperation addrWidth selWidth dat)
+  -> Circuit ( Df.Df dom (WishboneOperation addrWidth (ByteSize dat) dat)
              , CSignal dom (Maybe Bit)
              )
              (Df.Df dom (WishboneResult dat))
@@ -89,7 +89,7 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         -- abort set. Selects to correct Word from the @configSpace@.
         regSelect ::
           ( KnownNat n )
-          => Df.Data (WishboneOperation addrWidth selWidth dat)
+          => Df.Data (WishboneOperation addrWidth (ByteSize dat) dat)
           -> Vec n (BitVector (BitSize dat))
           -> Df.Data (Maybe dat)
         regSelect Df.NoData _ = Df.NoData
