@@ -31,24 +31,24 @@ genRecordHeader wRange rRange = do
     return (_rCount', _wCount')
 
   _cyc <- Gen.bool
-  _readConfigAddr <- Gen.bool
-  _writeConfigAddr <- Gen.bool
+  _readIsConfig <- Gen.bool
+  _writeIsConfig <- Gen.bool
   _writeFifo <- Gen.bool
 
   let
-    _baseConfigAddr = False
+    _baseIsConfig = False
     _readFifo = False
     _res0 = 0
     _res1 = 0
     _byteEn = C.resize $ C.pack $ C.replicate (C.SNat @DataWidth) (1::C.Bit)
 
   pure RecordHeader
-      { _baseConfigAddr
-      , _readConfigAddr
+      { _baseIsConfig
+      , _readIsConfig
       , _readFifo
       , _res0
       , _cyc
-      , _writeConfigAddr
+      , _writeIsConfig
       , _writeFifo
       , _res1
       , _byteEn
