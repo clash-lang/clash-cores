@@ -96,9 +96,6 @@ data WishboneOperation addrWidth selWidth dat
 data WishboneResult dat
   = WishboneResult
   -- | @Nothing@ for a write and @Just dat@ for a read.
-  -- This can be used to wait for all operations to be finished, including
-  -- writes, before sending the response. The default behaviour for now is to
-  -- not wait for all writes to finish.
   { _resDat  :: Maybe dat
   -- | Forwarded End-of-record flag
   , _resEOR  :: Bool
