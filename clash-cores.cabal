@@ -122,6 +122,8 @@ common basic-config
     QuickCheck,
     string-interpolate        ^>= 0.3,
     template-haskell,
+    clash-protocols,
+    deepseq,
 
   if flag(clash-18)
     build-depends:
@@ -140,6 +142,12 @@ library
     Clash.Cores.Crc
     Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
+    Clash.Cores.Etherbone
+    Clash.Cores.Etherbone.Base
+    Clash.Cores.Etherbone.RecordBuilder
+    Clash.Cores.Etherbone.RecordProcessor
+    Clash.Cores.Etherbone.WishboneMaster
+    Clash.Cores.Etherbone.ConfigMaster
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
@@ -222,6 +230,11 @@ test-suite unit-tests
 
   other-modules:
     Test.Cores.Crc
+    Test.Cores.Etherbone
+    Test.Cores.Etherbone.Internal
+    Test.Cores.Etherbone.WishboneMaster
+    Test.Cores.Etherbone.RecordBuilder
+    Test.Cores.Etherbone.RecordProcessor
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
