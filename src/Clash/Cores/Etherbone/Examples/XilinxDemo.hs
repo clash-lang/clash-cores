@@ -93,9 +93,7 @@ glue clk rst rxClk rxRst txClk txRst rxGmii txRdy ipAddr = txGmii
     ipSubnet = let subnet = IPv4SubnetMask (0xff :> 0xff :> 0xff :> 0x00 :> Nil)
       in bundle (ipAddr, pure subnet)
 
-    txGmii = out
-      where
-        out = snd $ toSignals ckt (rxGmii, pure ())
+    txGmii = snd $ toSignals ckt (rxGmii, pure ())
 
     ethStack = (exposeClockResetEnable fullStackC clk rst enableGen) rxClk rxRst enableGen txClk txRst enableGen mac ipSubnet
     ckt = circuit $ \gmiiIn -> do
