@@ -59,6 +59,7 @@ common basic-config
   default-language: Haskell2010
 
   default-extensions:
+    BangPatterns
     BinaryLiterals
     DataKinds
     DefaultSignatures
@@ -75,6 +76,7 @@ common basic-config
     TypeApplications
     TypeFamilies
     TypeOperators
+    QuasiQuotes
 
   -- See https://github.com/clash-lang/clash-compiler/pull/2511
   if impl(ghc >= 9.4)
@@ -177,6 +179,10 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+    Clash.Cores.ClashFloPoCo.FloPoCoCall
+    Clash.Cores.ClashFloPoCo.GenTemDSL
+    Clash.Cores.ClashFloPoCo.InfoEn
+    Clash.Cores.ClashFloPoCo.Lexer
 
   if !flag(clash-18)
     exposed-modules:
@@ -192,7 +198,10 @@ library
       Clash.Cores.Sgmii.Sync
 
   other-modules:
-    Data.Text.Extra
+    Data.Text.Extra,
+    Clash.Cores.ClashFloPoCo.Help,
+    Clash.Cores.ClashFloPoCo.Helpargs,
+    Clash.Cores.ClashFloPoCo.FloPoCoExample
 
   ghc-options:
     -fexpose-all-unfoldings
@@ -210,6 +219,7 @@ library
     text                    >= 1.2.2 && < 2.2,
     constraints             >= 0.9   && < 1.0,
     template-haskell        >= 2.12.0.0 && < 2.23,
+    process,
 
 test-suite unit-tests
   import: basic-config

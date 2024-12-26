@@ -4,6 +4,7 @@ packages:
   clash-cores.cabal
   hdl-tests
 
+
 package clash-cores
   ghc-options: +RTS -qn4 -A128M -RTS -j4
 
