@@ -14,6 +14,8 @@ module Clash.Cores.Ethernet.Mdio (
   mdioController,
 ) where
 
+import Control.DeepSeq (NFData)
+
 import Clash.Prelude
 
 -- | MDIO bus request.
@@ -27,7 +29,7 @@ data MdioRequest
       , mdioRegAddress :: BitVector 5
       , mdioWriteData :: BitVector 16
       }
-  deriving (Generic, NFDataX, Show, ShowX)
+  deriving (Eq, Generic, NFData, NFDataX, Show, ShowX)
 
 -- | MDIO bus response.
 data MdioResponse
@@ -43,7 +45,7 @@ data MdioResponse
     --   2. The PHY is held in reset.
     --   3. The PHY's clock is not running.
     MdioPhyError
-  deriving (Generic, NFDataX, Show, ShowX)
+  deriving (Eq, Generic, NFData, NFDataX, Show, ShowX)
 
 data MdioMasterState
   = Idle
@@ -146,11 +148,11 @@ mdioT (SendData buf dat c) _ = (nextSt, (mdioOutEn, resp))
   mdioOutEn = msb dat == 1
 
   resp
-    | c == 15 = Just MdioWriteAck
+    | c == 16 = Just MdioWriteAck
     | otherwise = Nothing
 
   nextSt
-    | c == 15 = Idle
+    | c == 16 = Idle
     | otherwise = SendData buf (shiftL dat 1) (c + 1)
 mdioT (RecvData _ _ c rb) (_, mdioIn) = (nextSt, (True, resp))
  where
@@ -186,24 +188,18 @@ mdioController ::
   (HiddenClockResetEnable dom) =>
   (KnownNat (DomainPeriod dom)) =>
   (1 <= (DomainPeriod dom)) =>
-  (1 <= Div (clockDivider + 3) 4) =>
+  (1 <= Div clockDivider 2) =>
   -- | Clock divider
   SNat clockDivider ->
-  -- | Read/Write request
-  Signal dom (Maybe MdioRequest) ->
   -- | Value of the MDIO pin
   Signal dom Bit ->
-  -- | (Response from PHY, MDC, MDIO output enable (active low))
-  (Signal dom (Maybe MdioResponse), Signal dom Bool, Signal dom Bool)
-mdioController SNat reqS mdioIn = (resp, mdc, mdioOutEnable)
+  -- | MDIO request
+  Signal dom (Maybe MdioRequest) ->
+  -- | (Request-Response bus, Request Ready, MDC, MDIO output enable (active low))
+  (Signal dom (Maybe MdioResponse), Signal dom Bool, Signal dom Bool, Signal dom Bool)
+mdioController SNat mdioIn reqS = (resp, ready, mdc, mdioOutEnable)
  where
-  mdc = oscillate False (SNat @(clockDivider `DivRU` 2))
-
-  counter :: Signal dom (Index (clockDivider `DivRU` 4))
-  counter = regEn 0 (not <$> mdc .&&. not <$> gavePulse) (satSucc SatWrap <$> counter)
-
-  gavePulse = register False ((pulse .||. gavePulse) .&&. not <$> mdc)
-  pulse = counter .==. pure maxBound .&&. not <$> gavePulse
+  (mdc, pulse) = mdcGenerator (SNat @clockDivider) ((Idle /=) <$> st)
 
   -- If we are in idle, we should immediately handle the request.
   -- Else, we only enable the FSM in the middle of MDC's low period, because:
@@ -213,13 +209,41 @@ mdioController SNat reqS mdioIn = (resp, mdc, mdioOutEnable)
   -- 2. The PHY drives the MDIO line some time after the rising edge of MDC.
   --    the exact time depends on the PHY, but sampling MDIO during
   --    the middle of MDC's low period gives the PHY the most time.
-  fsmEnable = isRising False (pulse .||. (Idle ==) <$> st)
+  fsmEnable = pulse .||. (Idle ==) <$> st
 
   (st', o) = unbundle $ liftA2 mdioT st (bundle (reqS, mdioIn))
   (mdioOutEnable', resp') = unbundle o
-
+  
   st = regEn Idle fsmEnable st'
   mdioOutEnable = regEn True fsmEnable mdioOutEnable'
 
   resp = (\(r, e) -> if e then r else Nothing) <$> bundle (resp', fsmEnable)
+  ready = (Idle ==) <$> st
 {-# OPAQUE mdioController #-}
+
+
+-- | Generate MDC from the controller clock by clock division.
+mdcGenerator ::
+  forall (dom :: Domain) (clockDivider :: Nat).
+  (HiddenClockResetEnable dom) =>
+  (1 <= Div clockDivider 2) =>
+  -- | Clock divider
+  SNat clockDivider ->
+  -- | Enable generation of the clock and pulses
+  Signal dom Bool ->
+  -- | (MDC, pulse)
+  (Signal dom Bool, Signal dom Bool)
+mdcGenerator SNat en = (mdcO, pulse)
+ where
+  counter :: Signal dom (Index (clockDivider `Div` 2))
+  counter = regEn 0 en (satSucc SatWrap <$> counter)
+
+  mdc :: Signal dom Bool
+  mdc = regEn True ((== maxBound) <$> counter) (mux en (not <$> mdc) (pure True))
+
+  -- Delay for another cycle for proper alignment with respect to MDIO
+  mdcO = register True mdc
+
+  -- We give a pulse when MDC is halfway through its low period.
+  pulse :: Signal dom Bool
+  pulse = register False ((not <$> mdc) .&&. ((== maxBound `div` 2) <$> counter))
