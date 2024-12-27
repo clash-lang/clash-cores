@@ -114,6 +114,8 @@ common basic-config
     base                      >= 4.10  && < 5,
     constraints,
     containers                >=0.5    && <0.8,
+    clash-protocols,
+    deepseq,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
@@ -223,6 +225,7 @@ test-suite unit-tests
 
   other-modules:
     Test.Cores.Crc
+    Test.Cores.Ethernet.Mdio
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
