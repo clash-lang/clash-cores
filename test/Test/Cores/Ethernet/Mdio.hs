@@ -27,14 +27,15 @@ import Test.Tasty.TH (testGroupGenerator)
 -- | Generate a random MDIO bus request.
 genMdioRequest :: Gen MdioRequest
 genMdioRequest = do
+  suppressPreamble <- Gen.enumBounded
   phyAddr <- Gen.enumBounded
   regAddr <- Gen.enumBounded
   isRead <- Gen.bool
   writeData <- Gen.enumBounded
   pure
     $ if isRead
-      then MdioRead phyAddr regAddr
-      else MdioWrite phyAddr regAddr writeData
+      then MdioRead suppressPreamble phyAddr regAddr
+      else MdioWrite suppressPreamble phyAddr regAddr writeData
 
 {- |
 Stateful model of an MDIO bus: 32 potential PHYs, each which contain
@@ -67,7 +68,7 @@ mdioControllerModel phys = mdioControllerModel' M.empty
     -- Upon a write request, update the registers of the addressed PHY.
     -- But, only if it exists in the model.
     nextSt = case (req, phyIsPresent) of
-      (MdioWrite _ _ writeData, True) -> M.insert combinedAddr writeData st
+      (MdioWrite _ _ _ writeData, True) -> M.insert combinedAddr writeData st
       _ -> st
 
     resp = case (req, phyIsPresent, M.lookup combinedAddr st) of
