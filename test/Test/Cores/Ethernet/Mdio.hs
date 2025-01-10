@@ -11,6 +11,8 @@ import Clash.Prelude
 import qualified Data.List as L
 
 import qualified Data.Map as M
+import Data.Maybe (catMaybes)
+import qualified Prelude as P
 
 import Hedgehog (Gen, Property)
 import qualified Hedgehog.Gen as Gen
@@ -22,19 +24,21 @@ import Protocols.Hedgehog
 
 import Test.Tasty
 import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit), testProperty)
+import Test.Tasty.HUnit
 import Test.Tasty.TH (testGroupGenerator)
 
 -- | Generate a random MDIO bus request.
 genMdioRequest :: Gen MdioRequest
 genMdioRequest = do
+  suppressPreamble <- Gen.enumBounded
   phyAddr <- Gen.enumBounded
   regAddr <- Gen.enumBounded
   isRead <- Gen.bool
   writeData <- Gen.enumBounded
   pure
     $ if isRead
-      then MdioRead phyAddr regAddr
-      else MdioWrite phyAddr regAddr writeData
+      then MdioRead suppressPreamble phyAddr regAddr
+      else MdioWrite suppressPreamble phyAddr regAddr writeData
 
 {- |
 Stateful model of an MDIO bus: 32 potential PHYs, each which contain
@@ -67,7 +71,7 @@ mdioControllerModel phys = mdioControllerModel' M.empty
     -- Upon a write request, update the registers of the addressed PHY.
     -- But, only if it exists in the model.
     nextSt = case (req, phyIsPresent) of
-      (MdioWrite _ _ writeData, True) -> M.insert combinedAddr writeData st
+      (MdioWrite _ _ _ writeData, True) -> M.insert combinedAddr writeData st
       _ -> st
 
     resp = case (req, phyIsPresent, M.lookup combinedAddr st) of
@@ -235,9 +239,83 @@ prop_mdio_controller_two_phys =
       -- outputs is sufficient.
       mdioIn = mux (phyMdioT1 .&&. phyMdioT2) 1 (liftA2 (.&.) phyMdio1 phyMdio2)
 
+type MdioSample = (Maybe MdioResponse, Bool, Bool, Bool)
+
+testReset :: Reset System
+testReset = unsafeFromActiveHigh $ fromList (P.replicate 2 True P.++ P.repeat False)
+
+runMdio ::
+  forall n. (KnownNat n, 4 <= n) =>
+  SNat n -> [Maybe MdioRequest] -> [Bool] -> ([MdioSample] -> [Bit]) -> [MdioSample]
+runMdio divider requests enables phy = samples
+ where
+  samples = sampleN_lazy (160 * natToNum @n + 100) $ bundle (resp, ready, _mdc pins, _mdioT pins)
+  (resp, ready, pins) = withClockResetEnable clockGen testReset en $
+    mdioController divider (fromList (phy samples)) (fromList (requests P.++ P.repeat Nothing))
+  en = toEnable $ fromList (enables P.++ P.repeat True)
+
+mdcEdges :: [MdioSample] -> [(Int, Bool)]
+mdcEdges samples =
+  [ (i, t)
+  | (i, ((_, _, prev, _), (_, _, curr, t))) <- P.zip [1..] $ P.zip samples (P.drop 1 samples)
+  , not prev && curr
+  ]
+
+testTiming :: forall n. (KnownNat n, 4 <= n) => SNat n -> TestTree
+testTiming divider = testCase ("divider " P.++ P.show period) $
+  sequence_
+    [ check arrival suppress dat
+    | arrival <- [4 .. period + 3], suppress <- [False, True], dat <- [0xA55A, 0xA55B]
+    ]
+ where
+  period = natToNum @n :: Int
+  check arrival suppress dat = do
+    let requests = P.replicate arrival Nothing P.++ [Just (MdioWrite suppress 3 7 dat)]
+        run enables = runMdio divider requests enables (const (P.repeat 1))
+        samples = run []
+        edges = mdcEdges samples
+        preamble = if suppress then 1 else 32
+        frame = (0x519E :: BitVector 16) ++# dat
+        expected = P.replicate preamble True P.++ P.map (testBit frame) [31,30..0] P.++ [True]
+    assertEqual "preamble, frame, and idle bit" expected (P.map snd edges)
+    assertEqual "MDC period" [period] (L.nub $ P.zipWith (-) (P.drop 1 $ P.map fst edges) (P.map fst edges))
+    case [(i, r) | (i, (Just r, _, _, _)) <- P.zip [0..] samples] of
+      [(ack, MdioWriteAck)] -> do
+        assertBool "ack follows the last data edge" (ack > fst (edges P.!! (preamble + 31)))
+        assertBool "busy until completion" $ P.all (\(_, ready, _, _) -> not ready) $
+          P.take (ack - arrival - 1) (P.drop (arrival + 1) samples)
+        assertBool "idle releases MDIO" $ P.all (\(_, ready, mdc, t) -> ready && mdc && t) (P.drop ack samples)
+        let stopped = run (P.replicate (ack + 1) True P.++ P.repeat False)
+        assertEqual "safe to disable after acknowledgment" edges (mdcEdges stopped)
+        assertBool "disabled bus remains idle" $ P.all (\(_, _, mdc, t) -> mdc && t) (P.drop ack stopped)
+      responses -> assertFailure ("unexpected responses: " P.++ P.show responses)
+
+testPhyDelay :: Int -> TestTree
+testPhyDelay delayCycles = testCase (P.show ((delayCycles + 1) * 10) P.++ " ns PHY delay") $
+  sequence_ [check suppress dat | suppress <- [False, True], dat <- [0xA55A, 0x5AA5, 0x8001]]
+ where
+  check suppress dat = do
+    let requests = P.replicate 5 Nothing P.++ [Just (MdioWrite suppress 3 7 dat)] P.++
+          P.replicate 3000 Nothing P.++ [Just (MdioRead suppress 3 7)]
+        samples = runMdio d40 requests [] phy
+    assertEqual "read back written data" [MdioWriteAck, MdioReadData dat] $
+      catMaybes [resp | (resp, _, _, _) <- samples]
+  phy samples = P.replicate delayCycles 1 P.++ sample_lazy (mux phyT 1 phyO)
+   where
+    mdc = fromList [clk | (_, _, clk, _) <- samples]
+    mdio = fromList [boolToBit t | (_, _, _, t) <- samples]
+    (phyT, phyO) = withClockResetEnable clockGen testReset enableGen (mdioPhy 3 mdc mdio)
+
 tests :: TestTree
 tests =
   localOption (mkTimeout 40_000_000 {- 20 seconds -})
     $ localOption
       (HedgehogTestLimit (Just 100))
-      $(testGroupGenerator)
+      (testGroup "MDIO"
+        [ $(testGroupGenerator)
+        , testGroup "timing"
+            [ testTiming d4, testTiming d5, testTiming d7
+            , testTiming d20, testTiming d40, testTiming d41
+            , testPhyDelay 0, testPhyDelay 29
+            ]
+        ])
