@@ -21,7 +21,7 @@ import qualified Protocols.Df as Df
 import Protocols.Hedgehog
 
 import Test.Tasty
-import Test.Tasty.Hedgehog (testProperty, HedgehogTestLimit (HedgehogTestLimit))
+import Test.Tasty.Hedgehog (HedgehogTestLimit (HedgehogTestLimit), testProperty)
 import Test.Tasty.TH (testGroupGenerator)
 
 -- | Generate a random MDIO bus request.
@@ -31,8 +31,8 @@ genMdioRequest = do
   regAddr <- Gen.enumBounded
   isRead <- Gen.bool
   writeData <- Gen.enumBounded
-  pure $
-    if isRead
+  pure
+    $ if isRead
       then MdioRead phyAddr regAddr
       else MdioWrite phyAddr regAddr writeData
 
@@ -59,7 +59,7 @@ mdioControllerModel phys = mdioControllerModel' M.empty
     [MdioRequest] ->
     [MdioResponse]
   mdioControllerModel' _ [] = []
-  mdioControllerModel' st (req:rs) = resp : mdioControllerModel' nextSt rs
+  mdioControllerModel' st (req : rs) = resp : mdioControllerModel' nextSt rs
    where
     combinedAddr = mdioPhyAddress req ++# mdioRegAddress req
     phyIsPresent = mdioPhyAddress req `L.elem` phys
@@ -98,27 +98,22 @@ mdioPhyT ::
 mdioPhyT _ st@(Idle regs) mdioIn = (nextSt, (True, 0))
  where
   nextSt = if mdioIn == 0 then ReadStart regs else st
-
 mdioPhyT _ (BusBusy regs i) _ = (nextSt, (True, 0))
  where
   nextSt = if i == 0 then Idle regs else BusBusy regs (i - 1)
-
 mdioPhyT _ (ReadStart regs) _ = (ReadOpcode regs 0, (True, 0))
-
 mdioPhyT _ (ReadOpcode regs i) mdioIn = (nextSt, (True, 0))
  where
   nextSt =
     if i == 0
       then ReadOpcode regs 1
       else ReadPhyAddress regs maxBound (mdioIn == 0)
-
 mdioPhyT phyAddr (ReadPhyAddress regs i isRead) mdioIn = (nextSt, (True, 0))
  where
   nextSt = case (i == 0, mdioIn == phyAddr ! i) of
     (True, True) -> ReadRegAddress regs maxBound (deepErrorX "undefined initial register address") isRead
     (False, True) -> ReadPhyAddress regs (i - 1) isRead
     (_, False) -> BusBusy regs (23 + resize i)
-
 mdioPhyT _ (ReadRegAddress regs i addr isRead) mdioIn = (nextSt, (True, 0))
  where
   nextAddr = addr .<<+ mdioIn
@@ -126,7 +121,6 @@ mdioPhyT _ (ReadRegAddress regs i addr isRead) mdioIn = (nextSt, (True, 0))
     if i == 0
       then TurnAround regs 0 nextAddr isRead
       else ReadRegAddress regs (i - 1) nextAddr isRead
-
 mdioPhyT _ (TurnAround regs i addr isRead) _ = (nextSt, (mdioOutEn, 0))
  where
   -- Pull MDIO low during the second bit of the turnaround if a read
@@ -135,7 +129,6 @@ mdioPhyT _ (TurnAround regs i addr isRead) _ = (nextSt, (mdioOutEn, 0))
   nextSt
     | i == 0 && not isRead = TurnAround regs 1 addr isRead
     | otherwise = HandleRequest regs maxBound addr isRead
-
 mdioPhyT _ (HandleRequest regs i addr isRead) mdioIn = (nextSt, (mdioOutEn, 0))
  where
   mdioOutEn = not isRead || bitToBool (regs !! addr ! i)
@@ -181,10 +174,10 @@ ckt = Circuit go
  where
   go (reqIn, _) = (Ack <$> ready, resp)
    where
-    (resp, ready, mdc, mdio_t) = mdioController @dom d8 mdioIn (Df.dataToMaybe <$> reqIn)
+    (resp, ready, mdioOut) = mdioController @dom d4 mdioIn (Df.dataToMaybe <$> reqIn)
 
     -- Connect the PHY to the bus.
-    (phy_mdio_t, phy_mdio) = mdioPhy 0 mdc (boolToBit <$> mdio_t)
+    (phy_mdio_t, phy_mdio) = mdioPhy 0 (_mdc mdioOut) (boolToBit <$> _mdioT mdioOut)
 
     mdioIn = mux phy_mdio_t 1 phy_mdio
 
@@ -195,7 +188,7 @@ prop_mdio_controller_single_phy :: Property
 prop_mdio_controller_single_phy =
   idWithModelSingleDomain
     @System
-    defExpectOptions{eoSampleMax=501, eoStopAfterEmpty=800, eoDriveEarly=False}
+    defExpectOptions{eoSampleMax = 501, eoStopAfterEmpty = 800, eoDriveEarly = False}
     (Gen.list (Range.linear 1 100) genMdioRequest)
     (exposeClockResetEnable (mdioControllerModel [0]))
     (exposeClockResetEnable ckt')
