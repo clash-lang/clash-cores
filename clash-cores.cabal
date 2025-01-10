@@ -183,6 +183,9 @@ library
     Clash.Cores.ClashFloPoCo.GenTemDSL
     Clash.Cores.ClashFloPoCo.InfoEn
     Clash.Cores.ClashFloPoCo.Lexer
+    Clash.Cores.ClashFloPoCo.Help,
+    Clash.Cores.ClashFloPoCo.Helpargs,
+    Clash.Cores.ClashFloPoCo.FloPoCoExample
 
   if !flag(clash-18)
     exposed-modules:
@@ -198,10 +201,8 @@ library
       Clash.Cores.Sgmii.Sync
 
   other-modules:
-    Data.Text.Extra,
-    Clash.Cores.ClashFloPoCo.Help,
-    Clash.Cores.ClashFloPoCo.Helpargs,
-    Clash.Cores.ClashFloPoCo.FloPoCoExample
+    Data.Text.Extra
+
 
   ghc-options:
     -fexpose-all-unfoldings

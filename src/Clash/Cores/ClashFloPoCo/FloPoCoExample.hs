@@ -10,17 +10,16 @@
 {-# OPTIONS_GHC -Wno-unused-binds #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
 {- |
-  Copyright   :  (C) 2024, Hoang Minh Le <minhxecole@gmail.com>.
+  Copyright   :  (C) 2024, QBayLogic B.V.
   License     :  BSD2
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
-  This module contains example functions to work use FloPoCo with Clash in
+  This module contains example functions to work use FloPoCo with Clash in 
   the Single precision floatin point. These functions only serve the illustration purpose.
-  Users can look at these functions in the source file and re-name them for custom usage.
-  Note that these functions are not exported.
-
+  Users can look at these functions in the source file and re-name them for custom usage. 
+  Note that these functions are not exported. 
+  
 -}
-module Clash.Cores.ClashFloPoCo.FloPoCoExample () where
-import qualified Prelude as Prelude
+module Clash.Cores.ClashFloPoCo.FloPoCoExample  where
 import Clash.Explicit.Prelude
 import Data.String.Interpolate (__i)
 import Clash.Annotations.Primitive (Primitive(..), HDL(..))
@@ -33,21 +32,22 @@ import Clash.Backend (Backend)
 import Clash.Netlist.BlackBox.Types
   (BlackBoxFunction, BlackBoxMeta(..), TemplateKind(..), emptyBlackBoxMeta)
 import Clash.Netlist.Types
-  (BlackBox (..), BlackBoxContext, EntityOrComponent(..), TemplateFunction(..), HWType, bbResults)
+  (BlackBox (..), BlackBoxContext, EntityOrComponent(..), TemplateFunction(..), bbResults)
 import qualified Clash.Netlist.Types as NT
 import qualified Clash.Primitives.DSL as DSL
 import Clash.Cores.ClashFloPoCo.InfoEn
 import qualified Clash.Netlist.Id as Id
-
 import Clash.Cores.ClashFloPoCo.Help
+    ( infoEnPlusExample,
+      infoEnFMAExample,
+      infoEnExpExample,
+      infoEnVGAControllerExample )
 import Clash.Cores.ClashFloPoCo.GenTemDSL(getPipeDep, flopocoPrim, genBlackBoxFunction, genTemplateFunction, genBlackBoxTemplateFunction, genBlackBoxTemplateFunctionProd,genBlackBox, genBlackBoxProd)
-
 import Clash.Primitives.Types (Primitive(BlackBoxHaskell, workInfo))
 import Text.Show.Pretty(ppShow)
-
 import qualified Data.Text as Text
 import Clash.Netlist.BlackBox.Util (bbResult)
-import Clash.Explicit.Testbench
+
 
 
 -- | The Nplus is the Nat number to use as the pipeline depth of the plusFloatExample function
@@ -56,16 +56,50 @@ type Nplus = $(getPipeDep infoEnPlusExample)
 -- inside of the plusFloatExample function
 xp :: SNat Nplus
 xp = SNat::SNat Nplus
--- | Example of the hardware synthesizable function which adds 2 single precision floating point
+-- | Example of the hardware synthesizable function which adds 2 single precision floating point 
 --
 -- ==== __Example:__
-{-
+--
+{-|
 This is the example implementation of the plusFloatExample which uses the old way by
 binding it with BlackBoxFunction, BlackBoxTemplateFunction and TemplateFunction to make it
 hardware synthesizable.
+
 @
+import Clash.Explicit.Prelude
+import Data.String.Interpolate (__i)
+import Clash.Annotations.Primitive (Primitive(..), HDL(..))
+import Control.Monad.State (State)
+import qualified Data.List as L
+import Data.Text
+import Data.Text.Prettyprint.Doc.Extra (Doc)
+import GHC.Stack (HasCallStack)
+import Clash.Backend (Backend)
+import Clash.Netlist.BlackBox.Types
+  (BlackBoxFunction, BlackBoxMeta(..), TemplateKind(..), emptyBlackBoxMeta)
+import Clash.Netlist.Types
+  (BlackBox (..), BlackBoxContext, EntityOrComponent(..), TemplateFunction(..), bbResults)
+import qualified Clash.Netlist.Types as NT
+import qualified Clash.Primitives.DSL as DSL
+import Clash.Cores.ClashFloPoCo.InfoEn
+import qualified Clash.Netlist.Id as Id
+import Clash.Cores.ClashFloPoCo.Help
+    ( infoEnPlusExample,
+      infoEnFMAExample,
+      infoEnExpExample,
+      infoEnVGAControllerExample )
+import Clash.Cores.ClashFloPoCo.GenTemDSL(getPipeDep, flopocoPrim, genBlackBoxFunction, genTemplateFunction, genBlackBoxTemplateFunction, genBlackBoxTemplateFunctionProd,genBlackBox, genBlackBoxProd)
+import Clash.Primitives.Types (Primitive(BlackBoxHaskell, workInfo))
+import Text.Show.Pretty(ppShow)
+import qualified Data.Text as Text
+import Clash.Netlist.BlackBox.Util (bbResult)
+
+type Nplus = $(getPipeDep infoEnPlusExample)
+xp :: SNat Nplus
+xp = SNat::SNat Nplus
+
 plusFloatExample
-  :: forall n .
+  :: forall n . 
   Clock XilinxSystem
   -> DSignal XilinxSystem n Float
   -> DSignal XilinxSystem n Float
@@ -97,9 +131,7 @@ plusFloatBBTF entityName bbCtx
     ] <- L.map fst (DSL.tInputs bbCtx)
   , [result] <- DSL.tResults bbCtx
   = do
-
     plusFloatInstName <- Id.makeBasic "plusFloat_inst"
-
     let
       compInps =
         [ ("clk", N.Bit)
@@ -107,10 +139,8 @@ plusFloatBBTF entityName bbCtx
         , ("Y", DSL.ety b) ]
       compOuts =
         [ ("R", DSL.ety result) ]
-
     DSL.declaration "plusFloat_inst_block" $ do
       DSL.compInBlock entityName compInps compOuts
-
       let
         inps =
           [ ("clk", clk )
@@ -121,7 +151,6 @@ plusFloatBBTF entityName bbCtx
         outs =
           [ ("R", result)
           ]
-
       DSL.instDecl Empty (Id.unsafeMake entityName) plusFloatInstName
         [] inps outs
   | otherwise = error $ ppShow bbCtx
@@ -139,11 +168,11 @@ plusFloatTF entityName =
 
 plusFloatBBF :: BlackBoxFunction
 plusFloatBBF _ _ _ _ = do
-  pure (Right ((emptyBlackBoxMeta {bbKind = TDecl}), (BBFunction ("plusFloatExampleTF") 0 (plusFloatTF entityName))))
+  pure (Right ((emptyBlackBoxMeta {bbKind = TDecl}), (BBFunction ("plusFloatTF") 0 (plusFloatTF entityName))))
 @
 -}
 plusFloatExample
-  :: forall n .
+  :: forall n . 
   Clock XilinxSystem -- ^Clock signal
   -> DSignal XilinxSystem n Float -- ^Operand input signal
   -> DSignal XilinxSystem n Float -- ^Operand input signal
@@ -174,12 +203,45 @@ xp2 = SNat::SNat Nfma
 --
 -- ==== __Example:__
 --
-{-
-This is the example implementation of fmaFloatExample using buit-in template haskell
+{-|
+This is the example implementation of fmaFloatExample using buit-in template haskell 
 to auto generate BlackBoxFunction, BlackBoxTemplateFunction and TemplateFunction during
 the compile time. It also uses custom built-in primitive function for the pragma
-annotation.
+annotation. 
+
 @
+import Clash.Explicit.Prelude
+import Data.String.Interpolate (__i)
+import Clash.Annotations.Primitive (Primitive(..), HDL(..))
+import Control.Monad.State (State)
+import qualified Data.List as L
+import Data.Text
+import Data.Text.Prettyprint.Doc.Extra (Doc)
+import GHC.Stack (HasCallStack)
+import Clash.Backend (Backend)
+import Clash.Netlist.BlackBox.Types
+  (BlackBoxFunction, BlackBoxMeta(..), TemplateKind(..), emptyBlackBoxMeta)
+import Clash.Netlist.Types
+  (BlackBox (..), BlackBoxContext, EntityOrComponent(..), TemplateFunction(..), bbResults)
+import qualified Clash.Netlist.Types as NT
+import qualified Clash.Primitives.DSL as DSL
+import Clash.Cores.ClashFloPoCo.InfoEn
+import qualified Clash.Netlist.Id as Id
+import Clash.Cores.ClashFloPoCo.Help
+    ( infoEnPlusExample,
+      infoEnFMAExample,
+      infoEnExpExample,
+      infoEnVGAControllerExample )
+import Clash.Cores.ClashFloPoCo.GenTemDSL(getPipeDep, flopocoPrim, genBlackBoxFunction, genTemplateFunction, genBlackBoxTemplateFunction, genBlackBoxTemplateFunctionProd,genBlackBox, genBlackBoxProd)
+import Clash.Primitives.Types (Primitive(BlackBoxHaskell, workInfo))
+import Text.Show.Pretty(ppShow)
+import qualified Data.Text as Text
+import Clash.Netlist.BlackBox.Util (bbResult)
+
+type Nfma = $(getPipeDep infoEnFMAExample)
+xp2 :: SNat Nfma
+xp2 = SNat::SNat Nfma
+
 $(genBlackBox infoEnFMAExample)
 fmaFloatExample
   :: forall n .
@@ -191,8 +253,8 @@ fmaFloatExample
   -> DSignal XilinxSystem n Bit
   -> DSignal XilinxSystem n (BitVector 2)
   -> DSignal XilinxSystem (n + Nfma)  Float
-fmaFloatExample clk a b c negab negc _ =
-  let
+fmaFloatExample clk a b c negab negc _ = 
+  let 
     resab = mux (fmap (== 1)  negab)
              (liftA2 (*) (liftA2 (*) a b) (pure (-1)))
              (liftA2 (*) a b)
@@ -213,10 +275,10 @@ fmaFloatExample
   -> DSignal XilinxSystem n Float -- ^Operand input signal c
   -> DSignal XilinxSystem n Bit  -- ^Flag to check if a or b is negative
   -> DSignal XilinxSystem n Bit  -- ^Flag to check if c is negative
-  -> DSignal XilinxSystem n (BitVector 2) -- ^Unused flag. In FloPoCo, it's roundmode but it has no role in the computation.
-  -> DSignal XilinxSystem (n + Nfma) Float -- ^Result output signal
-fmaFloatExample clk a b c negab negc _ =
-  let
+  -> DSignal XilinxSystem n (BitVector 2) -- ^Unused flag. In FloPoCo, it's roundmode but it has no role in the computation. 
+  -> DSignal XilinxSystem (n + Nfma) Float -- ^Result output signal 
+fmaFloatExample clk a b c negab negc _ = 
+  let 
     resab = mux (fmap (== 1)  negab)
              (liftA2 (*) (liftA2 (*) a b) (pure (-1)))
              (liftA2 (*) a b)
@@ -235,17 +297,49 @@ type Nexp = $(getPipeDep infoEnExpExample)
 xp3 :: SNat Nexp
 xp3 = SNat::SNat Nexp
 -- | Example of the hardware synthesizable function which compute the exponent of the single precision floating point
---
+-- 
 -- ==== __Example:__
 --
-{-
+{-|
 
 @
+import Clash.Explicit.Prelude
+import Data.String.Interpolate (__i)
+import Clash.Annotations.Primitive (Primitive(..), HDL(..))
+import Control.Monad.State (State)
+import qualified Data.List as L
+import Data.Text
+import Data.Text.Prettyprint.Doc.Extra (Doc)
+import GHC.Stack (HasCallStack)
+import Clash.Backend (Backend)
+import Clash.Netlist.BlackBox.Types
+  (BlackBoxFunction, BlackBoxMeta(..), TemplateKind(..), emptyBlackBoxMeta)
+import Clash.Netlist.Types
+  (BlackBox (..), BlackBoxContext, EntityOrComponent(..), TemplateFunction(..), bbResults)
+import qualified Clash.Netlist.Types as NT
+import qualified Clash.Primitives.DSL as DSL
+import Clash.Cores.ClashFloPoCo.InfoEn
+import qualified Clash.Netlist.Id as Id
+import Clash.Cores.ClashFloPoCo.Help
+    ( infoEnPlusExample,
+      infoEnFMAExample,
+      infoEnExpExample,
+      infoEnVGAControllerExample )
+import Clash.Cores.ClashFloPoCo.GenTemDSL(getPipeDep, flopocoPrim, genBlackBoxFunction, genTemplateFunction, genBlackBoxTemplateFunction, genBlackBoxTemplateFunctionProd,genBlackBox, genBlackBoxProd)
+import Clash.Primitives.Types (Primitive(BlackBoxHaskell, workInfo))
+import Text.Show.Pretty(ppShow)
+import qualified Data.Text as Text
+import Clash.Netlist.BlackBox.Util (bbResult)
+
+type Nexp = $(getPipeDep infoEnExpExample)
+xp3 :: SNat Nexp
+xp3 = SNat::SNat Nexp
+
 expFloatExample
   :: forall n .
   Clock XilinxSystem -- ^ Clock signal
   -> DSignal XilinxSystem n Float -- ^ Operand input signal
-  -> DSignal XilinxSystem (n + Nexp) Float -- ^Result output signal
+  -> DSignal XilinxSystem (n + Nexp) Float -- ^Result output signal 
 expFloatExample clk a = delayN xp3 undefined enableGen clk (liftA exp a)
 {-# OPAQUE expFloatExample #-}
 $(genBlackBox infoEnExpExample)
@@ -257,7 +351,7 @@ expFloatExample
   :: forall n .
   Clock XilinxSystem -- ^ Clock signal
   -> DSignal XilinxSystem n Float -- ^ Operand input signal
-  -> DSignal XilinxSystem (n + Nexp) Float -- ^Result output signal
+  -> DSignal XilinxSystem (n + Nexp) Float -- ^Result output signal 
 expFloatExample clk a = delayN xp3 undefined enableGen clk (liftA exp a)
 {-# OPAQUE expFloatExample #-}
 $(genBlackBox infoEnExpExample)
@@ -265,17 +359,45 @@ $(genBlackBox infoEnExpExample)
 
 -- | This function is not the part of the FloPoCo.
 -- It serves as the illustrated purpose of how to use BlackBoxFunction,TemplateFunction, and BlackBoxTemplateFunction
--- when the function has multiple output signals
+-- when the function has multiple output signals 
 --
 -- ==== __Example:__
 --
-{-
+{-|
 @
-vga_controller
+import Clash.Explicit.Prelude
+import Data.String.Interpolate (__i)
+import Clash.Annotations.Primitive (Primitive(..), HDL(..))
+import Control.Monad.State (State)
+import qualified Data.List as L
+import Data.Text
+import Data.Text.Prettyprint.Doc.Extra (Doc)
+import GHC.Stack (HasCallStack)
+import Clash.Backend (Backend)
+import Clash.Netlist.BlackBox.Types
+  (BlackBoxFunction, BlackBoxMeta(..), TemplateKind(..), emptyBlackBoxMeta)
+import Clash.Netlist.Types
+  (BlackBox (..), BlackBoxContext, EntityOrComponent(..), TemplateFunction(..), bbResults)
+import qualified Clash.Netlist.Types as NT
+import qualified Clash.Primitives.DSL as DSL
+import Clash.Cores.ClashFloPoCo.InfoEn
+import qualified Clash.Netlist.Id as Id
+import Clash.Cores.ClashFloPoCo.Help
+    ( infoEnPlusExample,
+      infoEnFMAExample,
+      infoEnExpExample,
+      infoEnVGAControllerExample )
+import Clash.Cores.ClashFloPoCo.GenTemDSL(getPipeDep, flopocoPrim, genBlackBoxFunction, genTemplateFunction, genBlackBoxTemplateFunction, genBlackBoxTemplateFunctionProd,genBlackBox, genBlackBoxProd)
+import Clash.Primitives.Types (Primitive(BlackBoxHaskell, workInfo))
+import Text.Show.Pretty(ppShow)
+import qualified Data.Text as Text
+import Clash.Netlist.BlackBox.Util (bbResult)
+
+vga_controller 
     :: Clock XilinxSystem ->
     Reset XilinxSystem ->
-    ( Signal XilinxSystem Bit          -- ^ video_on
-     , Signal XilinxSystem Bit         -- ^ Horizontal Sync
+    ( Signal XilinxSystem Bit          -- ^ video_on 
+     , Signal XilinxSystem Bit         -- ^ Horizontal Sync 
      , Signal XilinxSystem Bit        -- ^ Vertical Sync
      , Signal XilinxSystem Bit         -- ^ p_tick
      , Signal XilinxSystem (BitVector 10)  -- ^ X Position
@@ -350,8 +472,8 @@ vga_controllerBBF _ _ _ _
 vga_controller
     :: Clock XilinxSystem ->
     Reset XilinxSystem ->
-    ( Signal XilinxSystem Bit          -- ^ video_on
-     , Signal XilinxSystem Bit         -- ^ Horizontal Sync
+    ( Signal XilinxSystem Bit          -- ^ video_on 
+     , Signal XilinxSystem Bit         -- ^ Horizontal Sync 
      , Signal XilinxSystem Bit        -- ^ Vertical Sync
      , Signal XilinxSystem Bit         -- ^ p_tick
      , Signal XilinxSystem (BitVector 10)  -- ^ X Position
@@ -360,6 +482,7 @@ vga_controller
 vga_controller !clk !rst = deepErrorX "vga_controller: simulation output undefined"
 {-# OPAQUE vga_controller #-}
 $(genBlackBoxProd infoEnVGAControllerExample)
+
 {-# ANN vga_controller (let
       primName = show 'vga_controller
       tfName = show 'vga_controllerBBF

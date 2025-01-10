@@ -210,21 +210,20 @@ genBlackBoxFunction infoen = do
 --
 --  ==== __Example:__
 
-{-
-@
-infoen = InfoEntity {name = Just "plusFloat", freq = Nothing, pipedep = Nothing, insig = Just ["clk", "X", "Y"], outsig = Nothing}
-\$(genTemplateFunction infoen)
-@
-
-will generate this code during compile time
-
-@
-plusFloatTF :: HasCallStack => Text -> TemplateFunction
-   plusFloatTF entityName
-      = TemplateFunction
-         [0, 1, 2, 3] (const True) (plusFloatBBTF entityName)
-@
--}
+-- |
+-- @
+-- infoen = InfoEntity {name = Just "plusFloat", freq = Nothing, pipedep = Nothing, insig = Just ["clk", "X", "Y"], outsig = Nothing}
+-- \$(genTemplateFunction infoen)
+-- @
+--
+-- will generate this code during compile time
+--
+-- @
+-- plusFloatTF :: HasCallStack => Text -> TemplateFunction
+--    plusFloatTF entityName
+--       = TemplateFunction
+--          [0, 1, 2, 3] (const True) (plusFloatBBTF entityName)
+-- @
 genTemplateFunction :: InfoEntity -> Q [Dec]
 genTemplateFunction infoen = do
   let entityNamestr = fromMaybe "" (name infoen)
@@ -270,33 +269,32 @@ toLowercaseList = map lowercaseFirst
 --
 --  ==== __Example:__
 
-{-
-@
-infoen = InfoEntity {name = Just "plusFloat", freq = Nothing, pipedep = Nothing, insig = Just ["clk", "X", "Y"], outsig = Just ["R"]}
-\$(genBlackBoxTemplateFunction infoen)
-@
-
-will generate this code during compile time
-
-@
-plusFloatBBTF ::
-      forall s. Backend s => Text -> BlackBoxContext -> State s Doc
-plusFloatBBTF entityName bbCtx
-      | [clk, x, y] <- L.map fst (DSL.tInputs bbCtx),
-        [r] <- DSL.tResults bbCtx
-      = do plusFloatInstName <- Id.makeBasic "plusFloat_inst"
-           let compInps
-                 = [("clk", DSL.ety clk), ("X", DSL.ety x), ("Y", DSL.ety y)]
-               compOuts = [("R", DSL.ety r)]
-           (DSL.declaration "plusFloat_inst_block"
-              $ (do DSL.compInBlock entityName compInps compOuts
-                    let inps = [("clk", clk), ("X", x), ("Y", y)]
-                        outs = [("R", r)]
-                    DSL.instDecl
-                      Empty (Id.unsafeMake entityName) plusFloatInstName [] inps outs))
-      | otherwise = error (ppShow bbCtx)
-@
--}
+-- |
+-- @
+-- infoen = InfoEntity {name = Just "plusFloat", freq = Nothing, pipedep = Nothing, insig = Just ["clk", "X", "Y"], outsig = Just ["R"]}
+-- \$(genBlackBoxTemplateFunction infoen)
+-- @
+--
+-- will generate this code during compile time
+--
+-- @
+-- plusFloatBBTF ::
+--       forall s. Backend s => Text -> BlackBoxContext -> State s Doc
+-- plusFloatBBTF entityName bbCtx
+--       | [clk, x, y] <- L.map fst (DSL.tInputs bbCtx),
+--         [r] <- DSL.tResults bbCtx
+--       = do plusFloatInstName <- Id.makeBasic "plusFloat_inst"
+--            let compInps
+--                  = [("clk", DSL.ety clk), ("X", DSL.ety x), ("Y", DSL.ety y)]
+--                compOuts = [("R", DSL.ety r)]
+--            (DSL.declaration "plusFloat_inst_block"
+--               $ (do DSL.compInBlock entityName compInps compOuts
+--                     let inps = [("clk", clk), ("X", x), ("Y", y)]
+--                         outs = [("R", r)]
+--                     DSL.instDecl
+--                       Empty (Id.unsafeMake entityName) plusFloatInstName [] inps outs))
+--       | otherwise = error (ppShow bbCtx)
+-- @
 genBlackBoxTemplateFunction :: InfoEntity -> Q [Dec]
 genBlackBoxTemplateFunction infoen = do
   let inputNamesListstr = fromMaybe [] (insig infoen)
@@ -485,51 +483,50 @@ lengthMaybeStrings Nothing = 0
 --
 --  ==== __Example:__
 
-{-
-@
-infoen = InfoEntity {name = Just "plusFloat", freq = Nothing, pipedep = Nothing, insig = Just ["clk", "X", "Y"], outsig = Just ["R"]}
-\$(genBlackBox infoen)
-@
-
-is equivalent to
-
-@
-\$(genBlackBoxTemplateFunction infoen)
-\$(genTemplateFunction infoen)
-\$(genBlackBoxFunction infoen)
-@
-
-which will generate this code during compile time
-
-@
-plusFloatBBTF ::
-      forall s. Backend s => Text -> BlackBoxContext -> State s Doc
-plusFloatBBTF entityName bbCtx
-      | [clk, x, y] <- L.map fst (DSL.tInputs bbCtx),
-        [r] <- DSL.tResults bbCtx
-      = do plusFloatInstName <- Id.makeBasic "plusFloat_inst"
-           let compInps
-                 = [("clk", DSL.ety clk), ("X", DSL.ety x), ("Y", DSL.ety y)]
-               compOuts = [("R", DSL.ety r)]
-           (DSL.declaration "plusFloat_inst_block"
-              $ (do DSL.compInBlock entityName compInps compOuts
-                    let inps = [("clk", clk), ("X", x), ("Y", y)]
-                        outs = [("R", r)]
-                      DSL.instDecl
-                      Empty (Id.unsafeMake entityName) plusFloatInstName [] inps outs))
-      | otherwise = error (ppShow bbCtx)
-plusFloatTF :: HasCallStack => Text -> TemplateFunction
-plusFloatTF entityName
-      = TemplateFunction
-          [0, 1, 2, 3] (const True) (plusFloatBBTF entityName)
-plusFloatBBF :: BlackBoxFunction
-plusFloatBBF _ _ _ _
-      = pure
-          (Right
-             (emptyBlackBoxMeta {bbKind = TDecl},
-              BBFunction "plusFloatTF" 0 (plusFloatTF "plusFloat"))
-@
--}
+-- |
+-- @
+-- infoen = InfoEntity {name = Just "plusFloat", freq = Nothing, pipedep = Nothing, insig = Just ["clk", "X", "Y"], outsig = Just ["R"]}
+-- \$(genBlackBox infoen)
+-- @
+--
+-- is equivalent to
+--
+-- @
+-- \$(genBlackBoxTemplateFunction infoen)
+-- \$(genTemplateFunction infoen)
+-- \$(genBlackBoxFunction infoen)
+-- @
+--
+-- which will generate this code during compile time
+--
+-- @
+-- plusFloatBBTF ::
+--       forall s. Backend s => Text -> BlackBoxContext -> State s Doc
+-- plusFloatBBTF entityName bbCtx
+--       | [clk, x, y] <- L.map fst (DSL.tInputs bbCtx),
+--         [r] <- DSL.tResults bbCtx
+--       = do plusFloatInstName <- Id.makeBasic "plusFloat_inst"
+--            let compInps
+--                  = [("clk", DSL.ety clk), ("X", DSL.ety x), ("Y", DSL.ety y)]
+--                compOuts = [("R", DSL.ety r)]
+--            (DSL.declaration "plusFloat_inst_block"
+--               $ (do DSL.compInBlock entityName compInps compOuts
+--                     let inps = [("clk", clk), ("X", x), ("Y", y)]
+--                         outs = [("R", r)]
+--                       DSL.instDecl
+--                       Empty (Id.unsafeMake entityName) plusFloatInstName [] inps outs))
+--       | otherwise = error (ppShow bbCtx)
+-- plusFloatTF :: HasCallStack => Text -> TemplateFunction
+-- plusFloatTF entityName
+--       = TemplateFunction
+--           [0, 1, 2, 3] (const True) (plusFloatBBTF entityName)
+-- plusFloatBBF :: BlackBoxFunction
+-- plusFloatBBF _ _ _ _
+--       = pure
+--           (Right
+--              (emptyBlackBoxMeta {bbKind = TDecl},
+--               BBFunction "plusFloatTF" 0 (plusFloatTF "plusFloat"))
+-- @
 genBlackBox :: InfoEntity -> Q [Dec]
 genBlackBox infoen = do
   let entityNameNamestr = "entityName"
@@ -777,49 +774,48 @@ genBlackBox infoen = do
 --
 --  ==== __Example:__
 
-{-
-@
-infoen = InfoEntity {name = Just "vga_controller",
-         freq = Nothing,
-         pipedep = Nothing,
-         insig = Just ["clk_100MHz", "reset"],
-         outsig = Just  ["video_on", "hsync", "vsync", "p_tick", "x", "y"] }
-\$(genBlackBoxTemplateFunctionProd infoen)
-@
-
-will generate this code during compile time
-
-@
-vga_controllerBBTF ::
-      forall s. Backend s => Text -> BlackBoxContext -> State s Doc
-vga_controllerBBTF entityName bbCtx
-      | [clk_100MHz, reset] <- L.map fst (DSL.tInputs bbCtx),
-        [result] <- DSL.tResults bbCtx,
-        NT.Product _ _ resTyps <- DSL.ety result
-      = do vga_controllerInstName <- Id.makeBasic "vga_controller_inst"
-           let compInps
-                 = [("clk_100MHz", DSL.ety clk_100MHz), ("reset", DSL.ety reset)]
-               compOuts
-                 = L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps
-           (DSL.declarationReturn bbCtx "vga_controller_inst_block"
-              $ (do declares <- mapM
-                                  (\ (outname, typ) -> DSL.declare outname typ)
-                                  (L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps)
-                    let [video_on, hsync, vsync, p_tick, x, y] = declares
-                    let inps = [("clk_100MHz", clk_100MHz), ("reset", reset)]
-                        outs
-                          = [("video_on", video_on), ("hsync", hsync), ("vsync", vsync),
-                             ("p_tick", p_tick), ("x", x), ("y", y)]
-                    DSL.compInBlock entityName compInps compOuts
-                    DSL.instDecl
-                      Empty (Id.unsafeMake entityName) vga_controllerInstName [] inps
-                      outs
-                    pure
-                      [DSL.constructProduct
-                         (DSL.ety result) [video_on, hsync, vsync, p_tick, x, y]]))
-      | otherwise = error (ppShow bbCtx)
-@
--}
+-- |
+-- @
+-- infoen = InfoEntity {name = Just "vga_controller",
+--          freq = Nothing,
+--          pipedep = Nothing,
+--          insig = Just ["clk_100MHz", "reset"],
+--          outsig = Just  ["video_on", "hsync", "vsync", "p_tick", "x", "y"] }
+-- \$(genBlackBoxTemplateFunctionProd infoen)
+-- @
+--
+-- will generate this code during compile time
+--
+-- @
+-- vga_controllerBBTF ::
+--       forall s. Backend s => Text -> BlackBoxContext -> State s Doc
+-- vga_controllerBBTF entityName bbCtx
+--       | [clk_100MHz, reset] <- L.map fst (DSL.tInputs bbCtx),
+--         [result] <- DSL.tResults bbCtx,
+--         NT.Product _ _ resTyps <- DSL.ety result
+--       = do vga_controllerInstName <- Id.makeBasic "vga_controller_inst"
+--            let compInps
+--                  = [("clk_100MHz", DSL.ety clk_100MHz), ("reset", DSL.ety reset)]
+--                compOuts
+--                  = L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps
+--            (DSL.declarationReturn bbCtx "vga_controller_inst_block"
+--               $ (do declares <- mapM
+--                                   (\ (outname, typ) -> DSL.declare outname typ)
+--                                   (L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps)
+--                     let [video_on, hsync, vsync, p_tick, x, y] = declares
+--                     let inps = [("clk_100MHz", clk_100MHz), ("reset", reset)]
+--                         outs
+--                           = [("video_on", video_on), ("hsync", hsync), ("vsync", vsync),
+--                              ("p_tick", p_tick), ("x", x), ("y", y)]
+--                     DSL.compInBlock entityName compInps compOuts
+--                     DSL.instDecl
+--                       Empty (Id.unsafeMake entityName) vga_controllerInstName [] inps
+--                       outs
+--                     pure
+--                       [DSL.constructProduct
+--                          (DSL.ety result) [video_on, hsync, vsync, p_tick, x, y]]))
+--       | otherwise = error (ppShow bbCtx)
+-- @
 genBlackBoxTemplateFunctionProd :: InfoEntity -> Q [Dec]
 genBlackBoxTemplateFunctionProd infoen = do
   let entityNameNamestr = "entityName"
@@ -1010,70 +1006,69 @@ genBlackBoxTemplateFunctionProd infoen = do
 --
 --  Please see the source file if cannot see the content of the example
 --
---   __Example:__
+-- ==== __Example:__
 
-{-
-@
-infoen = InfoEntity {name = Just "vga_controller",
-         freq = Nothing,
-         pipedep = Nothing,
-         insig = Just ["clk_100MHz", "reset"],
-         outsig = Just  ["video_on", "hsync", "vsync", "p_tick", "x", "y"] }
-\$(genBlackBoxProd infoen)
-@
-
-is equivalent to
-
-@
-\$(genBlackBoxTemplateFunctionProd infoen)
-\$(genTemplateFunction infoen)
-\$(genBlackBoxFunction infoen)
-@
-
-which will generate this code during compile time
-
-@
-vga_controllerBBTF ::
-      forall s. Backend s => Text -> BlackBoxContext -> State s Doc
-vga_controllerBBTF entityName bbCtx
-      | [clk_100MHz, reset] <- L.map fst (DSL.tInputs bbCtx),
-        [result] <- DSL.tResults bbCtx,
-        NT.Product _ _ resTyps <- DSL.ety result
-      = do vga_controllerInstName <- Id.makeBasic "vga_controller_inst"
-           let compInps
-                 = [("clk_100MHz", DSL.ety clk_100MHz), ("reset", DSL.ety reset)]
-               compOuts
-                 = L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps
-           (DSL.declarationReturn bbCtx "vga_controller_inst_block"
-              $ (do declares <- mapM
-                                  (\ (outname, typ) -> DSL.declare outname typ)
-                                  (L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps)
-                    let [video_on, hsync, vsync, p_tick, x, y] = declares
-                    let inps = [("clk_100MHz", clk_100MHz), ("reset", reset)]
-                        outs
-                          = [("video_on", video_on), ("hsync", hsync), ("vsync", vsync),
-                             ("p_tick", p_tick), ("x", x), ("y", y)]
-                    DSL.compInBlock entityName compInps compOuts
-                    DSL.instDecl
-                      Empty (Id.unsafeMake entityName) vga_controllerInstName [] inps
-                      outs
-                    pure
-                      [DSL.constructProduct
-                         (DSL.ety result) [video_on, hsync, vsync, p_tick, x, y]]))
-      | otherwise = error (ppShow bbCtx)
-vga_controllerTF :: HasCallStack => Text -> TemplateFunction
-vga_controllerTF entityName
-      = TemplateFunction
-          [0, 1, 2] (const True) (vga_controllerBBTF entityName)
-vga_controllerBBF :: BlackBoxFunction
-vga_controllerBBF _ _ _ _
-      = pure
-          (Right
-             (emptyBlackBoxMeta {bbKind = TDecl},
-              BBFunction
-                "vga_controllerTF" 0 (vga_controllerTF "vga_controller")))
-@
--}
+-- |
+-- @
+-- infoen = InfoEntity {name = Just "vga_controller",
+--          freq = Nothing,
+--          pipedep = Nothing,
+--          insig = Just ["clk_100MHz", "reset"],
+--          outsig = Just  ["video_on", "hsync", "vsync", "p_tick", "x", "y"] }
+-- \$(genBlackBoxProd infoen)
+-- @
+--
+-- is equivalent to
+--
+-- @
+-- \$(genBlackBoxTemplateFunctionProd infoen)
+-- \$(genTemplateFunction infoen)
+-- \$(genBlackBoxFunction infoen)
+-- @
+--
+-- which will generate this code during compile time
+--
+-- @
+-- vga_controllerBBTF ::
+--       forall s. Backend s => Text -> BlackBoxContext -> State s Doc
+-- vga_controllerBBTF entityName bbCtx
+--       | [clk_100MHz, reset] <- L.map fst (DSL.tInputs bbCtx),
+--         [result] <- DSL.tResults bbCtx,
+--         NT.Product _ _ resTyps <- DSL.ety result
+--       = do vga_controllerInstName <- Id.makeBasic "vga_controller_inst"
+--            let compInps
+--                  = [("clk_100MHz", DSL.ety clk_100MHz), ("reset", DSL.ety reset)]
+--                compOuts
+--                  = L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps
+--            (DSL.declarationReturn bbCtx "vga_controller_inst_block"
+--               $ (do declares <- mapM
+--                                   (\ (outname, typ) -> DSL.declare outname typ)
+--                                   (L.zip ["video_on", "hsync", "vsync", "p_tick", "x", "y"] resTyps)
+--                     let [video_on, hsync, vsync, p_tick, x, y] = declares
+--                     let inps = [("clk_100MHz", clk_100MHz), ("reset", reset)]
+--                         outs
+--                           = [("video_on", video_on), ("hsync", hsync), ("vsync", vsync),
+--                              ("p_tick", p_tick), ("x", x), ("y", y)]
+--                     DSL.compInBlock entityName compInps compOuts
+--                     DSL.instDecl
+--                       Empty (Id.unsafeMake entityName) vga_controllerInstName [] inps
+--                       outs
+--                     pure
+--                       [DSL.constructProduct
+--                          (DSL.ety result) [video_on, hsync, vsync, p_tick, x, y]]))
+--       | otherwise = error (ppShow bbCtx)
+-- vga_controllerTF :: HasCallStack => Text -> TemplateFunction
+-- vga_controllerTF entityName
+--       = TemplateFunction
+--           [0, 1, 2] (const True) (vga_controllerBBTF entityName)
+-- vga_controllerBBF :: BlackBoxFunction
+-- vga_controllerBBF _ _ _ _
+--       = pure
+--           (Right
+--              (emptyBlackBoxMeta {bbKind = TDecl},
+--               BBFunction
+--                 "vga_controllerTF" 0 (vga_controllerTF "vga_controller")))
+-- @
 genBlackBoxProd :: InfoEntity -> Q [Dec]
 genBlackBoxProd infoen = do
   let entityNameNamestr = "entityName"
