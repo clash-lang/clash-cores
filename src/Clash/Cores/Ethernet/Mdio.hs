@@ -23,15 +23,15 @@ import Clash.Prelude
 data MdioRequest
   = MdioRead
       { mdioPhyAddress :: BitVector 5
-      -- ^ Address of the PHY.
+      -- ^ Which PHY to address.
       , mdioRegAddress :: BitVector 5
-      -- ^ The register which will be read.
+      -- ^ Which of the PHYs registers to select.
       }
   | MdioWrite
       { mdioPhyAddress :: BitVector 5
-      -- ^ Address of the PHY.
+      -- ^ Which PHY to address.
       , mdioRegAddress :: BitVector 5
-      -- ^ The register which will be written to.
+      -- ^ Which of the PHYs registers to select.
       , mdioWriteData :: BitVector 16
       -- ^ The data to write.
       }
@@ -39,7 +39,8 @@ data MdioRequest
 
 -- | MDIO bus response.
 data MdioResponse
-  = -- | Write was successful.
+  = -- | Write done. Not necessarily successful, because writes to a
+    --   non-existent PHY do not cause an error.
     MdioWriteAck
   | -- | Read was successful.
     MdioReadData (BitVector 16)
@@ -62,7 +63,7 @@ data MdioOutput dom = MdioOutput
   { _mdc :: Signal dom Bool
   -- ^ Output to the unidirectional MDC pin.
   , _mdioT :: Signal dom Bool
-  -- ^ MDIO Output enable, active low.
+  -- ^ MDIO output enable, active low.
   , _mdioO :: Signal dom Bit
   -- ^ Value to drive over the MDIO pin. Note that this is always
   --   driven low, as the MDIO pin must be connected to a pull-up resistor.
@@ -144,12 +145,12 @@ mdioNextState st@Idle{} (mdioReq, _) = nextSt
     Just req ->
       SendPreamble
         { _frame = buildMdioFrame req
-        , _readData = deepErrorX "mdioT: undefined _readData"
+        , _readData = deepErrorX "mdioNextState: undefined _readData"
         , _counter = 0
         , _writeEnable = case req of
             MdioRead{} -> False
             MdioWrite{} -> True
-        , _phyAbsent = deepErrorX "mdioT: undefined _phyAbsent"
+        , _phyAbsent = deepErrorX "mdioNextState: undefined _phyAbsent"
         , _valid = False
         }
 mdioNextState st@SendPreamble{..} (_, _) = nextSt
@@ -159,10 +160,10 @@ mdioNextState st@SendPreamble{..} (_, _) = nextSt
       then
         SendFrame
           { _frame = _frame
-          , _readData = deepErrorX "mdioT: undefined _readData"
+          , _readData = deepErrorX "mdioNextState: undefined _readData"
           , _counter = 0
           , _writeEnable = _writeEnable
-          , _phyAbsent = deepErrorX "mdioT: undefined _phyAbsent"
+          , _phyAbsent = deepErrorX "mdioNextState: undefined _phyAbsent"
           , _valid = False
           }
       else st{_counter = _counter + 1}
@@ -184,7 +185,7 @@ mdioNextState st@SendFrame{..} (_, mdioIn) = nextSt
         Idle
           { _frame = nextFrame
           , _readData = nextReadData
-          , _counter = deepErrorX "mdioT: undefined _counter"
+          , _counter = deepErrorX "mdioNextState: undefined _counter"
           , _writeEnable = _writeEnable
           , _phyAbsent = _phyAbsent
           , _valid = True
@@ -231,9 +232,7 @@ controller is unable to change the MDIO line at the correct time.
 mdioController ::
   forall (dom :: Domain) (clockDivider :: Nat).
   (HiddenClockResetEnable dom) =>
-  (KnownNat (DomainPeriod dom)) =>
-  (1 <= (DomainPeriod dom)) =>
-  (2 <= Div clockDivider 2) =>
+  (2 <= clockDivider `Div` 2) =>
   -- | Clock divider
   SNat clockDivider ->
   -- | Value of the MDIO pin
@@ -258,11 +257,11 @@ mdioController SNat mdioIn reqS = (toMdioResp <$> st, readyOut, mdioDrivers)
 
   s0 =
     Idle
-      { _frame = deepErrorX "mdioT: undefined _frame"
-      , _readData = deepErrorX "mdioT: undefined _readData"
-      , _counter = deepErrorX "mdioT: undefined _counter"
-      , _writeEnable = deepErrorX "mdioT: undefined _writeEnable"
-      , _phyAbsent = deepErrorX "mdioT: undefined _phyAbsent"
+      { _frame = deepErrorX "mdioController: undefined _frame"
+      , _readData = deepErrorX "mdioController: undefined _readData"
+      , _counter = deepErrorX "mdioController: undefined _counter"
+      , _writeEnable = deepErrorX "mdioController: undefined _writeEnable"
+      , _phyAbsent = deepErrorX "mdioController: undefined _phyAbsent"
       , _valid = False
       }
 
@@ -273,7 +272,9 @@ mdioController SNat mdioIn reqS = (toMdioResp <$> st, readyOut, mdioDrivers)
       fsmEnable
       (liftA2 mdioNextState st (bundle (reqS, mdioIn)))
 
-  readyOut = controllerIsIdle <$> st
+  readyOut =
+    hideReset
+      (\rst -> unsafeToActiveLow rst .&&. controllerIsIdle <$> st)
 
   mdioDrivers =
     MdioOutput
