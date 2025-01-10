@@ -308,7 +308,7 @@ testPhyDelay delayCycles = testCase (P.show ((delayCycles + 1) * 10) P.++ " ns P
 
 tests :: TestTree
 tests =
-  localOption (mkTimeout 40_000_000 {- 20 seconds -})
+  localOption (mkTimeout 20_000_000 {- 20 seconds -})
     $ localOption
       (HedgehogTestLimit (Just 100))
       (testGroup "MDIO"
