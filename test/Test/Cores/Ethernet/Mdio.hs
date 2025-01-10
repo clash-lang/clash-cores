@@ -8,6 +8,10 @@ import Clash.Cores.Ethernet.Mdio
 
 import Clash.Prelude
 
+import qualified Data.List as L
+
+import qualified Data.Map as M
+
 import Hedgehog (Gen, Property)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -34,49 +38,44 @@ genMdioRequest = do
 
 {- |
 Stateful model of an MDIO bus: 32 potential PHYs, each which contain
-32 registers of 16-bit words. If a PHY is not present, it is @Nothing@.
-Reads to a non-existing PHY must result in a slave error. There is no
-way to detect whether a write went to a non-existing PHY, so a write
-acknowledgement is always expected.
+32 registers of 16-bit words. Reads to a non-existing PHY must result
+in an error. There is no way to detect whether a write went to a
+non-existing PHY, so a write acknowledgement is always expected.
 
 Each write request updates the state. Subsequent reads to the same address
 must result in the updated value.
 -}
 mdioControllerModel ::
-  -- | Initial state
-  Vec 32 (Maybe (Vec 32 (BitVector 16))) ->
+  -- | Present PHY addresses
+  [BitVector 5] ->
   -- | Generated requests
   [MdioRequest] ->
   -- | Expected responses
   [MdioResponse]
-mdioControllerModel _ [] = []
-mdioControllerModel st (req:rs) = resp : mdioControllerModel nextSt rs
+mdioControllerModel phys = mdioControllerModel' M.empty
  where
-  -- Upon a write request, update the registers of the addressed PHY.
-  -- But, only if it exists in the model.
-  nextSt = case (st !! mdioPhyAddress req, req) of
-      (Just regs, MdioWrite _ regAddr wData) ->
-        replace
-          (mdioPhyAddress req)
-          (Just (replace regAddr wData regs))
-          st
-      (_, _) -> st
+  mdioControllerModel' ::
+    M.Map (BitVector 10) (BitVector 16) ->
+    [MdioRequest] ->
+    [MdioResponse]
+  mdioControllerModel' _ [] = []
+  mdioControllerModel' st (req:rs) = resp : mdioControllerModel' nextSt rs
+   where
+    combinedAddr = mdioPhyAddress req ++# mdioRegAddress req
+    phyIsPresent = mdioPhyAddress req `L.elem` phys
 
-  resp = case (st !! mdioPhyAddress req, req) of
-    (_, MdioWrite{}) -> MdioWriteAck
-    (Nothing, MdioRead{}) -> MdioPhyError
-    (Just regs, MdioRead{}) -> MdioReadData (regs !! mdioRegAddress req)
+    -- Upon a write request, update the registers of the addressed PHY.
+    -- But, only if it exists in the model.
+    nextSt = case (req, phyIsPresent) of
+      (MdioWrite _ _ writeData, True) -> M.insert combinedAddr writeData st
+      _ -> st
 
-{- |
-`mdioControllerModel`, initialized with a single phy at address 0.
-All registers of this PHY are initialized to 0.
--}
-singlePhyModel :: [MdioRequest] -> [MdioResponse]
-singlePhyModel = mdioControllerModel s0
- where
-  s0 =
-    replace (0 :: Index 32) (Just (repeat 0))
-      $ repeat Nothing
+    resp = case (req, phyIsPresent, M.lookup combinedAddr st) of
+      (MdioWrite{}, _, _) -> MdioWriteAck
+      (_, False, _) -> MdioPhyError
+      -- Assumes that registers of the PHY are initialized to all zeroes.
+      (_, True, Nothing) -> MdioReadData 0
+      (_, True, Just d) -> MdioReadData d
 
 data MdioPhyState
   = Idle (Vec 32 (BitVector 16))
@@ -198,7 +197,7 @@ prop_mdio_controller_single_phy =
     @System
     defExpectOptions{eoSampleMax=501, eoStopAfterEmpty=800, eoDriveEarly=False}
     (Gen.list (Range.linear 1 100) genMdioRequest)
-    (exposeClockResetEnable singlePhyModel)
+    (exposeClockResetEnable (mdioControllerModel [0]))
     (exposeClockResetEnable ckt')
  where
   ckt' ::
