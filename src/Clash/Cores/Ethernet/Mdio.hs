@@ -9,6 +9,7 @@
 Provides an MDIO bus controller as specified in IEEE 802.3 Clause 22.
 -}
 module Clash.Cores.Ethernet.Mdio (
+  MdioOutput (..),
   MdioRequest (..),
   MdioResponse (..),
   mdioController,
@@ -22,12 +23,17 @@ import Clash.Prelude
 data MdioRequest
   = MdioRead
       { mdioPhyAddress :: BitVector 5
+      -- ^ Address of the PHY.
       , mdioRegAddress :: BitVector 5
+      -- ^ The register which will be read.
       }
   | MdioWrite
       { mdioPhyAddress :: BitVector 5
+      -- ^ Address of the PHY.
       , mdioRegAddress :: BitVector 5
+      -- ^ The register which will be written to.
       , mdioWriteData :: BitVector 16
+      -- ^ The data to write.
       }
   deriving (Eq, Generic, NFData, NFDataX, Show, ShowX)
 
@@ -47,38 +53,60 @@ data MdioResponse
     MdioPhyError
   deriving (Eq, Generic, NFData, NFDataX, Show, ShowX)
 
+{- |
+MDIO pin drivers from the controller's point of view. `_mdioT` and `_mdioO`
+directly map to the inputs of bidirectional buffer primitives found on
+FPGAs.
+-}
+data MdioOutput dom = MdioOutput
+  { _mdc :: Signal dom Bool
+  -- ^ Output to the unidirectional MDC pin.
+  , _mdioT :: Signal dom Bool
+  -- ^ MDIO Output enable, active low.
+  , _mdioO :: Signal dom Bit
+  -- ^ Value to drive over the MDIO pin. Note that this is always
+  --   driven low, as the MDIO pin must be connected to a pull-up resistor.
+  --   If we want to drive MDIO high, we simply de-assert `_mdioT`.
+  }
+
+-- | State registers of the MDIO controller.
 data MdioMasterState
   = Idle
+      { _frame :: BitVector 32
+      -- ^ The MDIO frame to transmit, without preamble.
+      , _readData :: BitVector 16
+      -- ^ Accumulator for data reads.
+      , _counter :: Unsigned 5
+      -- ^ Keeps track of where we are in the current frame.
+      , _writeEnable :: Bool
+      -- ^ Was the last request a write?
+      , _phyAbsent :: Bool
+      -- ^ Asserted if the PHY did not pull the MDIO line low during
+      --   the turnaround phase.
+      , _valid :: Bool
+      -- ^ If high, we must transmit a `MdioResponse`.
+      }
   | SendPreamble
-      { stopara :: BitVector 14
-      , wdata :: BitVector 16
-      , counter :: Index 32
-      , read :: Bool
+      { _frame :: BitVector 32
+      , _readData :: BitVector 16
+      , _counter :: Unsigned 5
+      , _writeEnable :: Bool
+      , _phyAbsent :: Bool
+      , _valid :: Bool
       }
-  | SendStOpPaRa
-      { stopara :: BitVector 14
-      , wdata :: BitVector 16
-      , counter :: Index 32
-      , read :: Bool
-      }
-  | TurnAround
-      { stopara :: BitVector 14
-      , wdata :: BitVector 16
-      , counter :: Index 32
-      , read :: Bool
-      }
-  | SendData
-      { stopara :: BitVector 14
-      , wdata :: BitVector 16
-      , counter :: Index 32
-      }
-  | RecvData
-      { stopara :: BitVector 14
-      , wdata :: BitVector 16
-      , counter :: Index 32
-      , rbuf :: BitVector 16
+  | SendFrame
+      { _frame :: BitVector 32
+      , _readData :: BitVector 16
+      , _counter :: Unsigned 5
+      , _writeEnable :: Bool
+      , _phyAbsent :: Bool
+      , _valid :: Bool
       }
   deriving (Eq, Generic, NFDataX, Show, ShowX)
+
+controllerIsIdle :: MdioMasterState -> Bool
+controllerIsIdle Idle{} = True
+controllerIsIdle _ = False
 
 startSequence :: BitVector 2
 startSequence = 0b01
@@ -89,117 +117,134 @@ readOpcode = 0b10
 writeOpcode :: BitVector 2
 writeOpcode = 0b01
 
-mdioT ::
+-- | Map an MDIO request to an MDIO frame without preamble.
+buildMdioFrame :: MdioRequest -> BitVector 32
+buildMdioFrame req = case req of
+  -- Addresses are sent MSB first!
+  MdioRead phyAddr regAddr ->
+    startSequence ++# readOpcode ++# phyAddr ++# regAddr ++# 0b11 ++# (0xFFFF :: BitVector 16)
+  MdioWrite phyAddr regAddr writeData ->
+    startSequence ++# writeOpcode ++# phyAddr ++# regAddr ++# 0b10 ++# writeData
+
+{- |
+Computes the next state of the MDIO controller given the
+current state, the input request, and the value of the MDIO pin.
+-}
+mdioNextState ::
+  -- | Current state
   MdioMasterState ->
   -- | (Request, MDIO input)
   (Maybe MdioRequest, Bit) ->
-  ( MdioMasterState
-  , (Bool, Maybe MdioResponse)
-  )
-mdioT Idle (mdioReq, _) = (nextSt, (True, Nothing))
+  -- | Next state
+  MdioMasterState
+mdioNextState st@Idle{} (mdioReq, _) = nextSt
  where
-  -- Addresses are sent MSB first!
   nextSt = case mdioReq of
-    Nothing -> Idle
-    Just req -> case req of
-      MdioRead{..} ->
-        SendPreamble
-          (startSequence ++# readOpcode ++# mdioPhyAddress ++# mdioRegAddress)
-          (deepErrorX "undefined write data")
-          0
-          True
-      MdioWrite{..} ->
-        SendPreamble
-          (startSequence ++# writeOpcode ++# mdioPhyAddress ++# mdioRegAddress)
-          mdioWriteData
-          0
-          False
-mdioT (SendPreamble buf dat c rd) _ = (nextSt, (True, Nothing))
+    Nothing -> st{_valid = False}
+    Just req ->
+      SendPreamble
+        { _frame = buildMdioFrame req
+        , _readData = deepErrorX "mdioT: undefined _readData"
+        , _counter = 0
+        , _writeEnable = case req of
+            MdioRead{} -> False
+            MdioWrite{} -> True
+        , _phyAbsent = deepErrorX "mdioT: undefined _phyAbsent"
+        , _valid = False
+        }
+mdioNextState st@SendPreamble{..} (_, _) = nextSt
  where
-  nextSt
-    | c == maxBound = SendStOpPaRa buf dat 0 rd
-    | otherwise = SendPreamble buf dat (c + 1) rd
-mdioT (SendStOpPaRa buf dat c rd) _ = (nextSt, (mdioOutEn, Nothing))
+  nextSt =
+    if _counter == maxBound
+      then
+        SendFrame
+          { _frame = _frame
+          , _readData = deepErrorX "mdioT: undefined _readData"
+          , _counter = 0
+          , _writeEnable = _writeEnable
+          , _phyAbsent = deepErrorX "mdioT: undefined _phyAbsent"
+          , _valid = False
+          }
+      else st{_counter = _counter + 1}
+mdioNextState st@SendFrame{..} (_, mdioIn) = nextSt
  where
-  mdioOutEn = msb buf == 1
-  nextSt
-    | c == 13 = TurnAround buf dat 0 rd
-    | otherwise = SendStOpPaRa (shiftL buf 1) dat (c + 1) rd
-mdioT (TurnAround buf dat c rd) (_, mdioIn) = (nextSt, (mdioOutEn, resp))
- where
-  mdioOutEn = not (c == 1 && not rd)
+  nextFrame = shiftL _frame 1
+  -- The PHY transmits the read data MSB first, so we shift it in at
+  -- the LSB side.
+  nextReadData = _readData .<<+ mdioIn
 
-  -- If we are reading, the PHY should pull the MDIO line down during the second
-  -- bit of the turnaround time. If this does not happen, then there is no PHY
-  -- at the requested address. Therefore, we signal an error.
-  (nextSt, resp) = case (c == 0, rd) of
-    (True, False) ->
-      (TurnAround buf dat 1 rd, Nothing)
-    (True, True) ->
-      (TurnAround buf dat 1 rd, Nothing)
-    (False, False) ->
-      (SendData buf dat 0, Nothing)
-    (False, True) ->
-      if mdioIn == 0
-        then (RecvData buf dat 0 (deepErrorX "undefined read data"), Nothing)
-        else (Idle, Just MdioPhyError)
-mdioT (SendData buf dat c) _ = (nextSt, (mdioOutEn, resp))
- where
-  mdioOutEn = msb dat == 1
+  nextPhyAbsent =
+    if _counter == 15
+      then not _writeEnable && mdioIn /= 0
+      else _phyAbsent
 
-  resp
-    | c == 16 = Just MdioWriteAck
-    | otherwise = Nothing
+  nextSt =
+    if _counter == maxBound
+      then
+        Idle
+          { _frame = nextFrame
+          , _readData = nextReadData
+          , _counter = deepErrorX "mdioT: undefined _counter"
+          , _writeEnable = _writeEnable
+          , _phyAbsent = _phyAbsent
+          , _valid = True
+          }
+      else
+        st
+          { _frame = nextFrame
+          , _readData = nextReadData
+          , _counter = _counter + 1
+          , _phyAbsent = nextPhyAbsent
+          }
 
-  nextSt
-    | c == 16 = Idle
-    | otherwise = SendData buf (shiftL dat 1) (c + 1)
-mdioT (RecvData _ _ c rb) (_, mdioIn) = (nextSt, (True, resp))
- where
-  newDat = rb .<<+ mdioIn
+-- | Map the MDIO controller state to the tristate output enable (active low).
+toMdioT :: MdioMasterState -> Bool
+toMdioT st = case st of
+  SendFrame{_frame = f} -> bitToBool (msb f)
+  _ -> True
 
-  resp
-    | c == 15 = Just (MdioReadData newDat)
-    | otherwise = Nothing
-
-  nextSt
-    | c == 15 = Idle
-    | otherwise = RecvData (deepErrorX "") (deepErrorX "") (c + 1) newDat
+-- | Map the MDIO controller state to a response.
+toMdioResp :: MdioMasterState -> Maybe MdioResponse
+toMdioResp st = case (_valid st, _writeEnable st, _phyAbsent st) of
+  (False, _, _) -> Nothing
+  (True, _, True) -> Just MdioPhyError
+  (True, False, False) -> Just (MdioReadData (_readData st))
+  (True, True, False) -> Just MdioWriteAck
 
 {- |
-MDIO bus controller which provides request-response based access to the internal
-registers of up to 32 Ethernet PHYs.
+MDIO bus controller which provides request-response based access to the
+internal registers of up to 32 Ethernet PHYs.
 
-The MDIO output enable signal should be used to drive the MDIO line via a
-tristate buffer:
-
-- If it is @False@, pull MDIO down to the ground.
-- If it is @True@, release MDIO and let the pull-up resistor do the work.
-
-A logical 1 should /NEVER/ be written to the MDIO line.
+The signals in the `MdioOutput` record are all registered and can
+be directly connected to I/O buffers. It is assumed that the MDIO
+pin is connected to a pull-up resistor.
 
 The frequency of MDC is configurable by the @clockDivider@ parameter. For
 example, if @clockDivider = 20@ and the frequency of the system clock is
-50 MHz, MDC will run at 2.5 MHz. Refer to the datasheet of your Ethernet PHY
-to determine the maximum frequency of MDC.
+50 MHz, MDC will run at 2.5 MHz. Refer to the data sheet of your Ethernet PHY
+to determine the maximum frequency of MDC. If you are not sure, a frequency
+of 2.5 MHz or lower should be safe to use.
+
+__NB__: @clockDivider@ must be at least 4. If this is not the case, the
+controller is unable to change the MDIO line at the correct time.
 -}
 mdioController ::
   forall (dom :: Domain) (clockDivider :: Nat).
   (HiddenClockResetEnable dom) =>
   (KnownNat (DomainPeriod dom)) =>
   (1 <= (DomainPeriod dom)) =>
-  (1 <= Div clockDivider 2) =>
+  (2 <= Div clockDivider 2) =>
   -- | Clock divider
   SNat clockDivider ->
   -- | Value of the MDIO pin
   Signal dom Bit ->
   -- | MDIO request
   Signal dom (Maybe MdioRequest) ->
-  -- | (Request-Response bus, Request Ready, MDC, MDIO output enable (active low))
-  (Signal dom (Maybe MdioResponse), Signal dom Bool, Signal dom Bool, Signal dom Bool)
-mdioController SNat mdioIn reqS = (resp, ready, mdc, mdioOutEnable)
+  -- | (Request-Response bus, Request Ready, MDIO pin drivers)
+  (Signal dom (Maybe MdioResponse), Signal dom Bool, MdioOutput dom)
+mdioController SNat mdioIn reqS = (toMdioResp <$> st, readyOut, mdioDrivers)
  where
-  (mdc, pulse) = mdcGenerator (SNat @clockDivider) ((Idle /=) <$> st)
+  (mdc, pulse) = mdcGenerator (SNat @clockDivider) (not . controllerIsIdle <$> st)
 
   -- If we are in idle, we should immediately handle the request.
   -- Else, we only enable the FSM in the middle of MDC's low period, because:
@@ -209,41 +254,65 @@ mdioController SNat mdioIn reqS = (resp, ready, mdc, mdioOutEnable)
   -- 2. The PHY drives the MDIO line some time after the rising edge of MDC.
   --    the exact time depends on the PHY, but sampling MDIO during
   --    the middle of MDC's low period gives the PHY the most time.
-  fsmEnable = pulse .||. (Idle ==) <$> st
+  fsmEnable = pulse .||. controllerIsIdle <$> st
 
-  (st', o) = unbundle $ liftA2 mdioT st (bundle (reqS, mdioIn))
-  (mdioOutEnable', resp') = unbundle o
-  
-  st = regEn Idle fsmEnable st'
-  mdioOutEnable = regEn True fsmEnable mdioOutEnable'
+  s0 =
+    Idle
+      { _frame = deepErrorX "mdioT: undefined _frame"
+      , _readData = deepErrorX "mdioT: undefined _readData"
+      , _counter = deepErrorX "mdioT: undefined _counter"
+      , _writeEnable = deepErrorX "mdioT: undefined _writeEnable"
+      , _phyAbsent = deepErrorX "mdioT: undefined _phyAbsent"
+      , _valid = False
+      }
 
-  resp = (\(r, e) -> if e then r else Nothing) <$> bundle (resp', fsmEnable)
-  ready = (Idle ==) <$> st
+  st :: Signal dom MdioMasterState
+  st =
+    regEn
+      s0
+      fsmEnable
+      (liftA2 mdioNextState st (bundle (reqS, mdioIn)))
+
+  readyOut = controllerIsIdle <$> st
+
+  mdioDrivers =
+    MdioOutput
+      { _mdc = mdc
+      , -- Only change on pulse, do not use @fsmEnable@! If we use that, the
+        -- last bit of a write request is lost, because @fsmEnable@ is
+        -- immediately high when we are back in the idle state.
+        _mdioT = regEn True pulse (toMdioT <$> st)
+      , _mdioO = 0
+      }
 {-# OPAQUE mdioController #-}
-
 
 -- | Generate MDC from the controller clock by clock division.
 mdcGenerator ::
   forall (dom :: Domain) (clockDivider :: Nat).
   (HiddenClockResetEnable dom) =>
-  (1 <= Div clockDivider 2) =>
+  (2 <= clockDivider `Div` 2) =>
   -- | Clock divider
   SNat clockDivider ->
   -- | Enable generation of the clock and pulses
   Signal dom Bool ->
   -- | (MDC, pulse)
   (Signal dom Bool, Signal dom Bool)
-mdcGenerator SNat en = (mdcO, pulse)
+mdcGenerator SNat en = (mdcOut, pulse)
  where
   counter :: Signal dom (Index (clockDivider `Div` 2))
-  counter = regEn 0 en (satSucc SatWrap <$> counter)
+  counter = register 0 (satSucc SatWrap <$> counter)
 
   mdc :: Signal dom Bool
   mdc = regEn True ((== maxBound) <$> counter) (mux en (not <$> mdc) (pure True))
 
   -- Delay for another cycle for proper alignment with respect to MDIO
-  mdcO = register True mdc
+  mdcOut = register True mdc
+
+  -- This signal is high when the counter is roughly halfway.
+  -- Note that `shiftR` 1 is division by 2, this trick avoids index
+  -- overflow when @clockDivider <= 5@.
+  pulse' = (== (maxBound `shiftR` 1)) <$> counter
 
   -- We give a pulse when MDC is halfway through its low period.
   pulse :: Signal dom Bool
-  pulse = register False ((not <$> mdc) .&&. ((== maxBound `div` 2) <$> counter))
+  pulse = register False ((not <$> mdc) .&&. pulse')
