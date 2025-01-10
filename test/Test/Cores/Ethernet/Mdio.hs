@@ -238,7 +238,7 @@ prop_mdio_controller_two_phys =
 
 tests :: TestTree
 tests =
-  localOption (mkTimeout 40_000_000 {- 20 seconds -})
+  localOption (mkTimeout 20_000_000 {- 20 seconds -})
     $ localOption
       (HedgehogTestLimit (Just 100))
       $(testGroupGenerator)
