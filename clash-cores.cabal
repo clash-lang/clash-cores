@@ -220,7 +220,7 @@ library
     text                    >= 1.2.2 && < 2.2,
     constraints             >= 0.9   && < 1.0,
     template-haskell        >= 2.12.0.0 && < 2.23,
-    process,
+    process                 >= 1.6.5.0 && < 1.7,
 
 test-suite unit-tests
   import: basic-config
