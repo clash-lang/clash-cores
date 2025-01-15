@@ -3,7 +3,7 @@
 --  License     :  BSD2
 --  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 module Clash.Cores.ClashFloPoCo.FloPoCoCall
-  ( callFloPoCoWithInput, -- add this line to export the function
+  ( callFloPoCoWithInput, 
   )
 where
 

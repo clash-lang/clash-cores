@@ -9,6 +9,7 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-unused-binds #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {- |
   Copyright   :  (C) 2024, QBayLogic B.V.
   License     :  BSD2
@@ -173,10 +174,14 @@ plusFloatBBF _ _ _ _ = do
 -}
 plusFloatExample
   :: forall n . 
-  Clock XilinxSystem -- ^Clock signal
-  -> DSignal XilinxSystem n Float -- ^Operand input signal
-  -> DSignal XilinxSystem n Float -- ^Operand input signal
-  -> DSignal XilinxSystem (n + Nplus) Float -- ^Result output signal
+  -- | Clock signal
+  Clock XilinxSystem 
+  -- | Operand input signal
+  -> DSignal XilinxSystem n Float 
+  -- | Operand input signal
+  -> DSignal XilinxSystem n Float 
+  -- | Result output signal
+  -> DSignal XilinxSystem (n + Nplus) Float
 plusFloatExample clk a b =
   delayN xp undefined enableGen clk (liftA2 (+) a b)
 {-# OPAQUE plusFloatExample #-}
@@ -269,14 +274,22 @@ fmaFloatExample clk a b c negab negc _ =
 -}
 fmaFloatExample
   :: forall n .
-  Clock XilinxSystem -- ^Clock signal
-  -> DSignal XilinxSystem n Float -- ^Operand input signal a
-  -> DSignal XilinxSystem n Float -- ^Operand input signal b
-  -> DSignal XilinxSystem n Float -- ^Operand input signal c
-  -> DSignal XilinxSystem n Bit  -- ^Flag to check if a or b is negative
-  -> DSignal XilinxSystem n Bit  -- ^Flag to check if c is negative
-  -> DSignal XilinxSystem n (BitVector 2) -- ^Unused flag. In FloPoCo, it's roundmode but it has no role in the computation. 
-  -> DSignal XilinxSystem (n + Nfma) Float -- ^Result output signal 
+  -- | Clock signal
+  Clock XilinxSystem 
+  -- | Operand input signal a
+  -> DSignal XilinxSystem n Float 
+  -- | Operand input signal b
+  -> DSignal XilinxSystem n Float 
+  -- | Operand input signal c
+  -> DSignal XilinxSystem n Float 
+  -- | Flag to check if a or b is negative
+  -> DSignal XilinxSystem n Bit  
+  -- | Flag to check if c is negative
+  -> DSignal XilinxSystem n Bit  
+  -- | Unused flag. In FloPoCo, it's roundmode but it has no role in the computation.
+  -> DSignal XilinxSystem n (BitVector 2) 
+  -- | Result output signal 
+  -> DSignal XilinxSystem (n + Nfma) Float 
 fmaFloatExample clk a b c negab negc _ = 
   let 
     resab = mux (fmap (== 1)  negab)
@@ -337,9 +350,12 @@ xp3 = SNat::SNat Nexp
 
 expFloatExample
   :: forall n .
-  Clock XilinxSystem -- ^ Clock signal
-  -> DSignal XilinxSystem n Float -- ^ Operand input signal
-  -> DSignal XilinxSystem (n + Nexp) Float -- ^Result output signal 
+  -- | Clock signal
+  Clock XilinxSystem 
+  -- | Operand input signal
+  -> DSignal XilinxSystem n Float 
+  -- | Result output signal 
+  -> DSignal XilinxSystem (n + Nexp) Float 
 expFloatExample clk a = delayN xp3 undefined enableGen clk (liftA exp a)
 {-# OPAQUE expFloatExample #-}
 $(genBlackBox infoEnExpExample)
@@ -349,9 +365,12 @@ $(genBlackBox infoEnExpExample)
 -}
 expFloatExample
   :: forall n .
-  Clock XilinxSystem -- ^ Clock signal
-  -> DSignal XilinxSystem n Float -- ^ Operand input signal
-  -> DSignal XilinxSystem (n + Nexp) Float -- ^Result output signal 
+  -- | Clock signal
+  Clock XilinxSystem 
+  -- | Operand input signal
+  -> DSignal XilinxSystem n Float 
+  -- | Result output signal 
+  -> DSignal XilinxSystem (n + Nexp) Float 
 expFloatExample clk a = delayN xp3 undefined enableGen clk (liftA exp a)
 {-# OPAQUE expFloatExample #-}
 $(genBlackBox infoEnExpExample)
@@ -393,15 +412,21 @@ import Text.Show.Pretty(ppShow)
 import qualified Data.Text as Text
 import Clash.Netlist.BlackBox.Util (bbResult)
 
-vga_controller 
+vga_controller
     :: Clock XilinxSystem ->
     Reset XilinxSystem ->
-    ( Signal XilinxSystem Bit          -- ^ video_on 
-     , Signal XilinxSystem Bit         -- ^ Horizontal Sync 
-     , Signal XilinxSystem Bit        -- ^ Vertical Sync
-     , Signal XilinxSystem Bit         -- ^ p_tick
-     , Signal XilinxSystem (BitVector 10)  -- ^ X Position
-     , Signal XilinxSystem (BitVector 10)  -- ^ Y Position
+    ( -- | video_on 
+      Signal XilinxSystem Bit 
+      -- | Horizontal Sync         
+     , Signal XilinxSystem Bit  
+     -- | Vertical Sync       
+     , Signal XilinxSystem Bit    
+     -- | p_tick    
+     , Signal XilinxSystem Bit  
+     -- | X Position       
+     , Signal XilinxSystem (BitVector 10)  
+     -- | Y Position
+     , Signal XilinxSystem (BitVector 10)  
      )
 vga_controller !clk !rst = deepErrorX "vga_controller: simulation output undefined"
 {-# OPAQUE vga_controller #-}
@@ -472,12 +497,18 @@ vga_controllerBBF _ _ _ _
 vga_controller
     :: Clock XilinxSystem ->
     Reset XilinxSystem ->
-    ( Signal XilinxSystem Bit          -- ^ video_on 
-     , Signal XilinxSystem Bit         -- ^ Horizontal Sync 
-     , Signal XilinxSystem Bit        -- ^ Vertical Sync
-     , Signal XilinxSystem Bit         -- ^ p_tick
-     , Signal XilinxSystem (BitVector 10)  -- ^ X Position
-     , Signal XilinxSystem (BitVector 10)  -- ^ Y Position
+    ( -- | video_on 
+      Signal XilinxSystem Bit 
+      -- | Horizontal Sync         
+     , Signal XilinxSystem Bit  
+     -- | Vertical Sync       
+     , Signal XilinxSystem Bit    
+     -- | p_tick    
+     , Signal XilinxSystem Bit  
+     -- | X Position       
+     , Signal XilinxSystem (BitVector 10)  
+     -- | Y Position
+     , Signal XilinxSystem (BitVector 10)  
      )
 vga_controller !clk !rst = deepErrorX "vga_controller: simulation output undefined"
 {-# OPAQUE vga_controller #-}

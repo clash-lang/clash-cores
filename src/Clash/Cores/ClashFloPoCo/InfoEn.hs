@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveLift #-}
 -- |
 --  Copyright   :  (C) 2024, Hoang Minh Le <minhxecole@gmail.com>.
 --  License     :  BSD2
@@ -8,7 +9,7 @@ module Clash.Cores.ClashFloPoCo.InfoEn
 where
 
 import Prelude
-
+import Language.Haskell.TH.Syntax(Lift)
 -- | This is the record to store information about entity(VHDL) or module(Verilog, SystemVerilog)
 data InfoEntity = InfoEntity
   { -- | Name of entity(VHDL) or module(Verilog, SystemVerilog)
@@ -22,4 +23,4 @@ data InfoEntity = InfoEntity
     -- | List of output signals name of entity(VHDL) or module(Verilog, SystemVerilog)
     outsig :: Maybe [String]
   }
-  deriving (Show)
+  deriving (Show, Lift)

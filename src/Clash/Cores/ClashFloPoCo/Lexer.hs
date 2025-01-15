@@ -5,13 +5,7 @@
 --  License     :  BSD2
 --  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 module Clash.Cores.ClashFloPoCo.Lexer
-  ( -- keywords,
-    -- isVHDLcomment,
-    -- getVHDLComment,
-    -- containsSpace,
-    -- afterColon,
-    -- updateInfoEntity,
-    -- makeListVHDLcomments,
+  (
     getLastInfoEntity,
     processVHDLFile,
   )
