@@ -112,7 +112,7 @@ common basic-config
 
   build-depends:
     base                      >= 4.10  && < 5,
-    constraints,
+    constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.8,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
@@ -121,7 +121,7 @@ common basic-config
     lens,
     QuickCheck,
     string-interpolate        ^>= 0.3,
-    template-haskell,
+    template-haskell          >= 2.12.0.0 && < 2.23,
 
   if flag(clash-18)
     build-depends:
@@ -199,17 +199,14 @@ library
     -fno-worker-wrapper
 
   build-depends:
-    unordered-containers,
     ghc-prim                >= 0.3.1.0 && < 1.0,
-    lens,
     mtl                     >= 2.1.1 && < 2.4,
     pretty-show,
     prettyprinter           >= 1.2.0.1  && < 1.8,
     prettyprinter-interp    ^>= 0.2,
     reducers                >= 3.12.2 && < 4.0,
     text                    >= 1.2.2 && < 2.2,
-    constraints             >= 0.9   && < 1.0,
-    template-haskell        >= 2.12.0.0 && < 2.23,
+    unordered-containers,
 
 test-suite unit-tests
   import: basic-config
@@ -244,12 +241,12 @@ test-suite unit-tests
     clash-cores,
     clash-prelude-hedgehog,
     deepseq,
-    tasty        >= 1.2 && < 1.6,
+    hedgehog,
+    tasty                   >= 1.2 && < 1.6,
+    tasty-hedgehog          >= 1.2.0,
     tasty-hunit,
     tasty-quickcheck,
     tasty-th,
-    hedgehog,
-    tasty-hedgehog >= 1.2.0,
 
 test-suite doctests
   type:             exitcode-stdio-1.0
