@@ -14,15 +14,10 @@ tests-always:
     strategy: depend
   variables:
     CLASH_BRANCH: "$CLASH_BRANCH"
+    CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
   parallel:
     matrix:
-      - GHC_VERSION: 9.8.2
-
-      - GHC_VERSION: 9.0.2
-        WORKAROUND_GHC_MMAP_CRASH: "yes"
-
-      - GHC_VERSION: 8.10.7
-        WORKAROUND_GHC_MMAP_CRASH: "yes"
+      - GHC_VERSION: ["9.6.6", "9.10.1"]
 
 tests-release:
   stage: test
@@ -34,10 +29,13 @@ tests-release:
     strategy: depend
   variables:
     CLASH_BRANCH: "$CLASH_BRANCH"
+    CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
   parallel:
     matrix:
-      - GHC_VERSION: [9.6.6, 9.4.8, 9.2.8]
+      - GHC_VERSION: ["9.8.4"]
 
+# Test GHC versions on master that our release version does
+# not support. In case there is no such GHC, set "matrix" to [] .
 tests-master:
   stage: test
   rules:
@@ -48,13 +46,13 @@ tests-master:
     strategy: depend
   variables:
     CLASH_BRANCH: "$CLASH_BRANCH"
+    CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
   parallel:
-    matrix:
-      - GHC_VERSION: 9.10.1
+    matrix: []
 
 stack-build:
   extends: .common-local
-  image: fpco/stack-build:lts-22.33
+  image: fpco/stack-build:lts-23.6
   needs: []
   stage: test
   rules:
