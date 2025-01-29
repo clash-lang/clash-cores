@@ -1,17 +1,46 @@
 {- |
-  Copyright   :  (C) 2024, QBayLogic B.V.
+  Copyright   :  (C) 2024-2025, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
   Top level module for the PCS transmit block, that combines the processes
   that are defined in the two submodules @CodeGroup@ and @OrderedSet@.
 -}
-module Clash.Cores.Sgmii.PcsTransmit (pcsTransmit) where
+module Clash.Cores.Sgmii.PcsTransmit
+  ( pcsTransmit
+  , inputDelayT
+  )
+where
 
 import Clash.Cores.Sgmii.Common
 import Clash.Cores.Sgmii.PcsTransmit.CodeGroup
 import Clash.Cores.Sgmii.PcsTransmit.OrderedSet
 import Clash.Prelude
+
+type InputDelayState = (Index 8, Vec 8 (Bool, Bool, BitVector 8))
+
+inputDelayT ::
+  InputDelayState ->
+  (Bool, Bool, BitVector 8, Bool) ->
+  (InputDelayState, (Bool, Bool, BitVector 8))
+inputDelayT (cur, is) (txEn, txEr, dw, txRdy) = ((cur', is'), o')
+ where
+  cur'
+    | (txEn || txEr) && txRdy = cur
+    | (txEn || txEr) && cur < maxBound = cur + 1
+    | txRdy && cur > minBound = cur - 1
+    | otherwise = cur
+
+  is'
+    | txEn || txEr = (txEn, txEr, dw) +>> is
+    | otherwise = is
+
+  o'
+    | not (txEn || txEr) && cur' < minBound + 2 = f (is' !! cur')
+    | cur' < cur = is' !! cur'
+    | otherwise = is' !! cur
+   where
+    f (_, _, a) = (False, False, a)
 
 -- | Takes the signals that are defined in IEEE 802.3 Clause 36 and runs them
 --   through the state machines as defined for the PCS transmit block. These are
@@ -32,17 +61,20 @@ pcsTransmit ::
   Signal dom CodeGroup
 pcsTransmit txEn txEr dw xmit txConfReg = cg
  where
-  (_, cg, txEven, txInd) =
+  (_, cg, txEven, txInd, txRdy) =
     mooreB
       codeGroupT
       codeGroupO
       (IdleDisparityOk False 0 0)
-      (txOSet, dw, txConfReg)
+      (txOSet, dw', txConfReg)
 
   (_, txOSet) =
     mealyB
       orderedSetT
       (IdleS Idle False)
-      (txEn, txEr, dw, xmit, txEven, txInd)
+      (txEn', txEr', dw', xmit, txEven, txInd)
+
+  (txEn', txEr', dw') =
+    mealyB inputDelayT (0, repeat (False, False, 0)) (txEn, txEr, dw, txRdy)
 
 {-# OPAQUE pcsTransmit #-}

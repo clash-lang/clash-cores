@@ -1,5 +1,5 @@
 {- |
-  Copyright   :  (C) 2024, QBayLogic B.V.
+  Copyright   :  (C) 2024, 2025, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
