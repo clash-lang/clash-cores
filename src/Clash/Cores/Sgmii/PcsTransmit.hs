@@ -8,12 +8,30 @@
   Top level module for the PCS transmit block, that combines the processes
   that are defined in the two submodules @CodeGroup@ and @OrderedSet@.
 -}
-module Clash.Cores.Sgmii.PcsTransmit (pcsTransmit) where
+module Clash.Cores.Sgmii.PcsTransmit
+  ( inputQueueT
+  , inputQueueO
+  , pcsTransmit
+  )
+where
 
 import Clash.Cores.Sgmii.Common
 import Clash.Cores.Sgmii.PcsTransmit.CodeGroup
 import Clash.Cores.Sgmii.PcsTransmit.OrderedSet
 import Clash.Prelude
+
+type InputQueue = Vec 2 (BitVector 8)
+
+inputQueueT ::
+  InputQueue ->
+  BitVector 8 ->
+  InputQueue
+inputQueueT s i = s <<+ i
+
+inputQueueO ::
+  InputQueue ->
+  BitVector 8
+inputQueueO = head
 
 -- | Takes the signals that are defined in IEEE 802.3 Clause 36 and runs them
 --   through the state machines as defined for the PCS transmit block. These are
@@ -34,17 +52,19 @@ pcsTransmit ::
   Signal dom CodeGroup
 pcsTransmit txEn txEr dw xmit txConfReg = cg
  where
-  (_, cg, txEven, cgSent) =
+  (_, cg, txEven, txInd) =
     mooreB
       codeGroupT
       codeGroupO
       (IdleDisparityOk False 0 0)
-      (txOSet, dw, txConfReg)
+      (txOSet, dw', txConfReg)
 
   (_, txOSet) =
     mealyB
       orderedSetT
       (IdleS Idle False)
-      (txEn, txEr, dw, xmit, txEven, cgSent)
+      (txEn, txEr, dw, xmit, txEven, txInd)
+
+  dw' = mooreB inputQueueT inputQueueO (repeat 0) dw
 
 {-# CLASH_OPAQUE pcsTransmit #-}
