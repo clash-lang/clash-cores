@@ -12,6 +12,18 @@
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "1.8.2"
     },
+    "clash-protocols": {
+        "branch": "peter/for-clash-cores",
+        "description": "a battery-included library for dataflow protocols",
+        "homepage": null,
+        "owner": "clash-lang",
+        "repo": "clash-protocols",
+        "rev": "479ddba468ccdcc3b9bd8e3e1ffa681d78db17ca",
+        "sha256": "0q7msdy4symj4nmlskrrvzkv0hq9vbj4h4p48jklfr8bf5ygily6",
+        "type": "tarball",
+        "url": "https://github.com/clash-lang/clash-protocols/archive/479ddba468ccdcc3b9bd8e3e1ffa681d78db17ca.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
     "doctest-parallel": {
         "branch": "main",
         "description": "Test interactive Haskell examples",
@@ -56,10 +68,10 @@
         "homepage": null,
         "owner": "cchalmers",
         "repo": "circuit-notation",
-        "rev": "19b386c4aa3ff690758ae089c7754303f3500cc9",
-        "sha256": "0qz2w6akxj51kq50rbl88bnjyxzd2798a9sn9jj1z2kak7a6kqbg",
+        "rev": "564769c52aa05b90f81bbc898b7af7087d96613d",
+        "sha256": "117kry20wxgxlpvrs050v96xvai8mq81vsrm6d8sbilc7d3cpxxh",
         "type": "tarball",
-        "url": "https://github.com/cchalmers/circuit-notation/archive/19b386c4aa3ff690758ae089c7754303f3500cc9.tar.gz",
+        "url": "https://github.com/cchalmers/circuit-notation/archive/564769c52aa05b90f81bbc898b7af7087d96613d.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
