@@ -1,4 +1,16 @@
 {
+    "circuit-notation": {
+        "branch": "master",
+        "description": "A plugin for circuit notation",
+        "homepage": null,
+        "owner": "cchalmers",
+        "repo": "circuit-notation",
+        "rev": "564769c52aa05b90f81bbc898b7af7087d96613d",
+        "sha256": "117kry20wxgxlpvrs050v96xvai8mq81vsrm6d8sbilc7d3cpxxh",
+        "type": "tarball",
+        "url": "https://github.com/cchalmers/circuit-notation/archive/564769c52aa05b90f81bbc898b7af7087d96613d.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
     "clash-compiler": {
         "branch": "1.8",
         "description": "Haskell to VHDL/Verilog/SystemVerilog compiler",
@@ -11,6 +23,18 @@
         "url": "https://github.com/clash-lang/clash-compiler/archive/49f33ea971eb52b1dbdb7b11dafe0849408001f6.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "1.8.2"
+    },
+    "clash-protocols": {
+        "branch": "main",
+        "description": "a battery-included library for dataflow protocols",
+        "homepage": null,
+        "owner": "clash-lang",
+        "repo": "clash-protocols",
+        "rev": "febb041c32fa678e7ddb7d0e976516a5c56b03fc",
+        "sha256": "15dlqpjymmb2li4vsnz4jqgi2clazd372i18v8qalmpzp0xsfha3",
+        "type": "tarball",
+        "url": "https://github.com/clash-lang/clash-protocols/archive/febb041c32fa678e7ddb7d0e976516a5c56b03fc.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "doctest-parallel": {
         "branch": "main",
@@ -49,18 +73,6 @@
         "url": "https://github.com/hedgehogqa/haskell-hedgehog/archive/52c35cabe24de2a1c03e72dde9d04b64f81d1f44.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "1.4"
-    },
-    "circuit-notation": {
-        "branch": "master",
-        "description": "A plugin for circuit notation",
-        "homepage": null,
-        "owner": "cchalmers",
-        "repo": "circuit-notation",
-        "rev": "19b386c4aa3ff690758ae089c7754303f3500cc9",
-        "sha256": "0qz2w6akxj51kq50rbl88bnjyxzd2798a9sn9jj1z2kak7a6kqbg",
-        "type": "tarball",
-        "url": "https://github.com/cchalmers/circuit-notation/archive/19b386c4aa3ff690758ae089c7754303f3500cc9.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
         "branch": "master",
