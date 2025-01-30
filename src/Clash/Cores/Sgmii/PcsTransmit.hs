@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 {- |
   Copyright   :  (C) 2024, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
@@ -47,4 +45,4 @@ pcsTransmit txEn txEr dw xmit txConfReg = cg
       (IdleS Idle False)
       (txEn, txEr, dw, xmit, txEven, cgSent)
 
-{-# CLASH_OPAQUE pcsTransmit #-}
+{-# OPAQUE pcsTransmit #-}

@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 -- |
 --   Copyright   :  (C) 2024, QBayLogic B.V.
 --   License     :  BSD2 (see the file LICENSE)
@@ -72,7 +70,7 @@ decode8b10b rd cg = (rdNew, sym)
         $(memBlobTH Nothing Dec.decoderLut)
       $ unpack (pack rd ++# cg)
 
-{-# CLASH_OPAQUE decode8b10b #-}
+{-# OPAQUE decode8b10b #-}
 
 -- | Take the running disparity and the current 'Symbol8b10b', and return a
 --   tuple containing the new running disparity and a 'BitVector' containing the
@@ -95,4 +93,4 @@ encode8b10b rd sym = out
 
   out = if isValidSymbol sym then (rdNew, cg) else (rd, 0)
 
-{-# CLASH_OPAQUE encode8b10b #-}
+{-# OPAQUE encode8b10b #-}

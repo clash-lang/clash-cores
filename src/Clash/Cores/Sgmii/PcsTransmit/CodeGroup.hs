@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 {- |
   Copyright   :  (C) 2024, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
@@ -96,7 +94,7 @@ codeGroupT s (txOSet, dw, txConfReg) = nextState
   txConfReg' = fromMaybe (_txConfReg s) txConfReg
   (rd, cg) = encode8b10b (_rd s) dw'
 
-{-# CLASH_OPAQUE codeGroupT #-}
+{-# OPAQUE codeGroupT #-}
 
 -- | Output transition function for the states as defined in IEEE 802.3 Clause
 --   36, specifically Figure 36-6. This function takes the state values that
@@ -114,4 +112,4 @@ codeGroupO s = case s of
   ConfCD{} -> (s, _cg s, Odd, True)
   _ -> (s, _cg s, Even, False)
 
-{-# CLASH_OPAQUE codeGroupO #-}
+{-# OPAQUE codeGroupO #-}

@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 {- |
   Copyright   :  (C) 2024, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
@@ -215,7 +213,7 @@ sgmii rxTxCdc rxClk txClk rxRst txRst txEn txEr txDw rxCg =
    where
     sgmiiRx' = exposeClockResetEnable sgmiiRx rxClk rxRst enableGen
 
-{-# CLASH_OPAQUE sgmii #-}
+{-# OPAQUE sgmii #-}
 
 -- | Receive side of the SGMII block, that combines all the functions that are
 --   in the receive domain, rate-adapted
@@ -322,4 +320,4 @@ sgmiiRA rxTxCdc rxClk txClk rxRst txRst txEr txDw rxCg =
    where
     sgmiiRx' = exposeClockResetEnable sgmiiRxRA rxClk rxRst enableGen
 
-{-# CLASH_OPAQUE sgmiiRA #-}
+{-# OPAQUE sgmiiRA #-}

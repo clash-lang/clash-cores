@@ -19,7 +19,6 @@ When using the generated ILAs make sure you have set the correct JTAG clock spee
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -117,7 +116,7 @@ ila ::
   a
 ila conf clk =
   ila# @dom @a conf clk
-{-# CLASH_OPAQUE ila #-}
+{-# OPAQUE ila #-}
 
 -- | Primitive for 'ila'. Defining a wrapper like this makes the ILA
 -- instantiation be rendered in its own module to reduce naming collision
@@ -129,8 +128,7 @@ ila# ::
   Clock dom ->
   a
 ila# !_conf !_clk = ilaX @dom @a
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE ila# #-}
+{-# OPAQUE ila# #-}
 {-# ANN ila# (
     let primName = 'ila#
         tfName = 'ilaBBF

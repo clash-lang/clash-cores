@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 module DnaPortE2 where
 
 import Clash.Explicit.Prelude
@@ -11,7 +9,7 @@ topEntity ::
   Reset XilinxSystem ->
   Signal XilinxSystem (Maybe (BitVector 96))
 topEntity clk rst = readDnaPortE2 clk rst enableGen simDna2
-{-# CLASH_OPAQUE topEntity #-}
+{-# OPAQUE topEntity #-}
 
 testBench :: Signal XilinxSystem Bool
 testBench = done
@@ -22,4 +20,4 @@ testBench = done
   done = outputVerifier' clk rst expected (topEntity clk rst)
   clk = tbClockGen (not <$> done)
   rst = noReset
-{-# CLASH_OPAQUE testBench #-}
+{-# OPAQUE testBench #-}
