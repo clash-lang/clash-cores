@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {- |
@@ -296,4 +295,4 @@ pcsReceive cg rd dw1 rxEven syncStatus xmit = (rxDv, rxEr, dw2, rudi)
 
   xmit' = regMaybe Idle xmit
 
-{-# CLASH_OPAQUE pcsReceive #-}
+{-# OPAQUE pcsReceive #-}

@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 {- |
   Copyright   :  (C) 2024, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
@@ -226,4 +224,4 @@ orderedSetT s@TxDataError{} (txEn, txEr, _, xmit, txEven, tx) = (nextState, out)
   s' = txTestXmit txEn txEr xmit' txEven tx xmitChange
   out = (s, OSetV)
 
-{-# CLASH_OPAQUE orderedSetT #-}
+{-# OPAQUE orderedSetT #-}

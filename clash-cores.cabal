@@ -76,12 +76,6 @@ common basic-config
     TypeFamilies
     TypeOperators
 
-  -- See https://github.com/clash-lang/clash-compiler/pull/2511
-  if impl(ghc >= 9.4)
-    CPP-Options: -DCLASH_OPAQUE=OPAQUE
-  else
-    CPP-Options: -DCLASH_OPAQUE=NOINLINE
-
   ghc-options:
     -Wall -Wcompat
 
@@ -111,7 +105,7 @@ common basic-config
       -fplugin GHC.TypeLits.KnownNat.Solver
 
   build-depends:
-    base                      >= 4.10  && < 5,
+    base                      >= 4.18  && < 5,
     constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.8,
     ghc-typelits-extra        >= 0.3.2,
@@ -202,7 +196,7 @@ library
     ghc-prim                >= 0.3.1.0 && < 1.0,
     mtl                     >= 2.1.1 && < 2.4,
     pretty-show,
-    prettyprinter           >= 1.2.0.1  && < 1.8,
+    prettyprinter           >= 1.7 && < 1.8,
     prettyprinter-interp    ^>= 0.2,
     reducers                >= 3.12.2 && < 4.0,
     text                    >= 1.2.2 && < 2.2,
