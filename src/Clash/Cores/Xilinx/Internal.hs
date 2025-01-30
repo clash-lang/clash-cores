@@ -6,7 +6,6 @@
   Common utilities for defining Xilinx IP primitives.
 -}
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -20,16 +19,11 @@ import Prelude
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as Text
-#if MIN_VERSION_prettyprinter(1,7,0)
-import Prettyprinter
-  ((<+>), align, backslash, indent, line, pretty, rbrace, vsep)
-#else
-import Data.Text.Prettyprint.Doc
-  ((<+>), align, backslash, indent, line, pretty, rbrace, vsep)
-#endif
 import Data.Text.Prettyprint.Doc.Extra (Doc)
 import GHC.Natural (Natural)
 import GHC.Stack (HasCallStack)
+import Prettyprinter
+  ((<+>), align, backslash, indent, line, pretty, rbrace, vsep)
 import Prettyprinter.Interpolate (di, __di)
 
 import Clash.Netlist.Types (IdentifierText)
@@ -184,12 +178,12 @@ renderTcl = \case
       variable scriptPurpose createIp
       variable ipName {#{moduleName}}
       proc createIp {ipName0 args} {
-        create_ip \\\&
-          -name #{name} \\\&
-          -vendor #{vendor} \\\&
-          -library #{library} \\\&
-          -version #{version} \\\&
-          -module_name $ipName0 \\\&
+        create_ip \\
+          -name #{name} \\
+          -vendor #{vendor} \\
+          -library #{library} \\
+          -version #{version} \\
+          -module_name $ipName0 \\
           {*}$args
 
         set_property \\\&

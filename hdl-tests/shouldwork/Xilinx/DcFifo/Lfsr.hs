@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Lfsr where
@@ -37,8 +36,7 @@ lfsrF clk rst ena seed = msb <$> r
     five, three, two, zero :: Unsigned 16
     (five, three, two, zero) = (5, 3, 2, 0)
     lfsrFeedback = s ! five `xor` s ! three `xor` s ! two `xor` s ! zero
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE lfsrF #-}
+{-# OPAQUE lfsrF #-}
 
 fifoSampler ::
   KnownDomain dom =>
@@ -60,8 +58,7 @@ fifoSampler clk rst ena stalls inps =
    where
     maybeData = readLastCycle `orNothing` readData
     readNow = not stall && not fifoEmpty
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE fifoSampler #-}
+{-# OPAQUE fifoSampler #-}
 
 -- | Drives Xilinx FIFO with an ascending sequence of 'BitVector's. Stalls
 -- intermittently based on stall input.
@@ -163,41 +160,34 @@ fifoVerifier clk rst ena actual = done0
   done0 =
     assert clk rst "Doesn't time out" stuck (pure False) $
       assert clk rst "fifoVerifier" actual expected0 done
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE fifoVerifier #-}
+{-# OPAQUE fifoVerifier #-}
 
 topEntity_17_2 :: ConfiguredFifo (BitVector 16) Dom17 Dom2
 topEntity_17_2 = dcFifo defConfig
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE topEntity_17_2 #-}
+{-# OPAQUE topEntity_17_2 #-}
 {-# ANN topEntity_17_2 (defSyn "topEntity_17_2") #-}
 
 testBench_17_2 :: Signal Dom17 Bool
 testBench_17_2 = mkTestBench topEntity_17_2
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE testBench_17_2 #-}
+{-# OPAQUE testBench_17_2 #-}
 {-# ANN testBench_17_2 (TestBench 'topEntity_17_2) #-}
 
 topEntity_2_17 :: ConfiguredFifo (BitVector 16) Dom2 Dom17
 topEntity_2_17 = dcFifo defConfig
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE topEntity_2_17 #-}
+{-# OPAQUE topEntity_2_17 #-}
 {-# ANN topEntity_2_17 (defSyn "topEntity_2_17") #-}
 
 testBench_2_17 :: Signal Dom2 Bool
 testBench_2_17 = mkTestBench topEntity_2_17
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE testBench_2_17 #-}
+{-# OPAQUE testBench_2_17 #-}
 {-# ANN testBench_2_17 (TestBench 'topEntity_2_17) #-}
 
 topEntity_2_2 :: ConfiguredFifo (Unsigned 16) Dom2 Dom2
 topEntity_2_2 = dcFifo defConfig
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE topEntity_2_2 #-}
+{-# OPAQUE topEntity_2_2 #-}
 {-# ANN topEntity_2_2 (defSyn "topEntity_2_2") #-}
 
 testBench_2_2 :: Signal Dom2 Bool
 testBench_2_2 = mkTestBench topEntity_2_2
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE testBench_2_2 #-}
+{-# OPAQUE testBench_2_2 #-}
 {-# ANN testBench_2_2 (TestBench 'topEntity_2_2) #-}
