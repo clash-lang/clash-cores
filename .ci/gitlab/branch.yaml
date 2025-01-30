@@ -60,7 +60,7 @@ stack-build:
   rules:
     - if: $CLASH_BRANCH == "release"
   variables:
-    CACHE_FALLBACK_KEY: $CI_JOB_NAME-master-$CI_JOB_IMAGE-1-3-non_protected
+    CACHE_FALLBACK_KEY: $CI_JOB_NAME-clash-$CLASH_BRANCH-main-$CI_JOB_IMAGE-$CACHE_BUST_TOKEN-non_protected
   before_script:
     - apt-get update
     - apt-get install -y zstd

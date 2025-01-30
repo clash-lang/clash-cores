@@ -41,4 +41,4 @@ if grep -q "${ambiguous_warn}" haddock_log; then
 fi
 
 # Copy documention to hadocs/
-ln -s "$(dirname "$(tail -n1 haddock_log)")" hadocs/
+ln -s "$(readlink -f "$(tail -n1 haddock_log)")" hadocs/clash-cores
