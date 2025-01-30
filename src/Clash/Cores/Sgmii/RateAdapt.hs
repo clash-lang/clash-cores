@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 {- |
   Copyright   :  (C) 2024, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
@@ -48,7 +46,7 @@ rateAdaptRx ::
   Signal dom (Maybe a)
 rateAdaptRx linkSpeed a = mealyB rateAdaptRxT 0 (linkSpeed, a)
 
-{-# CLASH_OPAQUE rateAdaptRx #-}
+{-# OPAQUE rateAdaptRx #-}
 
 -- | State transition function for the transmit rate adaption function
 rateAdaptTxT ::
@@ -84,4 +82,4 @@ rateAdaptTx ::
   (Signal dom Bool, Signal dom (Maybe a))
 rateAdaptTx linkSpeed bv = mealyB rateAdaptTxT 0 (linkSpeed, bv)
 
-{-# CLASH_OPAQUE rateAdaptTx #-}
+{-# OPAQUE rateAdaptTx #-}

@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
 
 {- |
@@ -233,4 +232,4 @@ autoNeg syncStatus rudi = (xmit, txConfReg)
       (AnEnable Nothing 0 0)
       (syncStatus, rudi)
 
-{-# CLASH_OPAQUE autoNeg #-}
+{-# OPAQUE autoNeg #-}

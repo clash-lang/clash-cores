@@ -358,7 +358,7 @@ inst ::
   InstConfig ->
   a
 inst !_ = instX
-{-# CLASH_OPAQUE inst #-}
+{-# OPAQUE inst #-}
 {-# ANN inst (
     let
       primName = show 'inst

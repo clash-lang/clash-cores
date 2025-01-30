@@ -8,15 +8,6 @@ package *
   -- Dynamic executables save oozles of space when archiving it on CI
   executable-dynamic: True
 
-package clash-prelude
-  flags: -workaround-ghc-mmap-crash
-
-package clash-lib
-  flags: -workaround-ghc-mmap-crash
-
-package clash-ghc
-  flags: -workaround-ghc-mmap-crash
-
 package clash-cores
   ghc-options: -Werror
   tests: True
@@ -25,6 +16,3 @@ package clash-cores
   -- Cabal-the-library in combination with custom setup where the library path
   -- is not added to the RPATH
   executable-dynamic: False
-
-package clash-testsuite
-  flags: -workaround-ghc-mmap-crash

@@ -31,7 +31,6 @@ JTAG clock speed:
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -114,7 +113,7 @@ vioProbe inputNames outputNames initialOutputProbeValues clk =
 -- Defining a NOINLINEd wrapper like this makes the 'vioProbe#'
 -- instantiation be rendered in its own module to reduce naming collision
 -- probabilities.
-{-# CLASH_OPAQUE vioProbe #-}
+{-# OPAQUE vioProbe #-}
 
 -- | Primitive for 'vioProbe'.
 vioProbe# ::
@@ -131,8 +130,7 @@ vioProbe# !_inputNames !_outputNames !_initialOutputProbeValues clk =
                  --
                  -- Fixes #2532
   vioX @dom @a @o
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE vioProbe# #-}
+{-# OPAQUE vioProbe# #-}
 {-# ANN vioProbe# (
     let primName = 'vioProbe#
         tfName = 'vioProbeBBF

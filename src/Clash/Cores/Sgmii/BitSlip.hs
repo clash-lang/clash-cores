@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {- |
@@ -97,4 +96,4 @@ bitSlip cg1 syncStatus = (register 0 cg2, register Fail bsStatus)
       (BSFail (0, 0) (repeat 0) (repeat 0))
       (cg1, syncStatus)
 
-{-# CLASH_OPAQUE bitSlip #-}
+{-# OPAQUE bitSlip #-}

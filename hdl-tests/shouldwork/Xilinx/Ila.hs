@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ila where
@@ -20,8 +19,7 @@ type Dom = XilinxSystem
 
 top :: "result" ::: Unsigned 8
 top = 0
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE top #-}
+{-# OPAQUE top #-}
 makeTopEntity 'top
 
 oneCounter :: IlaConfig 1 -> Clock Dom -> Signal Dom ()

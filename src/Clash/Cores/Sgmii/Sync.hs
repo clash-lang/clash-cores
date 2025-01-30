@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ViewPatterns #-}
 
 {- |
@@ -188,4 +187,4 @@ sync rxCg =
   (_, cg, rd, dw, rxEven, syncStatus) =
     mooreB syncT syncO (LossOfSync 0 False (Dw 0) Even) rxCg
 
-{-# CLASH_OPAQUE sync #-}
+{-# OPAQUE sync #-}
