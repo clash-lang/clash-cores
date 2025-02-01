@@ -26,14 +26,15 @@
     },
     "clash-protocols": {
         "branch": "main",
+        "branch": "peter/for-ethernet-core",
         "description": "a battery-included library for dataflow protocols",
         "homepage": null,
         "owner": "clash-lang",
         "repo": "clash-protocols",
-        "rev": "febb041c32fa678e7ddb7d0e976516a5c56b03fc",
-        "sha256": "15dlqpjymmb2li4vsnz4jqgi2clazd372i18v8qalmpzp0xsfha3",
+        "rev": "15b4f4fe560f217609a387f4256927046099715c",
+        "sha256": "0ixs021kadbl70q6mgqfrq0pylc9qh1l519n384ij28l9w5x6ana",
         "type": "tarball",
-        "url": "https://github.com/clash-lang/clash-protocols/archive/febb041c32fa678e7ddb7d0e976516a5c56b03fc.tar.gz",
+        "url": "https://github.com/clash-lang/clash-protocols/archive/15b4f4fe560f217609a387f4256927046099715c.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "doctest-parallel": {
