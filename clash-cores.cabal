@@ -271,7 +271,6 @@ test-suite unit-tests
   build-depends:
     clash-cores,
     clash-prelude-hedgehog,
-    deepseq,
     hedgehog,
     tasty                   >= 1.2 && < 1.6,
     tasty-hedgehog          >= 1.2.0,
