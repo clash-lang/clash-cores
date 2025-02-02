@@ -31,37 +31,35 @@ This example makes use of the circuit-notation plugin, a GHC source plugin provi
 
 Let us begin with the implementation of `arpIcmpUdpStackC`:
 
->>> :{
-arpIcmpUdpStackC
-  :: forall (dataWidth :: Nat) (dom :: Domain)
-   . HiddenClockResetEnable dom
-  => KnownNat dataWidth
-  => 1 <= dataWidth
-  => 1 <= DomainPeriod dom
-  => DomainPeriod dom <= 5 * 10^11
-  => KnownNat (DomainPeriod dom)
-  => Signal dom MacAddress
-  -- ^ My MAC Address
-  -> Signal dom (IPv4Address, IPv4Address)
-  -- ^ My IP address and the subnet
-  -> Circuit (PacketStream dom dataWidth (IPv4Address, UdpHeaderLite)) (PacketStream dom dataWidth (IPv4Address, UdpHeaderLite))
-  -- ^ UDP handler circuit
-  -> Circuit (PacketStream dom dataWidth EthernetHeader) (PacketStream dom dataWidth EthernetHeader)
-arpIcmpUdpStackC macAddressS ipS udpCkt = circuit $ \ethIn -> do
-  [arpEthIn, ipEthIn] <- packetDispatcherC (routeBy _etherType $ 0x0806 :> 0x0800 :> Nil) -< ethIn
-  ipTx <- ipLitePacketizerC <| packetBufferC d10 d4 <| icmpUdpStack <| packetBufferC d10 d4 <| filterMetaS (isForMyIp <$> ipS) <| ipDepacketizerLiteC -< ipEthIn
-  (ipEthOut, arpLookup) <- toEthernetStreamC macAddressS -< ipTx
-  arpEthOut <- arpC d10 d5 macAddressS (fst <$> ipS) -< (arpEthIn, arpLookup)
-  packetArbiterC RoundRobin -< [arpEthOut, ipEthOut]
-  where
-    icmpUdpStack = circuit $ \ipIn -> do
-      [icmpIn, udpIn] <- packetDispatcherC (routeBy _ipv4lProtocol $ 0x0001 :> 0x0011 :> Nil) -< ipIn
-      icmpOut <- icmpEchoResponderC @dom @dataWidth (fst <$> ipS) -< icmpIn
-      udpInParsed <- udpDepacketizerC -< udpIn
-      udpOutParsed <- udpPacketizerC (fst <$> ipS) <| udpCkt -< udpInParsed
-      packetArbiterC RoundRobin -< [icmpOut, udpOutParsed]
-    isForMyIp (ip, subnet) (_ipv4lDestination -> to) = to == ip || to == ipv4Broadcast ip subnet
-}:
+> arpIcmpUdpStackC
+>   :: forall (dataWidth :: Nat) (dom :: Domain)
+>    . HiddenClockResetEnable dom
+>   => KnownNat dataWidth
+>   => 1 <= dataWidth
+>   => 1 <= DomainPeriod dom
+>   => DomainPeriod dom <= 5 * 10^11
+>   => KnownNat (DomainPeriod dom)
+>   => Signal dom MacAddress
+>   -- ^ My MAC Address
+>   -> Signal dom (IPv4Address, IPv4Address)
+>   -- ^ My IP address and the subnet
+>   -> Circuit (PacketStream dom dataWidth (IPv4Address, UdpHeaderLite)) (PacketStream dom dataWidth (IPv4Address, UdpHeaderLite))
+>   -- ^ UDP handler circuit
+>   -> Circuit (PacketStream dom dataWidth EthernetHeader) (PacketStream dom dataWidth EthernetHeader)
+> arpIcmpUdpStackC macAddressS ipS udpCkt = circuit $ \ethIn -> do
+>   [arpEthIn, ipEthIn] <- packetDispatcherC (routeBy _etherType $ 0x0806 :> 0x0800 :> Nil) -< ethIn
+>   ipTx <- ipLitePacketizerC <| packetBufferC d10 d4 <| icmpUdpStack <| packetBufferC d10 d4 <| filterMetaS (isForMyIp <$> ipS) <| ipDepacketizerLiteC -< ipEthIn
+>   (ipEthOut, arpLookup) <- toEthernetStreamC macAddressS -< ipTx
+>   arpEthOut <- arpC d10 d5 macAddressS (fst <$> ipS) -< (arpEthIn, arpLookup)
+>   packetArbiterC RoundRobin -< [arpEthOut, ipEthOut]
+>   where
+>     icmpUdpStack = circuit $ \ipIn -> do
+>       [icmpIn, udpIn] <- packetDispatcherC (routeBy _ipv4lProtocol $ 0x0001 :> 0x0011 :> Nil) -< ipIn
+>       icmpOut <- icmpEchoResponderC @dom @dataWidth (fst <$> ipS) -< icmpIn
+>       udpInParsed <- udpDepacketizerC -< udpIn
+>       udpOutParsed <- udpPacketizerC (fst <$> ipS) <| udpCkt -< udpInParsed
+>       packetArbiterC RoundRobin -< [icmpOut, udpOutParsed]
+>     isForMyIp (ip, subnet) (_ipv4lDestination -> to) = to == ip || to == ipv4Broadcast ip subnet
 
 `arpIcmpUdpStackC` takes in:
 
@@ -132,41 +130,39 @@ All code thus far described handles interfacing between the MAC and IP layer. `i
 
 To complete the example, we will show how this stack can snugly be fitted into a full, ethernet domain - to - ethernet domain stack. `fullStackC` provides a complete and concrete usage of `arpIcmpUdpStackC`: it passes to `arpIcmpUdpStackC` an ad-hoc circuit that simply swaps the source and destination of the `UdpHeaderLite`, making it echo back UDP packets to the original source port. It puts this instantiation of `arpIcmpUdpStack` between Tx and Rx stacks handling Ethernet. Because mind, that `arpIcmpUdpStackC still assumes that the `EthernetHeader` was already parsed from the frame, the clock domain conversion has happened, and the Frame Check Sequence was checked, etc.
 
->>>:{
-fullStackC
-  :: forall
-       (dom :: Domain)
-       (domEthRx :: Domain)
-       (domEthTx :: Domain)
-   . KnownDomain dom
-  => KnownDomain domEthRx
-  => KnownDomain domEthTx
-  => HardwareCrc Crc32_ethernet 8 4
-  => 1 <= DomainPeriod dom
-  => DomainPeriod dom <= 5 * 10^11
-  => KnownNat (DomainPeriod dom)
-  => HiddenClockResetEnable dom
-  => Clock domEthRx
-  -> Reset domEthRx
-  -> Enable domEthRx
-  -> Clock domEthTx
-  -> Reset domEthTx
-  -> Enable domEthTx
-  -> Signal dom MacAddress
-  -- ^ My mac address
-  -> Signal dom (IPv4Address, IPv4Address)
-  -- ^ Tuple of my IP and subnet mask
-  -> Circuit (PacketStream domEthRx 1 ()) (PacketStream domEthTx 1 ())
-fullStackC rxClk rxRst rxEn txClk txRst txEn mac ip =
-  macRxStack @4 rxClk rxRst rxEn mac
-  |> arpIcmpUdpStackC mac ip (mapMeta $ B.second swapPorts)
-  |> macTxStack txClk txRst txEn
-  where
-    swapPorts hdr@UdpHeaderLite{..} = hdr
-                                        { _udplSrcPort = _udplDstPort
-                                        , _udplDstPort = _udplSrcPort
-                                        }
-}:
+> fullStackC
+>   :: forall
+>        (dom :: Domain)
+>        (domEthRx :: Domain)
+>        (domEthTx :: Domain)
+>    . KnownDomain dom
+>   => KnownDomain domEthRx
+>   => KnownDomain domEthTx
+>   => HardwareCrc Crc32_ethernet 8 4
+>   => 1 <= DomainPeriod dom
+>   => DomainPeriod dom <= 5 * 10^11
+>   => KnownNat (DomainPeriod dom)
+>   => HiddenClockResetEnable dom
+>   => Clock domEthRx
+>   -> Reset domEthRx
+>   -> Enable domEthRx
+>   -> Clock domEthTx
+>   -> Reset domEthTx
+>   -> Enable domEthTx
+>   -> Signal dom MacAddress
+>   -- ^ My mac address
+>   -> Signal dom (IPv4Address, IPv4Address)
+>   -- ^ Tuple of my IP and subnet mask
+>   -> Circuit (PacketStream domEthRx 1 ()) (PacketStream domEthTx 1 ())
+> fullStackC rxClk rxRst rxEn txClk txRst txEn mac ip =
+>   macRxStack @4 rxClk rxRst rxEn mac
+>   |> arpIcmpUdpStackC mac ip (mapMeta $ B.second swapPorts)
+>   |> macTxStack txClk txRst txEn
+>   where
+>     swapPorts hdr@UdpHeaderLite{..} = hdr
+>                                         { _udplSrcPort = _udplDstPort
+>                                         , _udplDstPort = _udplSrcPort
+>                                         }
 
 The above stack is complete in the sense that it can take input from a @dataWidth@ 1 packet stream @PacketStream domEthRx 1 ()@ in the clock domain of Ethernet and also produces output in this type and domain.
 In other words, it takes in completely serialized ethernet frames and outputs completely serialized ethernet frames. The depacketizing and packetizing
@@ -178,26 +174,21 @@ In the example below, we use a dummy. You have to replace this dummy variable wi
 for your specific hardware (e.g. RGMII, MII or SGMII) that is adapted to the
 PacketStream` protocol, i.e. with type:
 
->>> :{
-dummyTxPhy
-  :: HiddenClockResetEnable domEthTx
-  => Circuit (PacketStream domEthTx 1 ()) (PacketStream domEthTx 1 ())
-dummyTxPhy = undefined
-}:
+> dummyTxPhy
+>   :: HiddenClockResetEnable domEthTx
+>   => Circuit (PacketStream domEthTx 1 ()) (PacketStream domEthTx 1 ())
+> dummyTxPhy = undefined
 
 The input type can be replaced with the data type supported by the hardware primitives of
 your equipment, as long as the output is `PacketStream domEthTx 1 ()`.
 
->>> :{
-dummyRxPhy
-  :: HiddenClockResetEnable domEthTx
-  => Circuit (PacketStream domEthTx 1 ()) (PacketStream domEthTx 1 ())
-dummyRxPhy = undefined
-}:
-
-
+> dummyRxPhy
+>   :: HiddenClockResetEnable domEthTx
+>   => Circuit (PacketStream domEthTx 1 ()) (PacketStream domEthTx 1 ())
+> dummyRxPhy = undefined
 
 -}
+
 module Clash.Cores.Ethernet.Examples.FullUdpStack (
   fullStackC,
   arpIcmpUdpStackC,
