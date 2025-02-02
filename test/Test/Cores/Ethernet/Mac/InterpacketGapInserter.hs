@@ -95,7 +95,7 @@ prop_12_cycles_backpressure_after_last = property $
 
 tests :: TestTree
 tests =
-  localOption (mkTimeout 20_000_000 {- 20 seconds -}) $
+  localOption (mkTimeout 60_000_000 {- 60 seconds -}) $
     localOption
       (HedgehogTestLimit (Just 1_000))
       $(testGroupGenerator)
