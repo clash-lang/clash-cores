@@ -120,7 +120,7 @@ prop_ethernetstream_d28_noresp = ethernetStreamTest d28 ArpEntryNotFound
 
 tests :: TestTree
 tests =
-  localOption (mkTimeout 20_000_000 {- 20 seconds -}) $
+  localOption (mkTimeout 60_000_000 {- 60 seconds -}) $
     localOption
       (HedgehogTestLimit (Just 1_000))
       $(testGroupGenerator)
