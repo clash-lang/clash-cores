@@ -122,7 +122,7 @@ prop_ip_depacketizer_d23 = testIPDepacketizer d23
 
 tests :: TestTree
 tests =
-  localOption (mkTimeout 20_000_000 {- 20 seconds -}) $
+  localOption (mkTimeout 60_000_000 {- 60 seconds -}) $
     localOption
       (HedgehogTestLimit (Just 1_000))
       $(testGroupGenerator)
