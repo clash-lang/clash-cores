@@ -41,9 +41,13 @@ testIPPacketizer SNat =
     (exposeClockResetEnable (ipPacketizerC @_ @dataWidth))
  where
   setChecksums ps = L.concatMap setChecksum (chunkByPacket ps)
-  setChecksum xs = L.map (\x -> x{_meta = (_meta x){_ipv4Checksum = checksum}}) xs
+  setChecksum [] =
+    -- 'chunkBy' filters empty lists
+    error "Unreachable code"
+  setChecksum xs@(x0:_) =
+    L.map (\x1 -> x1{_meta = (_meta x1){_ipv4Checksum = checksum}}) xs
    where
-    checksum = (pureInternetChecksum @(Vec 10) . bitCoerce . _meta) (L.head xs)
+    checksum = (pureInternetChecksum @(Vec 10) . bitCoerce . _meta) x0
 
 testIPDepacketizer ::
   forall (dataWidth :: Nat).
@@ -79,6 +83,10 @@ testIPDepacketizer SNat =
   model fragments = L.concat $ L.zipWith setAbort packets aborts
    where
     setAbort packet abort = (\f -> f{_abort = _abort f || abort}) <$> packet
+    getMeta [] =
+      -- 'chunkBy' filters empty lists
+      error "Unreachable code"
+    getMeta (p:_) = _meta p
     validateHeader hdr =
       pureInternetChecksum (bitCoerce hdr :: Vec 10 (BitVector 16)) /= 0
         || _ipv4Ihl hdr /= 5
@@ -86,7 +94,7 @@ testIPDepacketizer SNat =
         || _ipv4FlagReserved hdr
         || _ipv4FlagMF hdr
     packets = chunkByPacket $ depacketizerModel const fragments
-    aborts = validateHeader . _meta . L.head <$> packets
+    aborts = validateHeader . getMeta <$> packets
 
 -- | 20 % dataWidth ~ 0
 prop_ip_ip_packetizer_d1 :: Property
