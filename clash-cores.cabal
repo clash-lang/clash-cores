@@ -136,27 +136,6 @@ library
     Clash.Cores.Crc
     Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
-    Clash.Cores.Ethernet.Arp
-    Clash.Cores.Ethernet.Arp.ArpManager
-    Clash.Cores.Ethernet.Arp.ArpTable
-    Clash.Cores.Ethernet.Arp.ArpTypes
-    Clash.Cores.Ethernet.Examples.FullUdpStack
-    Clash.Cores.Ethernet.Examples.RxStacks
-    Clash.Cores.Ethernet.Examples.TxStacks
-    Clash.Cores.Ethernet.Icmp
-    Clash.Cores.Ethernet.InternetChecksum
-    Clash.Cores.Ethernet.IPv4
-    Clash.Cores.Ethernet.IP.EthernetStream
-    Clash.Cores.Ethernet.IP.IPPacketizers
-    Clash.Cores.Ethernet.IP.IPv4Types
-    Clash.Cores.Ethernet.Mac
-    Clash.Cores.Ethernet.Mac.EthernetTypes
-    Clash.Cores.Ethernet.Mac.FrameCheckSequence
-    Clash.Cores.Ethernet.Mac.InterpacketGapInserter
-    Clash.Cores.Ethernet.Mac.MacPacketizers
-    Clash.Cores.Ethernet.Mac.PaddingInserter
-    Clash.Cores.Ethernet.Mac.Preamble
-    Clash.Cores.Ethernet.Udp
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
@@ -197,6 +176,27 @@ library
 
   if !flag(clash-18)
     exposed-modules:
+      Clash.Cores.Ethernet.Arp
+      Clash.Cores.Ethernet.Arp.ArpManager
+      Clash.Cores.Ethernet.Arp.ArpTable
+      Clash.Cores.Ethernet.Arp.ArpTypes
+      Clash.Cores.Ethernet.Examples.FullUdpStack
+      Clash.Cores.Ethernet.Examples.RxStacks
+      Clash.Cores.Ethernet.Examples.TxStacks
+      Clash.Cores.Ethernet.Icmp
+      Clash.Cores.Ethernet.InternetChecksum
+      Clash.Cores.Ethernet.IPv4
+      Clash.Cores.Ethernet.IP.EthernetStream
+      Clash.Cores.Ethernet.IP.IPPacketizers
+      Clash.Cores.Ethernet.IP.IPv4Types
+      Clash.Cores.Ethernet.Mac
+      Clash.Cores.Ethernet.Mac.EthernetTypes
+      Clash.Cores.Ethernet.Mac.FrameCheckSequence
+      Clash.Cores.Ethernet.Mac.InterpacketGapInserter
+      Clash.Cores.Ethernet.Mac.MacPacketizers
+      Clash.Cores.Ethernet.Mac.PaddingInserter
+      Clash.Cores.Ethernet.Mac.Preamble
+      Clash.Cores.Ethernet.Udp
       Clash.Cores.Sgmii
       Clash.Cores.Sgmii.AutoNeg
       Clash.Cores.Sgmii.BitSlip
@@ -209,10 +209,13 @@ library
       Clash.Cores.Sgmii.Sync
 
   other-modules:
-    Clash.Signal.Extra
     Clash.Sized.Vector.Extra
     Data.Maybe.Extra
     Data.Text.Extra
+
+  if !flag(clash-18)
+    other-modules:
+      Clash.Signal.Extra
 
   ghc-options:
     -fexpose-all-unfoldings
@@ -239,17 +242,6 @@ test-suite unit-tests
 
   other-modules:
     Test.Cores.Crc
-    Test.Cores.Ethernet
-    Test.Cores.Ethernet.Arp.ArpManager
-    Test.Cores.Ethernet.Base
-    Test.Cores.Ethernet.InternetChecksum
-    Test.Cores.Ethernet.Icmp
-    Test.Cores.Ethernet.IP.EthernetStream
-    Test.Cores.Ethernet.IP.IPPacketizers
-    Test.Cores.Ethernet.Mac.FrameCheckSequence
-    Test.Cores.Ethernet.Mac.InterpacketGapInserter
-    Test.Cores.Ethernet.Mac.PaddingInserter
-    Test.Cores.Ethernet.Mac.Preamble
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
@@ -262,6 +254,17 @@ test-suite unit-tests
 
   if !flag(clash-18)
     other-modules:
+      Test.Cores.Ethernet
+      Test.Cores.Ethernet.Arp.ArpManager
+      Test.Cores.Ethernet.Base
+      Test.Cores.Ethernet.InternetChecksum
+      Test.Cores.Ethernet.Icmp
+      Test.Cores.Ethernet.IP.EthernetStream
+      Test.Cores.Ethernet.IP.IPPacketizers
+      Test.Cores.Ethernet.Mac.FrameCheckSequence
+      Test.Cores.Ethernet.Mac.InterpacketGapInserter
+      Test.Cores.Ethernet.Mac.PaddingInserter
+      Test.Cores.Ethernet.Mac.Preamble
       Test.Cores.Sgmii.AutoNeg
       Test.Cores.Sgmii.BitSlip
       Test.Cores.Sgmii.RateAdapt
