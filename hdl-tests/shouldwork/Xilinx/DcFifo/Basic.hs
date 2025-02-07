@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 module Basic where
 
 import Clash.Explicit.Prelude
@@ -50,8 +48,7 @@ topEntity clk rst writeData rEnable =
     , dcOverflow=True
     , dcUnderflow=True
     }
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE topEntity #-}
+{-# OPAQUE topEntity #-}
 
 testBench ::
   Signal XilinxSystem Bool
@@ -82,8 +79,7 @@ testBench = done
         (fDone <$> fsmOut)
   clk = tbClockGen (not <$> done)
   en = enableGen
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE testBench #-}
+{-# OPAQUE testBench #-}
 
 data FsmOut = FsmOut
   { fDone :: Bool

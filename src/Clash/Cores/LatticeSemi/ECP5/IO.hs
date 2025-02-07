@@ -8,7 +8,6 @@
   <http://www.latticesemi.com/-/media/LatticeSemi/Documents/ApplicationNotes/EH/FPGA-TN-02032-1-2-ECP5-ECP5G-sysIO-Usage-Guide.ashx?document_id=50464>.
 -}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 {-# LANGUAGE ViewPatterns #-}
@@ -75,8 +74,7 @@ bbECP5 _intrinsicName pkgPinIn output notOutputEnable
      toMaybe :: Bool -> a -> Maybe a
      toMaybe True a  = Just a
      toMaybe False _ = Nothing
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE bbECP5 #-}
+{-# OPAQUE bbECP5 #-}
 {-# ANN bbECP5 hasBlackBox #-}
 {-# ANN bbECP5 (InlineYamlPrimitive [VHDL,Verilog,SystemVerilog] [__i|
   BlackBox:

@@ -9,7 +9,6 @@
   referred to as LITL.
 -}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -231,8 +230,7 @@ sbio pinConf pkgPinIn latchInput dOut_0 _dOut_1 outputEnable0 =
     writeToBiSignal
       pkgPinIn
       (toMaybe <$> outputEnable1 <*> pkgPinWriteInput)
--- See: https://github.com/clash-lang/clash-compiler/pull/2511
-{-# CLASH_OPAQUE sbio #-}
+{-# OPAQUE sbio #-}
 {-# ANN sbio hasBlackBox #-}
 {-# ANN sbio (InlineYamlPrimitive [VHDL,Verilog,SystemVerilog] [__i|
    BlackBox:
