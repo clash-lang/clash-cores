@@ -42,6 +42,11 @@ let
           self.callCabal2nix "doctest-parallel" sources.doctest-parallel {};
         clash-prelude =
           self.callCabal2nix "clash-prelude" (sources.clash-compiler + "/clash-prelude") {};
+        # clash-protocols also requires tasty < 1.5, so we need to jailbreak.
+        clash-protocols-base =
+          pkgs.haskell.lib.doJailbreak (self.callCabal2nix "clash-protocols-base" (sources.clash-protocols + "/clash-protocols-base") {});
+        clash-protocols =
+          pkgs.haskell.lib.doJailbreak (self.callCabal2nix "clash-protocols" (sources.clash-protocols + "/clash-protocols") {});
         clash-lib =
           self.callCabal2nix "clash-lib" (sources.clash-compiler + "/clash-lib") {};
         clash-ghc =
