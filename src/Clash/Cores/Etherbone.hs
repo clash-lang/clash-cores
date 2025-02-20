@@ -25,6 +25,7 @@ recordHandlerC :: forall dom dataWidth addrWidth dat configRegs .
   , NFDataX dat
   , Show dat
   , ShowX dat
+  , 1 <= BitSize dat
   , BitSize dat ~ dataWidth * 8
   , ByteSize dat ~ dataWidth
   , addrWidth <= dataWidth * 8
@@ -72,6 +73,7 @@ etherboneC :: forall dom dataWidth addrWidth dat configRegs .
   , NFDataX dat
   , Show dat
   , ShowX dat
+  , 1 <= BitSize dat
   , BitSize dat ~ dataWidth * 8
   , ByteSize dat ~ dataWidth
   , addrWidth <= dataWidth * 8
@@ -94,7 +96,7 @@ etherboneC sdbAddr userConfigRegs = circuit $ \psIn -> do
   (recordOut, wbmBus) <- recordHandlerC sdbAddr userConfigRegs -< record'
   recordOut' <- etherbonePaddingAdderC -< recordOut
 
-  pktOut <- packetArbiterC Parallel -< [recordOut', probeOut]
+  pktOut <- packetArbiterC Df.Parallel -< [recordOut', probeOut]
   udpTx <- etherbonePacketizerC -< pktOut
 
   idC -< (udpTx, wbmBus)

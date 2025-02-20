@@ -1,5 +1,8 @@
 {-# OPTIONS -fplugin=Protocols.Plugin #-}
 
+-- TODO: Fix these warnings
+{-# OPTIONS -Wno-x-partial #-}
+
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
