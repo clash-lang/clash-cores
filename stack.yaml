@@ -21,4 +21,15 @@ extra-deps:
     commit: '49f33ea971eb52b1dbdb7b11dafe0849408001f6' # v1.8.2
     subdirs:
       - tests
+  - git: https://github.com/cchalmers/circuit-notation.git
+    commit: '564769c52aa05b90f81bbc898b7af7087d96613d'
+  - git: https://github.com/clash-lang/clash-protocols.git
+    commit: '15b4f4fe560f217609a387f4256927046099715c'
+    subdirs:
+      - clash-protocols-base
+      - clash-protocols
   - hedgehog-1.4@sha256:9860ab34ab3951d9515c71b777d8c9c47610aae7339933e17d26ad9a4afa5618,4754
+
+allow-newer: true
+allow-newer-deps:
+  - clash-protocols
