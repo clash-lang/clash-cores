@@ -1,5 +1,8 @@
 {-# OPTIONS_GHC -fplugin=Protocols.Plugin #-}
 
+-- TODO: Fix these warnings
+{-# OPTIONS_GHC -Wno-x-partial -Wno-unrecognised-warning-flags #-}
+
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
