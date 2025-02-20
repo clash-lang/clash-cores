@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -19,7 +20,7 @@ import Test.Tasty
 import Test.Tasty.Hedgehog
 import Test.Tasty.HUnit
 
-import Clash.Hedgehog.Sized.BitVector (genBitVector)
+import qualified Clash.Hedgehog.Sized.BitVector
 
 import Clash.Cores.Xilinx.BlockRam.Internal
   (mergeEnableByteEnable, isActiveWriteEnable, updateRam)
@@ -31,6 +32,14 @@ import qualified Data.Foldable as F
 import qualified Data.Sequence as Seq
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
+
+
+genBitVector :: forall n m. (MonadGen m, KnownNat n) => m (BitVector n)
+#if MIN_VERSION_clash_prelude_hedgehog(1,9,0)
+genBitVector = Clash.Hedgehog.Sized.BitVector.genBitVector
+#else
+genBitVector = Clash.Hedgehog.Sized.BitVector.genBitVector @m @n
+#endif
 
 newtype ShowAsHex a = ShowAsHex a
 
@@ -227,7 +236,7 @@ testsCycleBoth = testGroup "cycleBoth"
   , testProperty "prop_definedOutputCycleBothWord16"
       (prop_definedOutputCycleBoth (Gen.enumBounded @_ @Word16))
   , testProperty "prop_definedOutputCycleBothBitVector16"
-      (prop_definedOutputCycleBoth (genBitVector @_ @16))
+      (prop_definedOutputCycleBoth (genBitVector @16))
   ]
  where
   cyc portA portB = showX $
@@ -286,7 +295,7 @@ testsAccessRam = testGroup "accessRam"
   , testProperty "prop_definedOutputAccessRamWord16"
       (prop_definedOutputAccessRam (Gen.enumBounded @_ @Word16))
   , testProperty "prop_definedOutputAccessRamBitVector16"
-      (prop_definedOutputAccessRam (genBitVector @_ @16))
+      (prop_definedOutputAccessRam (genBitVector @16))
   ]
  where
   access addr byteEna dat =
