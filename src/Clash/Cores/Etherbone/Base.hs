@@ -1,4 +1,4 @@
-{-# OPTIONS -fplugin=Protocols.Plugin #-}
+{-# OPTIONS_GHC -fplugin=Protocols.Plugin #-}
 
 module Clash.Cores.Etherbone.Base where
 

@@ -1,4 +1,4 @@
-{-# OPTIONS -fplugin=Protocols.Plugin #-}
+{-# OPTIONS_GHC -fplugin=Protocols.Plugin #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
