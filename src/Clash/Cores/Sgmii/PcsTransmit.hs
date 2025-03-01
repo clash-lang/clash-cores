@@ -17,11 +17,22 @@ import Clash.Cores.Sgmii.PcsTransmit.CodeGroup
 import Clash.Cores.Sgmii.PcsTransmit.OrderedSet
 import Clash.Prelude
 
+-- | Tuple that contains a queue containing the most recent incoming octets and
+--   an 'Index' that points to the current octet to be transmitted. The size has
+--   been chosen to be 8, but this is a guess and could be too small.
 type InputDelayState = (Index 8, Vec 8 (Bool, Bool, BitVector 8))
 
+-- | Transition function for the input queue that outputs the correct octet when
+--   the system is ready. Note that, when the 'Index' that points to the next
+--   value to be outputted starts going down, it should act one time instance
+--   earlier than when it goes up.
 inputDelayT ::
+  -- | Current state
   InputDelayState ->
+  -- | New input values for @TX_EN@, @TX_ER@, the incoming data word and the
+  --   ready signal
   (Bool, Bool, BitVector 8, Bool) ->
+  -- | Output tuple without the ready signal
   (InputDelayState, (Bool, Bool, BitVector 8))
 inputDelayT (cur, is) (txEn, txEr, dw, txRdy) = ((cur', is'), o')
  where
@@ -41,6 +52,8 @@ inputDelayT (cur, is) (txEn, txEr, dw, txRdy) = ((cur', is'), o')
     | otherwise = is' !! cur
    where
     f (_, _, a) = (False, False, a)
+
+{-# OPAQUE inputDelayT #-}
 
 -- | Takes the signals that are defined in IEEE 802.3 Clause 36 and runs them
 --   through the state machines as defined for the PCS transmit block. These are
