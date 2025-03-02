@@ -18,23 +18,23 @@ import Clash.Cores.Sgmii.PcsTransmit.OrderedSet
 import Clash.Prelude
 
 -- | Tuple that contains a queue containing the most recent incoming octets and
---   an 'Index' that points to the current octet to be transmitted. The size has
---   been chosen to be 8, but this is a guess and could be too small.
-type InputDelayState = (Index 8, Vec 8 (Bool, Bool, BitVector 8))
+--   an 'Index' that points to the current octet to be transmitted.
+type InputDelayState n = (Index n, Vec n (Bool, Bool, BitVector 8))
 
 -- | Transition function for the input queue that outputs the correct octet when
 --   the system is ready. Note that, when the 'Index' that points to the next
 --   value to be outputted starts going down, it should act one time instance
 --   earlier than when it goes up.
 inputDelayT ::
+  (KnownNat n) =>
   -- | Current state
-  InputDelayState ->
+  InputDelayState n ->
   -- | New input values for @TX_EN@, @TX_ER@, the incoming data word and the
   --   ready signal
   (Bool, Bool, BitVector 8, Bool) ->
   -- | Output tuple without the ready signal
-  (InputDelayState, (Bool, Bool, BitVector 8))
-inputDelayT (cur, is) (txEn, txEr, dw, txRdy) = ((cur', is'), o')
+  (InputDelayState n, (Bool, Bool, BitVector 8))
+inputDelayT (cur, txs) (txEn, txEr, dw, txRdy) = ((cur', txs'), tx)
  where
   cur'
     | (txEn || txEr) && txRdy = cur
@@ -42,14 +42,14 @@ inputDelayT (cur, is) (txEn, txEr, dw, txRdy) = ((cur', is'), o')
     | txRdy && cur > minBound = cur - 1
     | otherwise = cur
 
-  is'
-    | txEn || txEr = (txEn, txEr, dw) +>> is
-    | otherwise = is
+  txs'
+    | txEn || txEr = (txEn, txEr, dw) +>> txs
+    | otherwise = txs
 
-  o'
-    | not (txEn || txEr) && cur' < minBound + 2 = f (is' !! cur')
-    | cur' < cur = is' !! cur'
-    | otherwise = is' !! cur
+  tx
+    | not (txEn || txEr) && cur' < minBound + 2 = f (txs' !! cur')
+    | cur' < cur = txs' !! cur'
+    | otherwise = txs' !! cur
    where
     f (_, _, a) = (False, False, a)
 
@@ -88,6 +88,9 @@ pcsTransmit txEn txEr dw xmit txConfReg = cg
       (txEn', txEr', dw', xmit, txEven, txInd)
 
   (txEn', txEr', dw') =
-    mealyB inputDelayT (0, repeat (False, False, 0)) (txEn, txEr, dw, txRdy)
+    mealyB
+      inputDelayT
+      (0, replicate d5 (False, False, 0))
+      (txEn, txEr, dw, txRdy)
 
 {-# OPAQUE pcsTransmit #-}
