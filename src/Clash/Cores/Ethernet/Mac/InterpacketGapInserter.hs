@@ -41,8 +41,11 @@ gapInserterT Insert{_counter = c} _ = (nextSt, (PacketStreamS2M False, Nothing))
   nextSt = if c == 0 then Forward else Insert (c - 1)
 gapInserterT Forward (fwdIn, bwdIn) = (nextSt, (bwdIn, fwdIn))
  where
-  nextSt = case fwdIn of
-    Just transferIn | isJust (_last transferIn) -> Insert maxBound
+  nextSt = case (fwdIn, bwdIn) of
+    (Just transferIn, PacketStreamS2M True) ->
+      if isJust (_last transferIn)
+        then Insert maxBound
+        else Forward
     _ -> Forward
 
 {- |
