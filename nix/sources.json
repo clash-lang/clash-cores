@@ -12,6 +12,19 @@
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "1.8.2"
     },
+    "clash-protocols": {
+        "branch": "main",
+        "description": "a battery-included library for dataflow protocols",
+        "homepage": "https://clash-lang.org/",
+        "owner": "clash-lang",
+        "repo": "clash-protocols",
+        "rev": "ec001d4a3d553ed92d0bee125cb9c86e9e47ba99",
+        "sha256": "17n52lfsacn403mqdhbfdpvg53y75fmn835yfplyr027lg3n3xgi",
+        "type": "tarball",
+        "url": "https://github.com/clash-lang/clash-protocols/archive/ec001d4a3d553ed92d0bee125cb9c86e9e47ba99.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
+        "version": "1.0"
+    },
     "doctest-parallel": {
         "branch": "main",
         "description": "Test interactive Haskell examples",

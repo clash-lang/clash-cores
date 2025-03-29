@@ -38,6 +38,11 @@ let
 
         circuit-notation =
           self.callCabal2nix "circuit-notation" sources.circuit-notation {};
+        # clash-protocols also requires tasty < 1.5, so we need to jailbreak.
+        clash-protocols-base =
+          pkgs.haskell.lib.doJailbreak (self.callCabal2nix "clash-protocols-base" (sources.clash-protocols + "/clash-protocols-base") {});
+        clash-protocols =
+          pkgs.haskell.lib.doJailbreak (self.callCabal2nix "clash-protocols" (sources.clash-protocols + "/clash-protocols") {});
         doctest-parallel =
           self.callCabal2nix "doctest-parallel" sources.doctest-parallel {};
         clash-prelude =
