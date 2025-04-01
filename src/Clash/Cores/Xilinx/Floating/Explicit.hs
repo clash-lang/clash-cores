@@ -405,12 +405,52 @@ compareWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Ordering
-compareWith clk ena a b = delayI und ena clk (xilinxCompare <$> a <*> b)
+compareWith clk ena a b
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
  where
+  sim = delayI und ena clk (xilinxCompare <$> a <*> b)
   und = withFrozenCallStack $ errorX "Initial values of compare undefined"
-{-# OPAQUE compareWith #-}
-{-# ANN compareWith (vhdlComparePrim 'compareWith 'compareTclTF "compare") #-}
-{-# ANN compareWith (veriComparePrim 'compareWith 'compareTclTF "compare") #-}
+  synth = unpack . resize <$> unPort (snd go)
+   where
+    go ::
+      ( Port "m_axis_result_tvalid" dom Bit
+      , Port "m_axis_result_tdata" dom (BitVector 8)
+      )
+    go =
+      instWithXilinxWizard
+        (instConfig "fromS32")
+        (XilinxWizard
+          { wiz_name = "floating_point"
+          , wiz_vendor = "xilinx.com"
+          , wiz_library = "ip"
+          , wiz_version = "7.1"
+          , wiz_options =
+                 ("CONFIG.Operation_Type",          StrOpt "Compare")
+              :> ("CONFIG.C_Compare_Operation",     StrOpt "Condition_Code")
+              :> ("CONFIG.Flow_Control",            StrOpt "NonBlocking")
+              :> ("CONFIG.Maximum_Latency",         BoolOpt False)
+              :> ("CONFIG.Has_ACLKEN",              BoolOpt True)
+              :> ("CONFIG.A_Precision_Type",        StrOpt "Single")
+              :> ("CONFIG.C_A_Exponent_Width",      IntegerOpt 8)
+              :> ("CONFIG.C_A_Fraction_Width",      IntegerOpt 24)
+              :> ("CONFIG.Result_Precision_Type",   StrOpt "Custom")
+              :> ("CONFIG.C_Result_Exponent_Width", IntegerOpt 4)
+              :> ("CONFIG.C_Result_Fraction_Width", IntegerOpt 0)
+              :> ("CONFIG.C_Mult_Usage",            StrOpt "No_Usage")
+              :> ("CONFIG.Has_RESULT_TREADY",       BoolOpt False)
+              :> ("CONFIG.C_Latency",               IntegerOpt (natToNum @d))
+              :> ("CONFIG.C_Rate",                  IntegerOpt 1)
+              :> Nil
+          }
+        )
+        (ClockPort @"aclk" clk)
+        (Port @"aclken" (boolToBit <$> fromEnable ena))
+        (Port @"s_axis_a_tdata" (pack <$> D.toSignal a))
+        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+        (Port @"s_axis_b_tdata" (pack <$> D.toSignal b))
+        (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE compareWith #-}
 
 -- | Floating point comparison, with default delay
 --
