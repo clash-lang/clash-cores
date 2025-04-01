@@ -17,9 +17,7 @@ eventually made public.
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-#if !MIN_VERSION_clash_prelude(1,9,0)
 {-# LANGUAGE RankNTypes #-}
-#endif
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -50,17 +48,25 @@ module Clash.Cores.Xilinx.Xpm.Cdc.Internal
 
   ) where
 
-import Clash.Explicit.Prelude
+
+#if MIN_VERSION_base(4,18,0)
+import Clash.Explicit.Prelude hiding (someNatVal, withSomeSNat)
+#else
+import Clash.Explicit.Prelude hiding (someNatVal)
+#endif
 import qualified Prelude as P
 
 import Control.Monad (when)
 import Control.Monad.State (State)
+import Data.Proxy (Proxy)
 import Data.Either (lefts, partitionEithers, rights)
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList, isJust)
 import Data.String.Interpolate (__i)
 import Data.Text (Text)
 import Data.Text.Prettyprint.Doc.Extra (Doc)
 import GHC.Stack (HasCallStack)
+import GHC.TypeNats (someNatVal)
+import Prettyprinter.Interpolate (__di)
 import Text.Show.Pretty (ppShow)
 
 import qualified Control.Lens as Lens
@@ -74,12 +80,13 @@ import Clash.Core.DataCon ( DataCon(MkData, dcName) )
 import Clash.Core.Name ( Name(Name, nameOcc) )
 import Clash.Core.Term ( Term(Data), collectArgs )
 import Clash.Core.TermLiteral (TermLiteral(..), termToDataError, deriveTermLiteral)
+import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.TyCon(isTupleTyConLike)
 import Clash.Core.Type (Type(..), LitTy (SymTy), ConstTy(TyCon), splitTyConAppM, isIntegerTy)
 import Clash.Driver.Types (DomainMap, envDomains)
 import Clash.Netlist.BlackBox.Types
   ( BlackBoxFunction, BlackBoxMeta(bbKind), TemplateKind(TDecl), emptyBlackBoxMeta
-  , bbLibrary, bbImports )
+  , bbLibrary, bbImports, bbIncludes )
 import Clash.Netlist.Types
 
 import qualified Clash.Netlist.BlackBox.Types as BlackBox
@@ -207,6 +214,34 @@ getPolarity _ (ConstTy (TyCon (Text.unpack . nameOcc -> nm)))
   | nm == show 'ActiveLow  = ActiveLow
 getPolarity nm ty = error ("Could not determine ResetPolarity for ResetPort @\""<> nm <> "\" from\n " <> show ty)
 
+type OptionName = String
+
+data XilinxWizardOption
+  = StrOpt String
+  | IntegerOpt Integer
+  | BoolOpt Bool
+  deriving (Show)
+deriveTermLiteral ''XilinxWizardOption
+
+xilinxWizardOptionToTcl :: XilinxWizardOption -> Text
+xilinxWizardOptionToTcl = \case
+  StrOpt s -> '{' `Text.cons` (Text.pack s) <> "}"
+  IntegerOpt i -> Text.pack $ show i
+  BoolOpt True -> "true"
+  BoolOpt False -> "false"
+
+data XilinxWizard n = XilinxWizard
+  { wiz_name :: String
+  -- ^ E.g., @floating_point@
+  , wiz_vendor :: String
+  -- ^ Usually @xilinx.com@
+  , wiz_library :: String
+  -- ^ Usually @ip@
+  , wiz_version :: String
+  -- ^ E.g., @7.1@
+  , wiz_options :: Vec n (OptionName, XilinxWizardOption)
+  } deriving (Show)
+
 -- | Config for 'inst'
 data InstConfig = InstConfig
   { compName :: String
@@ -216,8 +251,11 @@ data InstConfig = InstConfig
     -- ^ Whether to add a @library <name>@. This is only used for VHDL.
   , libraryImport :: Maybe String
     -- ^ Whether to add a @import <name>@. This is only used for VHDL.
-  }
+  } deriving (Show)
 deriveTermLiteral ''InstConfig
+
+instance KnownNat n => TermLiteral (XilinxWizard n) where
+  termToData = $(deriveTermToData ''XilinxWizard)
 
 -- | Empty config, with mandatory 'compName' set.
 instConfig :: String -> InstConfig
@@ -228,7 +266,7 @@ instConfig nm = InstConfig
   }
 
 -- | Type class to facilitate /polyvariadic/ behavior of 'inst'. A type @a@
--- constained as @Inst a@ can be interpreted as a function:
+-- constrained as @Inst a@ can be interpreted as a function:
 --
 -- > a_0 -> a_1 -> ... -> a_n -> r
 --
@@ -353,23 +391,52 @@ instance Inst a => Inst (Param s const -> a) where
 -- This can be used in combination with 'clashSimulation' to pick a simulation
 -- model during Haskell evaluation, and the black box instantiation when Clash
 -- translates the design to Verilog/VHDL.
-inst ::
-  Inst a =>
-  InstConfig ->
-  a
+inst :: forall a. Inst a => InstConfig -> a
 inst !_ = instX
 {-# OPAQUE inst #-}
 {-# ANN inst (
-    let
-      primName = show 'inst
-      tfName = show 'instBBF
-    in
-      InlineYamlPrimitive [minBound..] [__i|
-        BlackBoxHaskell:
-          name: #{primName}
-          templateFunction: #{tfName}
-          workInfo: Always
-      |]) #-}
+  let
+    primName = show 'inst
+    tfName = show 'instBBF
+  in
+    InlineYamlPrimitive [minBound..] [__i|
+      BlackBoxHaskell:
+        name: #{primName}
+        templateFunction: #{tfName}
+        workInfo: Always
+    |]) #-}
+
+-- | Like 'inst', but also generates TCL files invoking a Xilinx Wizard.
+instWithXilinxWizard ::
+  forall a n.
+  (Inst a, KnownNat n) =>
+  InstConfig ->
+  XilinxWizard n ->
+  a
+instWithXilinxWizard i x = instWithXilinxWizard# x i
+{-# INLINE instWithXilinxWizard #-}
+
+-- | Worker for 'instWithXilinxWizard'. It flips the arguments to make writing
+-- a common black box for 'inst' and this function easier.
+instWithXilinxWizard# ::
+  forall a n.
+  (Inst a, KnownNat n) =>
+  XilinxWizard n ->
+  InstConfig ->
+  a
+instWithXilinxWizard# !_ !_ = instX
+{-# OPAQUE instWithXilinxWizard# #-}
+{-# ANN instWithXilinxWizard# (
+  let
+    primName = show 'instWithXilinxWizard#
+    tfName = show 'instWithXilinxWizardBBF
+  in
+    InlineYamlPrimitive [minBound..] [__i|
+      BlackBoxHaskell:
+        name: #{primName}
+        templateFunction: #{tfName}
+        workInfo: Always
+    |]) #-}
 
 -- | Interpret arguments as 'PrimPortOrParam's
 argsToPrimPortOrParams :: [Term] -> Either String [PrimPortOrParam ()]
@@ -416,15 +483,50 @@ hwtyToPortTypes (Product _ _ tys) =
   tys
 hwtyToPortTypes hwty = [hwty]
 
+-- | 'BlackBoxFunction' for @inst@
 instBBF :: HasCallStack => BlackBoxFunction
-instBBF _isD _primName args [resTy]
-  | _:config:userArgs <- lefts args
+instBBF = instBBFWorker @0 0 Nothing
+
+withSomeSNat :: Natural -> (forall (n :: Nat). SNat n -> r) -> r
+withSomeSNat n f = case someNatVal n of
+  SomeNat (_ :: Proxy n) -> f (SNat @n)
+
+-- | 'BlackBoxFunction' for @inst@
+instWithXilinxWizardBBF :: HasCallStack => BlackBoxFunction
+instWithXilinxWizardBBF isD primName args resTys
+  | _instConstraint
+  : (either error id . termToDataError -> n)
+  : wizardAsTerm
+  : _config
+  : _userArgs <- lefts args
+  = withSomeSNat n $ \(SNat :: SNat n)-> do
+      let
+        !(wizard :: XilinxWizard n)= either error id $ termToDataError wizardAsTerm
+
+        -- 'instWithXilinxWizard' takes two extra arguments: a @KnownNat n@
+        -- constraint, and a 'XilinxWizard'. These arguments should be dropped
+        -- in the general black box functions.
+        nExtraArgs = 2
+      instBBFWorker nExtraArgs (Just wizard) isD primName args resTys
+instWithXilinxWizardBBF _ _ args resTys = error $
+     show 'instWithXilinxWizardBBF
+  <> ", bad args:\n\n"
+  <> ppShow args
+  <> "\n\nor result types:\n\n"
+  <> ppShow resTys
+
+
+-- | 'BlackBoxFunction' for @inst@ and @instWithXilinxWizard@
+instBBFWorker :: (HasCallStack, KnownNat n) => Int -> Maybe (XilinxWizard n) -> BlackBoxFunction
+instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
+  | _instConstraint:config:userArgs <- P.drop nExtraArgs $ lefts args
   = do
       doms <- Lens.view (clashEnv . Lens.to envDomains)
       hdl <- Lens.use (backend . fromSomeBackend hdlKind)
       case go config userArgs of
         Left s -> error ("instBBF, bad context:\n\n" <> s)
-        Right (c, a, r) -> pure $ Right (bbMeta hdl c, bb doms c a r)
+        Right (c, a, r) -> do
+          pure $ Right (bbMeta hdl c, bb doms c a r)
  where
   go :: Term -> [Term] -> Either String (InstConfig, [PrimPortOrParam ()], [PrimPort ()])
   go config0 userArgs = do
@@ -438,6 +540,17 @@ instBBF _isD _primName args [resTy]
     { bbKind = TDecl
     , bbLibrary = libToBBTemplate hdl library
     , bbImports = libToBBTemplate hdl libraryImport
+    , bbIncludes =
+      case maybeXilinxWizard of
+        Nothing -> []
+        Just w ->
+          [ ( (Text.pack compName, "clash.tcl")
+            , BBFunction
+              (show 'instWizardBBTF)
+              0
+              (TemplateFunction [0..] (const True) (instWizardBBTF w))
+            )
+          ]
     }
 
   libToBBTemplate hdl
@@ -446,51 +559,94 @@ instBBF _isD _primName args [resTy]
 
   bb :: DomainMap -> InstConfig -> [PrimPortOrParam ()] -> [PrimPort ()] -> BlackBox
   bb doms config primArgs primRes =
-    BBFunction (show 'instTF) 0 (instTF doms config primArgs primRes)
+    BBFunction (show 'instTF) 0 (instTF nExtraArgs doms config maybeXilinxWizard primArgs primRes)
 
-instBBF _ _ args resTys = error $
-    "instBBF, bad args:\n\n"
+instBBFWorker _ _ _ _ args resTys = error $
+     show 'instBBFWorker
+  <> ", bad args:\n\n"
   <> ppShow args
   <> "\n\nor result types:\n\n"
   <> ppShow resTys
 
 instTF ::
-  HasCallStack =>
+  (HasCallStack, KnownNat n) =>
+  Int ->
   DomainMap ->
   InstConfig ->
+  Maybe (XilinxWizard n) ->
   [PrimPortOrParam ()] ->
   [PrimPort ()] ->
   TemplateFunction
-instTF doms config primArgs primRes =
+instTF nExtraArgs doms config maybeXilinxWizard primArgs primRes =
   TemplateFunction
     (usedArguments primArgs)
     (const True)
-    (instBBTF doms config primArgs primRes)
+    (instBBTF nExtraArgs doms config maybeXilinxWizard primArgs primRes)
 
 usedArguments :: [PrimPortOrParam a] -> [Int]
 usedArguments (P.length -> nUserArgs) = 1 : [2..nUserArgs+2]
 
+instWizardBBTF ::
+  forall s n .
+  (Backend s, KnownNat n, HasCallStack) =>
+  XilinxWizard n ->
+  BlackBoxContext ->
+  State s Doc
+instWizardBBTF xilinxWizard bbCtx | [compName] <- bbQsysIncName bbCtx =
+  pure [__di|
+    namespace eval $tclIface {
+      variable api 1
+      variable scriptPurpose createIp
+      variable ipName {#{compName}}
+
+      proc createIp {ipName0 args} {
+        create_ip #{backslash}
+          -name floating_point #{backslash}
+          -vendor xilinx.com #{backslash}
+          -library ip #{backslash}
+          -version 7.1 #{backslash}
+          -module_name $ipName0 #{backslash}
+          {*}$args
+
+        set_property -dict [list #{backslash}
+    #{props}
+                           ] [get_ips $ipName0]
+        return
+      }
+    }
+  |]
+ where
+  backslash = "\\" :: Text
+  props = Text.intercalate "\n" (toList (map ppProp (wiz_options xilinxWizard)))
+  ppProp (name, value) =
+    Text.replicate 29 " " <> Text.pack name <> " " <>
+      xilinxWizardOptionToTcl value <> " \\"
+
+instWizardBBTF _ bbCtx = error (show 'instWizardBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
+
 instBBTF ::
-  forall s .
-  (Backend s, HasCallStack) =>
+  forall s n .
+  (Backend s, KnownNat n, HasCallStack) =>
+  Int ->
   DomainMap ->
   InstConfig ->
+  Maybe (XilinxWizard n) ->
   [PrimPortOrParam ()] ->
   [PrimPort ()] ->
   BlackBoxContext ->
   State s Doc
-instBBTF doms config primArgs0 primResults0 bbCtx
+instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
   | (   _instConstraint
       : _instConfig
       : userArgs
-      ) <- P.map fst $ DSL.tInputs bbCtx
+      ) <- P.drop nExtraArgs $ P.map fst $ DSL.tInputs bbCtx
   , [resultTy] <- DSL.tResults bbCtx
   , outPortTys <- hwtyToPortTypes (DSL.ety resultTy)
   = do
       DSL.declarationReturn bbCtx "inst_block" $ do
         when (P.length primResults0 /= P.length outPortTys) $
           error [I.i|
-            Internal error, mismatching lengths:
+            Internal error, mismatching result lengths:
 
               #{ppShow primResults0}
 
@@ -501,7 +657,7 @@ instBBTF doms config primArgs0 primResults0 bbCtx
 
         when (P.length primArgs0 /= P.length userArgs) $
           error [I.i|
-            Internal error, mismatching lengths:
+            Internal error, mismatching arg lengths:
 
               #{ppShow primArgs0}
 
@@ -522,9 +678,17 @@ instBBTF doms config primArgs0 primResults0 bbCtx
         inPorts1 <- mapM mkInPort inPorts0
         instLabel <- Id.make (Text.pack (compName config) <> "_inst")
 
+        let compName1 = case maybeXilinxWizard of
+              Just _ ->
+                -- Use Clash's generated name when instantiating the wizard
+                bbQsysIncName bbCtx P.!! 0
+              Nothing ->
+                -- Use exact name the user supplied
+                Text.pack (compName config)
+
         DSL.instDecl
-          Empty
-          (Id.unsafeMake (Text.pack (compName config)))
+          (if isJust maybeXilinxWizard then Comp else Empty)
+          (Id.unsafeMake compName1)
           instLabel
           params1
           inPorts1
@@ -571,8 +735,8 @@ instBBTF doms config primArgs0 primResults0 bbCtx
       var <- DSL.declare (name port) ty
       pure (name port, var)
 
-instBBTF _doms _config _primArgs _primRes ctx =
-  error ("instBBTF, bad context:\n\n" <> ppShow ctx)
+instBBTF _nExtraArgs _doms _config _maybeXilinxWizard _primArgs _primResults bbCtx =
+  error (show 'instBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
 
 #if !MIN_VERSION_clash_prelude(1,9,0)
 onSomeBackend :: (forall b. Backend b => b -> a) -> SomeBackend -> a
