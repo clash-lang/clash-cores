@@ -13,8 +13,6 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 module Clash.Cores.Xilinx.Floating.Annotations
   ( veriBinaryPrim
   , vhdlBinaryPrim
-  , vhdlFromUPrim
-  , veriFromUPrim
   , vhdlComparePrim
   , veriComparePrim
   ) where
@@ -26,8 +24,6 @@ import Data.String.Interpolate (__i)
 import Language.Haskell.TH.Syntax (Name)
 
 import Clash.Annotations.Primitive (Primitive(..), HDL(..))
-
-import Clash.Cores.Xilinx.Floating.BlackBoxes
 
 -- | The InlinePrimitive annotation for a binary function in VHDL.
 
@@ -138,102 +134,6 @@ veriBinaryPrim primName tclTFName funcName =
           name: floating_point
           format: Haskell
           templateFunction: #{tclTFName}
-    |]
-
-vhdlFromUPrim
-  :: Name
-  -> String
-  -> Primitive
-vhdlFromUPrim primName funcName =
-  let tfName = 'fromUTclTF
-      _knownDomain
-        :< _knownNat
-        :< _hasCallStack
-        :< clk
-        :< en
-        :< input
-        :< _ = ((0 :: Int)...)
-      blockSym
-        :< inpSlvSym
-        :< compSym
-        :< clkEnStdSym
-        :< _ = ((0 :: Int)...)
-  in InlineYamlPrimitive [VHDL] [__i|
-    BlackBox:
-      name: #{primName}
-      kind: Declaration
-      template: |-
-        -- #{funcName} begin
-        ~GENSYM[#{funcName}][#{blockSym}] : block
-          component ~INCLUDENAME[0]
-            port (
-              aclk : in std_logic;
-        ~IF~ISACTIVEENABLE[#{en}]~THEN      aclken : in std_logic;
-        ~ELSE~FI      s_axis_a_tvalid : in std_logic;
-              s_axis_a_tdata : in std_logic_vector(~SIZE[~TYP[#{input}]]-1 downto 0);
-              m_axis_result_tvalid : out std_logic;
-              m_axis_result_tdata : out std_logic_vector(31 downto 0)
-            );
-          end component;
-          signal ~GENSYM[inp_slv][#{inpSlvSym}]: std_logic_vector(~SIZE[~TYP[#{input}]]-1 downto 0);
-        ~IF~ISACTIVEENABLE[#{en}]~THEN  signal ~GENSYM[clken_std][#{clkEnStdSym}]: std_logic;
-        begin
-          ~SYM[#{clkEnStdSym}] <= '1' when (~ARG[#{en}]) else '0';
-        ~ELSEbegin
-        ~FI  ~SYM[#{inpSlvSym}] <= ~TOBV[~ARG[#{input}]][~TYP[#{input}]];
-          ~GENSYM[#{funcName}][#{compSym}] : ~INCLUDENAME[0]
-            port map (
-              aclk => ~ARG[#{clk}],
-        ~IF~ISACTIVEENABLE[#{en}]~THEN      aclken => ~SYM[#{clk}],
-        ~ELSE~FI      s_axis_a_tvalid => '1',
-              s_axis_a_tdata => ~SYM[#{inpSlvSym}],
-              m_axis_result_tvalid => open,
-              m_axis_result_tdata => ~RESULT
-            );
-        end block;
-        -- #{funcName} end
-      includes:
-        - extension: clash.tcl
-          name: floating_point
-          format: Haskell
-          templateFunction: #{tfName}
-    |]
-
-veriFromUPrim
-  :: Name
-  -> String
-  -> Primitive
-veriFromUPrim primName funcName =
-  let
-    tfName = 'fromUTclTF
-    _knownDomain
-      :< _knownNat
-      :< _hasCallStack
-      :< clk
-      :< en
-      :< input
-      :< _ = ((0 :: Int)...)
-    instSym = 0 :: Int
-  in InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
-    BlackBox:
-      name: #{primName}
-      kind: Declaration
-      template: |-
-        // #{funcName} begin
-        ~INCLUDENAME[0] ~GENSYM[#{funcName}][#{instSym}] (
-          .aclk(~ARG[#{clk}]),
-        ~IF~ISACTIVEENABLE[#{en}]~THEN  .aclken(~ARG[#{en}]),
-        ~ELSE~FI  .s_axis_a_tvalid(1'b1),
-          .s_axis_a_tdata(~ARG[#{input}]),
-          .m_axis_result_tvalid(),
-          .m_axis_result_tdata(~RESULT)
-        );
-        // #{funcName} end
-      includes:
-        - extension: clash.tcl
-          name: floating_point
-          format: Haskell
-          templateFunction: #{tfName}
     |]
 
 -- | The InlinePrimitive annotation for Xilinx's compare floating point

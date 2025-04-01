@@ -261,12 +261,45 @@ fromU32With
   -> Enable dom
   -> DSignal dom n (Unsigned 32)
   -> DSignal dom (n + d) Float
-fromU32With clk en = delayI und en clk . fmap fromIntegral
+fromU32With clk en inp
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
  where
+  sim = delayI und en clk $ fmap fromIntegral inp
   und = withFrozenCallStack $ errorX "Initial values of fromU32 undefined"
-{-# OPAQUE fromU32With #-}
-{-# ANN fromU32With (vhdlFromUPrim 'fromU32With "fromU32") #-}
-{-# ANN fromU32With (veriFromUPrim 'fromU32With "fromU32") #-}
+  synth = unpack <$> unPort (snd go)
+   where
+    go ::
+      ( Port "m_axis_result_tvalid" dom Bit
+      , Port "m_axis_result_tdata" dom (BitVector 32)
+      )
+    go =
+      instWithXilinxWizard
+        (instConfig "fromU32")
+        (XilinxWizard
+          { wiz_name = "floating_point"
+          , wiz_vendor = "xilinx.com"
+          , wiz_library = "ip"
+          , wiz_version = "7.1"
+          , wiz_options =
+               ("CONFIG.Operation_Type",     StrOpt "Fixed_to_float")
+            :> ("CONFIG.A_Precision_Type",   StrOpt "Uint32")
+            :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
+            :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
+            :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
+            :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
+            :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
+            :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
+            :> ("CONFIG.C_Rate",             IntegerOpt 1)
+            :> ("CONFIG.Maximum_Latency",    BoolOpt False)
+            :> Nil
+          }
+        )
+        (ClockPort @"aclk" clk)
+        (Port @"aclken" (boolToBit <$> fromEnable en))
+        (Port @"s_axis_a_tdata" (pack <$> D.toSignal inp))
+        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE fromU32With #-}
 
 -- | Conversion of @Unsigned 32@ to @Float@, with default delay
 fromU32
