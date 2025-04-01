@@ -16,7 +16,6 @@ module Clash.Cores.Xilinx.Floating.BlackBoxes
   , subTclTF
   , mulTclTF
   , divTclTF
-  , compareTclTF
   ) where
 
 import Prelude
@@ -24,7 +23,7 @@ import Prelude
 import Control.Monad.State (State)
 import Data.Maybe (isJust, fromJust)
 import Data.String (fromString, IsString)
-import Prettyprinter.Interpolate (di, __di)
+import Prettyprinter.Interpolate (di)
 
 import Clash.Backend (Backend)
 import Clash.Netlist.Types
@@ -170,62 +169,6 @@ tclTemplate (HasCustom {..}) operType bbCtx
   pure bbText
 
 tclTemplate _ _ bbCtx = error ("Xilinx.Floating.tclTemplate, bad bbCtx: " <> show bbCtx)
-
-compareTclTF :: TemplateFunction
-compareTclTF = TemplateFunction used valid compareTclTemplate
- where
-  used = [1,3,4,5,6]
-  valid = const True
-
-compareTclTemplate
-  :: Backend s
-  => BlackBoxContext
-  -> State s Doc
-compareTclTemplate bbCtx
-  | [compName] <- bbQsysIncName bbCtx
-  , (Literal _ (NumLit latency), _, _) <- bbInputs bbCtx !! 1
-  =
- let
-  tclClkEn :: String
-  tclClkEn =
-    case bbInputs bbCtx !! 4 of
-      (DataCon _ _ [Literal Nothing (BoolLit True)], _, _) -> "false"
-      _                                                    -> "true"
-
-  bbText = [__di|
-    namespace eval $tclIface {
-      variable api 1
-      variable scriptPurpose createIp
-      variable ipName {#{compName}}
-
-      proc createIp {ipName0 args} {
-        create_ip -name floating_point -vendor xilinx.com -library ip \\
-            -version 7.1 -module_name $ipName0 {*}$args
-
-        set_property -dict [list \\
-                                 CONFIG.Operation_Type {Compare} \\
-                                 CONFIG.C_Compare_Operation {Condition_Code} \\
-                                 CONFIG.Flow_Control {NonBlocking} \\
-                                 CONFIG.Maximum_Latency {false} \\
-                                 CONFIG.Has_ACLKEN {#{tclClkEn}} \\
-                                 CONFIG.A_Precision_Type {Single} \\
-                                 CONFIG.C_A_Exponent_Width {8} \\
-                                 CONFIG.C_A_Fraction_Width {24} \\
-                                 CONFIG.Result_Precision_Type {Custom} \\
-                                 CONFIG.C_Result_Exponent_Width {4} \\
-                                 CONFIG.C_Result_Fraction_Width {0} \\
-                                 CONFIG.C_Mult_Usage {No_Usage} \\
-                                 CONFIG.Has_RESULT_TREADY {false} \\
-                                 CONFIG.C_Latency {#{latency}} \\
-                                 CONFIG.C_Rate {1} \\
-                           ] [get_ips $ipName0]
-        return
-      }
-    }|]
- in
-  pure bbText
-
-compareTclTemplate bbCtx = error ("Xilinx.Floating.compareTclTemplate, bad bbCtx: " <> show bbCtx)
 
 show0 :: (Show a, IsString s) => a -> s
 show0 = fromString . show
