@@ -25,7 +25,6 @@ import Data.Text.Prettyprint.Doc.Extra (Doc)
 import GHC.Stack (HasCallStack)
 
 import Clash.Backend (Backend)
-import Clash.Core.TermLiteral (termToDataError)
 import Clash.Netlist.BlackBox.Types (BlackBoxFunction, emptyBlackBoxMeta)
 import Clash.Netlist.Types (TemplateFunction(..), BlackBox(BBFunction), BlackBoxContext)
 import Clash.Netlist.Util (orNothing, stripVoid)
@@ -37,6 +36,7 @@ import qualified Clash.Netlist.Id as Id
 import qualified Clash.Netlist.Types as N
 import qualified Clash.Netlist.BlackBox.Types as N
 
+import Clash.Core.TermLiteral.Compat (termToDataError)
 import Clash.Cores.Xilinx.DcFifo.Internal.Instances ()
 import Clash.Cores.Xilinx.DcFifo.Internal.Types (DcConfig(..))
 import Clash.Cores.Xilinx.Internal
