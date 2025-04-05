@@ -185,6 +185,7 @@ library
       Clash.Cores.Sgmii.Sync
 
   other-modules:
+    Clash.Core.TermLiteral.Compat
     Data.Text.Extra
 
   ghc-options:
