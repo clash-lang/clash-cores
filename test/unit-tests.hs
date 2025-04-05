@@ -15,19 +15,21 @@ import Test.Tasty
 
 import qualified Test.Cores.Crc
 import qualified Test.Cores.LineCoding8b10b
-#if MIN_VERSION_clash_prelude(1,9,0)
-import qualified Test.Cores.Sgmii.AutoNeg
-import qualified Test.Cores.Sgmii.BitSlip
-import qualified Test.Cores.Sgmii.RateAdapt
-import qualified Test.Cores.Sgmii.Sgmii
-import qualified Test.Cores.Sgmii.Sync
-#endif
 import qualified Test.Cores.SPI
 import qualified Test.Cores.SPI.MultiSlave
 import qualified Test.Cores.UART
 import qualified Test.Cores.Xilinx.BlockRam
 import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
+
+#if MIN_VERSION_clash_prelude(1,9,0)
+import qualified Test.Cores.Ethernet
+import qualified Test.Cores.Sgmii.AutoNeg
+import qualified Test.Cores.Sgmii.BitSlip
+import qualified Test.Cores.Sgmii.RateAdapt
+import qualified Test.Cores.Sgmii.Sgmii
+import qualified Test.Cores.Sgmii.Sync
+#endif
 
 tests :: TestTree
 tests = testGroup "Unittests" $
@@ -44,7 +46,8 @@ tests = testGroup "Unittests" $
 tests_modern :: [TestTree]
 #if MIN_VERSION_clash_prelude(1,9,0)
 tests_modern =
-  [ Test.Cores.Sgmii.AutoNeg.tests
+  [ Test.Cores.Ethernet.tests
+  , Test.Cores.Sgmii.AutoNeg.tests
   , Test.Cores.Sgmii.BitSlip.tests
   , Test.Cores.Sgmii.RateAdapt.tests
   , Test.Cores.Sgmii.Sgmii.tests

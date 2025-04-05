@@ -106,8 +106,10 @@ common basic-config
 
   build-depends:
     base                      >= 4.18  && < 5,
+    clash-protocols,
     constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.8,
+    deepseq,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
@@ -174,6 +176,27 @@ library
 
   if !flag(clash-18)
     exposed-modules:
+      Clash.Cores.Ethernet.Arp
+      Clash.Cores.Ethernet.Arp.ArpManager
+      Clash.Cores.Ethernet.Arp.ArpTable
+      Clash.Cores.Ethernet.Arp.ArpTypes
+      Clash.Cores.Ethernet.Examples.FullUdpStack
+      Clash.Cores.Ethernet.Examples.RxStacks
+      Clash.Cores.Ethernet.Examples.TxStacks
+      Clash.Cores.Ethernet.Icmp
+      Clash.Cores.Ethernet.InternetChecksum
+      Clash.Cores.Ethernet.IPv4
+      Clash.Cores.Ethernet.IP.EthernetStream
+      Clash.Cores.Ethernet.IP.IPPacketizers
+      Clash.Cores.Ethernet.IP.IPv4Types
+      Clash.Cores.Ethernet.Mac
+      Clash.Cores.Ethernet.Mac.EthernetTypes
+      Clash.Cores.Ethernet.Mac.FrameCheckSequence
+      Clash.Cores.Ethernet.Mac.InterpacketGapInserter
+      Clash.Cores.Ethernet.Mac.MacPacketizers
+      Clash.Cores.Ethernet.Mac.PaddingInserter
+      Clash.Cores.Ethernet.Mac.Preamble
+      Clash.Cores.Ethernet.Udp
       Clash.Cores.Sgmii
       Clash.Cores.Sgmii.AutoNeg
       Clash.Cores.Sgmii.BitSlip
@@ -186,7 +209,13 @@ library
       Clash.Cores.Sgmii.Sync
 
   other-modules:
+    Clash.Sized.Vector.Extra
+    Data.Maybe.Extra
     Data.Text.Extra
+
+  if !flag(clash-18)
+    other-modules:
+      Clash.Signal.Extra
 
   ghc-options:
     -fexpose-all-unfoldings
@@ -225,6 +254,17 @@ test-suite unit-tests
 
   if !flag(clash-18)
     other-modules:
+      Test.Cores.Ethernet
+      Test.Cores.Ethernet.Arp.ArpManager
+      Test.Cores.Ethernet.Base
+      Test.Cores.Ethernet.InternetChecksum
+      Test.Cores.Ethernet.Icmp
+      Test.Cores.Ethernet.IP.EthernetStream
+      Test.Cores.Ethernet.IP.IPPacketizers
+      Test.Cores.Ethernet.Mac.FrameCheckSequence
+      Test.Cores.Ethernet.Mac.InterpacketGapInserter
+      Test.Cores.Ethernet.Mac.PaddingInserter
+      Test.Cores.Ethernet.Mac.Preamble
       Test.Cores.Sgmii.AutoNeg
       Test.Cores.Sgmii.BitSlip
       Test.Cores.Sgmii.RateAdapt
@@ -234,7 +274,6 @@ test-suite unit-tests
   build-depends:
     clash-cores,
     clash-prelude-hedgehog,
-    deepseq,
     hedgehog,
     tasty                   >= 1.2 && < 1.6,
     tasty-hedgehog          >= 1.2.0,
