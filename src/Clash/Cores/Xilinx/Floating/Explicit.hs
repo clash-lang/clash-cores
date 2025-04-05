@@ -46,6 +46,7 @@ type variable for delay annotation in circuits.
 {-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_HADDOCK hide #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Clash.Cores.Xilinx.Floating.Explicit
   ( -- * Instantiating IP
@@ -86,8 +87,6 @@ import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
-import Clash.Cores.Xilinx.Floating.Annotations
-import Clash.Cores.Xilinx.Floating.BlackBoxes
 import Clash.Cores.Xilinx.Floating.Internal
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
 
@@ -106,13 +105,19 @@ addWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-addWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x + y
+addWith Config{archOpt, dspUsage, bMemUsage} clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x + conditionFloatF y
   und = withFrozenCallStack $ deepErrorX "Initial values of add undefined"
-{-# OPAQUE addWith #-}
-{-# ANN addWith (vhdlBinaryPrim 'addWith 'addTclTF "add") #-}
-{-# ANN addWith (veriBinaryPrim 'addWith 'addTclTF "add") #-}
+  extraOpts =
+       ("CONFIG.Add_Sub_Value",  StrOpt "Add")
+    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
+    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
+    :> ("CONFIG.C_BRAM_Usage",   StrOpt (bMemUsageToTcl bMemUsage))
+    :> Nil
+  synth = binaryInst "add" "Add_Subtract" extraOpts  clk en x y
 
 -- | Floating point addition with default settings.
 add
@@ -144,13 +149,20 @@ subWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-subWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x - y
+subWith Config{archOpt, dspUsage, bMemUsage} clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x - conditionFloatF y
   und = withFrozenCallStack $ deepErrorX "Initial values of sub undefined"
-{-# OPAQUE subWith #-}
-{-# ANN subWith (vhdlBinaryPrim 'subWith 'subTclTF "sub") #-}
-{-# ANN subWith (veriBinaryPrim 'subWith 'subTclTF "sub") #-}
+  extraOpts =
+       ("CONFIG.Add_Sub_Value",  StrOpt "Subtract")
+    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
+    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
+    :> ("CONFIG.C_BRAM_Usage",   StrOpt (bMemUsageToTcl bMemUsage))
+    :> Nil
+  synth = binaryInst "sub" "Add_Subtract" extraOpts  clk en x y
+{-# INLINE subWith #-}
 
 -- | Floating point subtraction with default settings.
 sub
@@ -183,13 +195,15 @@ mulWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-mulWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x * y
+mulWith Config{dspUsage} clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
   und = withFrozenCallStack $ deepErrorX "Initial values of mul undefined"
-{-# OPAQUE mulWith #-}
-{-# ANN mulWith (vhdlBinaryPrim 'mulWith 'mulTclTF "mul") #-}
-{-# ANN mulWith (veriBinaryPrim 'mulWith 'mulTclTF "mul") #-}
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x * conditionFloatF y
+  extraOpts = ("CONFIG.C_Mult_Usage", StrOpt $ dspUsageToTcl dspUsage) :> Nil
+  synth = binaryInst "mul" "Multiply" extraOpts  clk en x y
+{-# INLINE mulWith #-}
 
 -- | Floating point multiplication with default settings.
 mul
@@ -222,13 +236,14 @@ divWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-divWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x / y
+divWith !_ clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x / conditionFloatF y
   und = withFrozenCallStack $ deepErrorX "Initial values of div undefined"
-{-# OPAQUE divWith #-}
-{-# ANN divWith (vhdlBinaryPrim 'divWith 'divTclTF "div") #-}
-{-# ANN divWith (veriBinaryPrim 'divWith 'divTclTF "div") #-}
+  synth = binaryInst "div" "Divide" Nil clk en x y
+{-# INLINE divWith #-}
 
 -- | Floating point division with default settings.
 div
