@@ -79,7 +79,7 @@ import Clash.Backend (Backend, hdlKind)
 import Clash.Core.DataCon ( DataCon(MkData, dcName) )
 import Clash.Core.Name ( Name(Name, nameOcc) )
 import Clash.Core.Term ( Term(Data), collectArgs )
-import Clash.Core.TermLiteral (TermLiteral(..), termToDataError, deriveTermLiteral)
+import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.TyCon(isTupleTyConLike)
 import Clash.Core.Type (Type(..), LitTy (SymTy), ConstTy(TyCon), splitTyConAppM, isIntegerTy)
@@ -93,6 +93,8 @@ import qualified Clash.Netlist.BlackBox.Types as BlackBox
 import qualified Clash.Netlist.Id as Id
 import qualified Clash.Primitives.DSL as DSL
 import qualified Clash.Util.Interpolate as I
+
+import Clash.Core.TermLiteral.Compat (termToDataError)
 
 -- | VHDL generic or Verilog parameter. Contents should be able to render to an
 -- HDL constant.

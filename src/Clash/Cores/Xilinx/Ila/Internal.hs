@@ -44,7 +44,7 @@ import Clash.Annotations.SynthesisAttributes (Attr(StringAttr))
 import Clash.Backend (Backend)
 import Clash.Netlist.Types
 import Clash.Netlist.BlackBox.Types
-import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral, termToDataError)
+import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.Type (Type(LitTy), LitTy(NumTy), coreView)
 import Clash.Sized.Vector (Vec)
@@ -53,6 +53,7 @@ import qualified Clash.Netlist.Id as Id
 import qualified Clash.Primitives.DSL as DSL
 import qualified Clash.Util.Interpolate as I
 
+import Clash.Core.TermLiteral.Compat (termToDataError)
 import Clash.Cores.Xilinx.Internal
   ( TclPurpose(..)
   , IpConfig(..)
