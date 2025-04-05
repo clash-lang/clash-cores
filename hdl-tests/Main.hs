@@ -321,6 +321,7 @@ runClashTest = defaultMain $ clashTestRoot
           , buildTargets=BuildSpecific ["withSetName", "withSetNameNoResult"]
           }
         , runTest "T2549" def{hdlTargets=[Verilog],hdlSim=[]}
+        , runTest "T2781" def{hdlLoad=[],hdlSim=[],hdlTargets=[VHDL]}
         ]
       ] -- end shouldwork
     ]
