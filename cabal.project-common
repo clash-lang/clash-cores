@@ -32,3 +32,17 @@ package recursion-schemes
 -- with -O2 provides gains around 5% to 10% in simple benchmarks
 package regex-tdfa
     optimization: 2
+
+source-repository-package
+  type: git
+  location: https://github.com/cchalmers/circuit-notation.git
+  tag: 564769c52aa05b90f81bbc898b7af7087d96613d
+
+source-repository-package
+  type: git
+  location: https://github.com/clash-lang/clash-protocols.git
+  tag: febb041c32fa678e7ddb7d0e976516a5c56b03fc
+  subdir: clash-protocols-base clash-protocols
+
+allow-newer:
+  clash-protocols:tasty
