@@ -224,10 +224,10 @@ data XilinxWizardOption
   deriving (Show)
 deriveTermLiteral ''XilinxWizardOption
 
-xilinxWizardOptionToTcl :: XilinxWizardOption -> String
+xilinxWizardOptionToTcl :: XilinxWizardOption -> Text
 xilinxWizardOptionToTcl = \case
-  StrOpt s -> s
-  IntegerOpt i -> show i
+  StrOpt s -> '{' `Text.cons` (Text.pack s) <> "}"
+  IntegerOpt i -> Text.pack $ show i
   BoolOpt True -> "true"
   BoolOpt False -> "false"
 
@@ -618,8 +618,10 @@ instWizardBBTF xilinxWizard bbCtx | [compName] <- bbQsysIncName bbCtx =
   |]
  where
   backslash = "\\" :: Text
-  props = unlines (toList (map ppProp (wiz_options xilinxWizard)))
-  ppProp (name, value) = P.replicate 29 ' ' <> name <> " " <> xilinxWizardOptionToTcl value <> " \\"
+  props = Text.intercalate "\n" (toList (map ppProp (wiz_options xilinxWizard)))
+  ppProp (name, value) =
+    Text.replicate 29 " " <> Text.pack name <> " " <>
+      xilinxWizardOptionToTcl value <> " \\"
 
 instWizardBBTF _ bbCtx = error (show 'instWizardBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
 
