@@ -510,7 +510,8 @@ instWithXilinxWizardBBF isD primName args resTys
         nExtraArgs = 2
       instBBFWorker nExtraArgs (Just wizard) isD primName args resTys
 instWithXilinxWizardBBF _ _ args resTys = error $
-    "instWithXilinxWizardBBF, bad args:\n\n"
+     show 'instWithXilinxWizardBBF
+  <> ", bad args:\n\n"
   <> ppShow args
   <> "\n\nor result types:\n\n"
   <> ppShow resTys
@@ -562,7 +563,8 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
     BBFunction (show 'instTF) 0 (instTF nExtraArgs doms config maybeXilinxWizard primArgs primRes)
 
 instBBFWorker _ _ _ _ args resTys = error $
-    "instBBF, bad args:\n\n"
+     show 'instBBFWorker
+  <> ", bad args:\n\n"
   <> ppShow args
   <> "\n\nor result types:\n\n"
   <> ppShow resTys
