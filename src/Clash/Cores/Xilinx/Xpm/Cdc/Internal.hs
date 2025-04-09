@@ -617,7 +617,7 @@ instWizardBBTF xilinxWizard bbCtx | [compName] <- bbQsysIncName bbCtx =
     }
   |]
  where
-  backslash = "\\" :: String
+  backslash = "\\" :: Text
   props = unlines (toList (map ppProp (wiz_options xilinxWizard)))
   ppProp (name, value) = P.replicate 29 ' ' <> name <> " " <> xilinxWizardOptionToTcl value <> " \\"
 
