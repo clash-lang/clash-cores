@@ -108,6 +108,7 @@ common basic-config
     base                      >= 4.18  && < 5,
     constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.8,
+    -- extra,
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
@@ -151,8 +152,6 @@ library
     Clash.Cores.Xilinx.DcFifo.Internal.Instances
     Clash.Cores.Xilinx.DcFifo.Internal.Types
     Clash.Cores.Xilinx.Floating
-    Clash.Cores.Xilinx.Floating.Annotations
-    Clash.Cores.Xilinx.Floating.BlackBoxes
     Clash.Cores.Xilinx.Floating.Explicit
     Clash.Cores.Xilinx.Floating.Internal
     Clash.Cores.Xilinx.Ila
@@ -186,6 +185,7 @@ library
       Clash.Cores.Sgmii.Sync
 
   other-modules:
+    Clash.Core.TermLiteral.Compat
     Data.Text.Extra
 
   ghc-options:

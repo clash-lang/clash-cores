@@ -46,6 +46,7 @@ type variable for delay annotation in circuits.
 {-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_HADDOCK hide #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Clash.Cores.Xilinx.Floating.Explicit
   ( -- * Instantiating IP
@@ -86,9 +87,10 @@ import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
-import Clash.Cores.Xilinx.Floating.Annotations
-import Clash.Cores.Xilinx.Floating.BlackBoxes
 import Clash.Cores.Xilinx.Floating.Internal
+import Clash.Cores.Xilinx.Xpm.Cdc.Internal
+
+import qualified Clash.Signal.Delayed as D
 
 -- | Customizable floating point addition.
 addWith
@@ -103,13 +105,18 @@ addWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-addWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x + y
+addWith Config{archOpt, dspUsage} clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x + conditionFloatF y
   und = withFrozenCallStack $ deepErrorX "Initial values of add undefined"
-{-# OPAQUE addWith #-}
-{-# ANN addWith (vhdlBinaryPrim 'addWith 'addTclTF "add") #-}
-{-# ANN addWith (veriBinaryPrim 'addWith 'addTclTF "add") #-}
+  extraOpts =
+       ("CONFIG.Add_Sub_Value",  StrOpt "Add")
+    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
+    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
+    :> Nil
+  synth = binaryInst "add" "Add_Subtract" extraOpts  clk en x y
 
 -- | Floating point addition with default settings.
 add
@@ -141,13 +148,19 @@ subWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-subWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x - y
+subWith Config{archOpt, dspUsage} clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x - conditionFloatF y
   und = withFrozenCallStack $ deepErrorX "Initial values of sub undefined"
-{-# OPAQUE subWith #-}
-{-# ANN subWith (vhdlBinaryPrim 'subWith 'subTclTF "sub") #-}
-{-# ANN subWith (veriBinaryPrim 'subWith 'subTclTF "sub") #-}
+  extraOpts =
+       ("CONFIG.Add_Sub_Value",  StrOpt "Subtract")
+    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
+    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
+    :> Nil
+  synth = binaryInst "sub" "Add_Subtract" extraOpts  clk en x y
+{-# INLINE subWith #-}
 
 -- | Floating point subtraction with default settings.
 sub
@@ -180,13 +193,15 @@ mulWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-mulWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x * y
+mulWith Config{dspUsage} clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
   und = withFrozenCallStack $ deepErrorX "Initial values of mul undefined"
-{-# OPAQUE mulWith #-}
-{-# ANN mulWith (vhdlBinaryPrim 'mulWith 'mulTclTF "mul") #-}
-{-# ANN mulWith (veriBinaryPrim 'mulWith 'mulTclTF "mul") #-}
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x * conditionFloatF y
+  extraOpts = ("CONFIG.C_Mult_Usage", StrOpt $ dspUsageToTcl dspUsage) :> Nil
+  synth = binaryInst "mul" "Multiply" extraOpts  clk en x y
+{-# INLINE mulWith #-}
 
 -- | Floating point multiplication with default settings.
 mul
@@ -219,13 +234,14 @@ divWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-divWith !_ clk en (conditionFloatF -> x) (conditionFloatF -> y) =
-  delayI und en clk . conditionFloatF $ x / y
+divWith !_ clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
  where
+  sim = delayI und en clk . conditionFloatF $ conditionFloatF x / conditionFloatF y
   und = withFrozenCallStack $ deepErrorX "Initial values of div undefined"
-{-# OPAQUE divWith #-}
-{-# ANN divWith (vhdlBinaryPrim 'divWith 'divTclTF "div") #-}
-{-# ANN divWith (veriBinaryPrim 'divWith 'divTclTF "div") #-}
+  synth = binaryInst "div" "Divide" Nil clk en x y
+{-# INLINE divWith #-}
 
 -- | Floating point division with default settings.
 div
@@ -258,12 +274,45 @@ fromU32With
   -> Enable dom
   -> DSignal dom n (Unsigned 32)
   -> DSignal dom (n + d) Float
-fromU32With clk en = delayI und en clk . fmap fromIntegral
+fromU32With clk en inp
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
  where
+  sim = delayI und en clk $ fmap fromIntegral inp
   und = withFrozenCallStack $ errorX "Initial values of fromU32 undefined"
-{-# OPAQUE fromU32With #-}
-{-# ANN fromU32With (vhdlFromUPrim 'fromU32With "fromU32") #-}
-{-# ANN fromU32With (veriFromUPrim 'fromU32With "fromU32") #-}
+  synth = unpack <$> unPort (snd go)
+   where
+    go ::
+      ( Port "m_axis_result_tvalid" dom Bit
+      , Port "m_axis_result_tdata" dom (BitVector 32)
+      )
+    go =
+      instWithXilinxWizard
+        (instConfig "fromU32")
+        (XilinxWizard
+          { wiz_name = "floating_point"
+          , wiz_vendor = "xilinx.com"
+          , wiz_library = "ip"
+          , wiz_version = "7.1"
+          , wiz_options =
+               ("CONFIG.Operation_Type",     StrOpt "Fixed_to_float")
+            :> ("CONFIG.A_Precision_Type",   StrOpt "Uint32")
+            :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
+            :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
+            :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
+            :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
+            :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
+            :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
+            :> ("CONFIG.C_Rate",             IntegerOpt 1)
+            :> ("CONFIG.Maximum_Latency",    BoolOpt False)
+            :> Nil
+          }
+        )
+        (ClockPort @"aclk" clk)
+        (Port @"aclken" (boolToBit <$> fromEnable en))
+        (Port @"s_axis_a_tdata" (pack <$> D.toSignal inp))
+        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE fromU32With #-}
 
 -- | Conversion of @Unsigned 32@ to @Float@, with default delay
 fromU32
@@ -295,12 +344,45 @@ fromS32With
   -> Enable dom
   -> DSignal dom n (Signed 32)
   -> DSignal dom (n + d) Float
-fromS32With clk en = delayI und en clk . fmap fromIntegral
+fromS32With clk en inp
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
  where
+  sim = delayI und en clk $ fmap fromIntegral inp
   und = withFrozenCallStack $ errorX "Initial values of fromS32 undefined"
-{-# OPAQUE fromS32With #-}
-{-# ANN fromS32With (vhdlFromSPrim 'fromS32With "fromS32") #-}
-{-# ANN fromS32With (veriFromSPrim 'fromS32With "fromS32") #-}
+  synth = unpack <$> unPort (snd go)
+   where
+    go ::
+      ( Port "m_axis_result_tvalid" dom Bit
+      , Port "m_axis_result_tdata" dom (BitVector 32)
+      )
+    go =
+      instWithXilinxWizard
+        (instConfig "fromS32")
+        (XilinxWizard
+          { wiz_name = "floating_point"
+          , wiz_vendor = "xilinx.com"
+          , wiz_library = "ip"
+          , wiz_version = "7.1"
+          , wiz_options =
+               ("CONFIG.Operation_Type",     StrOpt "Fixed_to_float")
+            :> ("CONFIG.A_Precision_Type",   StrOpt "Int32")
+            :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
+            :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
+            :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
+            :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
+            :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
+            :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
+            :> ("CONFIG.C_Rate",             IntegerOpt 1)
+            :> ("CONFIG.Maximum_Latency",    BoolOpt False)
+            :> Nil
+          }
+        )
+        (ClockPort @"aclk" clk)
+        (Port @"aclken" (boolToBit <$> fromEnable en))
+        (Port @"s_axis_a_tdata" (pack <$> D.toSignal inp))
+        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE fromS32With #-}
 
 -- | Conversion of @Signed 32@ to @Float@, with default delay
 fromS32
@@ -336,12 +418,52 @@ compareWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Ordering
-compareWith clk ena a b = delayI und ena clk (xilinxCompare <$> a <*> b)
+compareWith clk ena a b
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
  where
+  sim = delayI und ena clk (xilinxCompare <$> a <*> b)
   und = withFrozenCallStack $ errorX "Initial values of compare undefined"
-{-# OPAQUE compareWith #-}
-{-# ANN compareWith (vhdlComparePrim 'compareWith 'compareTclTF "compare") #-}
-{-# ANN compareWith (veriComparePrim 'compareWith 'compareTclTF "compare") #-}
+  synth = unpack . resize <$> unPort (snd go)
+   where
+    go ::
+      ( Port "m_axis_result_tvalid" dom Bit
+      , Port "m_axis_result_tdata" dom (BitVector 8)
+      )
+    go =
+      instWithXilinxWizard
+        (instConfig "compare")
+        (XilinxWizard
+          { wiz_name = "floating_point"
+          , wiz_vendor = "xilinx.com"
+          , wiz_library = "ip"
+          , wiz_version = "7.1"
+          , wiz_options =
+                 ("CONFIG.Operation_Type",          StrOpt "Compare")
+              :> ("CONFIG.C_Compare_Operation",     StrOpt "Condition_Code")
+              :> ("CONFIG.Flow_Control",            StrOpt "NonBlocking")
+              :> ("CONFIG.Maximum_Latency",         BoolOpt False)
+              :> ("CONFIG.Has_ACLKEN",              BoolOpt True)
+              :> ("CONFIG.A_Precision_Type",        StrOpt "Single")
+              :> ("CONFIG.C_A_Exponent_Width",      IntegerOpt 8)
+              :> ("CONFIG.C_A_Fraction_Width",      IntegerOpt 24)
+              :> ("CONFIG.Result_Precision_Type",   StrOpt "Custom")
+              :> ("CONFIG.C_Result_Exponent_Width", IntegerOpt 4)
+              :> ("CONFIG.C_Result_Fraction_Width", IntegerOpt 0)
+              :> ("CONFIG.C_Mult_Usage",            StrOpt "No_Usage")
+              :> ("CONFIG.Has_RESULT_TREADY",       BoolOpt False)
+              :> ("CONFIG.C_Latency",               IntegerOpt (natToNum @d))
+              :> ("CONFIG.C_Rate",                  IntegerOpt 1)
+              :> Nil
+          }
+        )
+        (ClockPort @"aclk" clk)
+        (Port @"aclken" (boolToBit <$> fromEnable ena))
+        (Port @"s_axis_a_tdata" (pack <$> D.toSignal a))
+        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+        (Port @"s_axis_b_tdata" (pack <$> D.toSignal b))
+        (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE compareWith #-}
 
 -- | Floating point comparison, with default delay
 --
