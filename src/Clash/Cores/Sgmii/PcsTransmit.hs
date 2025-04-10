@@ -7,7 +7,8 @@
   that are defined in the two submodules @CodeGroup@ and @OrderedSet@.
 -}
 module Clash.Cores.Sgmii.PcsTransmit
-  ( pcsTransmit
+  ( InputDelayState
+  , pcsTransmit
   , inputDelayT
   )
 where
