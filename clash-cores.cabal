@@ -154,6 +154,8 @@ library
     Clash.Cores.Xilinx.Floating
     Clash.Cores.Xilinx.Floating.Explicit
     Clash.Cores.Xilinx.Floating.Internal
+    Clash.Cores.Xilinx.Ethernet.Gmii
+    Clash.Cores.Xilinx.Ethernet.Gmii.Internal
     Clash.Cores.Xilinx.Ila
     Clash.Cores.Xilinx.Ila.Internal
     Clash.Cores.Xilinx.Internal
@@ -222,6 +224,7 @@ test-suite unit-tests
     Test.Cores.Xilinx.BlockRam
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
+    Test.Cores.Xilinx.Ethernet.Gmii
 
   if !flag(clash-18)
     other-modules:
@@ -236,6 +239,7 @@ test-suite unit-tests
     clash-prelude-hedgehog,
     deepseq,
     hedgehog,
+    infinite-list,
     tasty                   >= 1.2 && < 1.6,
     tasty-hedgehog          >= 1.2.0,
     tasty-hunit,
