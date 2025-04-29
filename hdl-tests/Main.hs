@@ -182,6 +182,11 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
+        , runTest "Ibufds" def
+          { hdlLoad = [Vivado]
+          , hdlSim = [Vivado]
+          , buildTargets=BuildSpecific ["testBench"]
+          }
 
 -- "Unmatchable constant as case subject"
 -- https://github.com/clash-lang/clash-compiler/issues/2806
