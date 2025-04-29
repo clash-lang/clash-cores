@@ -151,7 +151,10 @@ runClashTest = defaultMain $ clashTestRoot
       ]
     , clashTestGroup "shouldwork"
       [ clashTestGroup "Xilinx"
-        [ runTest "TdpBlockRam" def
+        [ clashTestGroup "Inst"
+          [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
+          ]
+        , runTest "TdpBlockRam" def
           { -- Compiling with VHDL gives:
             --   https://github.com/clash-lang/clash-compiler/issues/2446
             hdlTargets = [Verilog]

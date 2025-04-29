@@ -60,7 +60,7 @@ import Control.Monad (when)
 import Control.Monad.State (State)
 import Data.Proxy (Proxy)
 import Data.Either (lefts, partitionEithers, rights)
-import Data.Maybe (maybeToList, isJust)
+import Data.Maybe (maybeToList, isJust, catMaybes)
 import Data.String.Interpolate (__i)
 import Data.Text (Text)
 import Data.Text.Prettyprint.Doc.Extra (Doc)
@@ -82,11 +82,11 @@ import Clash.Core.Term ( Term(Data), collectArgs )
 import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.TyCon(isTupleTyConLike)
-import Clash.Core.Type (Type(..), LitTy (SymTy), ConstTy(TyCon), splitTyConAppM, isIntegerTy)
+import Clash.Core.Type (Type(..), LitTy (SymTy, NumTy), ConstTy(TyCon), splitTyConAppM, isIntegerTy)
 import Clash.Driver.Types (DomainMap, envDomains)
 import Clash.Netlist.BlackBox.Types
-  ( BlackBoxFunction, BlackBoxMeta(bbKind), TemplateKind(TDecl), emptyBlackBoxMeta
-  , bbLibrary, bbImports, bbIncludes )
+  ( BlackBoxFunction, BlackBoxMeta(bbKind, bbRenderVoid), TemplateKind(TDecl), emptyBlackBoxMeta
+  , bbLibrary, bbImports, bbIncludes, RenderVoid (..) )
 import Clash.Netlist.Types
 
 import qualified Clash.Netlist.BlackBox.Types as BlackBox
@@ -109,6 +109,16 @@ data ClockPort (portName :: Symbol) dom = ClockPort (Clock dom)
 -- a @not@ if the reset polarity does not match the reset polarity of the domain.
 data ResetPort (portName :: Symbol) (polarity :: ResetPolarity) dom = ResetPort (Reset dom)
 
+-- | 'BiSignalIn' port carrying a bitvector of size /n/ type, where @portName@
+-- is the name of the port that is mapped in the target HDL.
+data BiSignalInPort (portName :: Symbol) (ds :: BiSignalDefault) (dom :: Domain) (n :: Nat) =
+  BiSignalInPort (BiSignalIn ds dom n)
+
+-- | 'BiSignalOut' port carrying a bitvector of size /n/ type, where @portName@
+-- is the name of the port that is mapped in the target HDL.
+data BiSignalOutPort (portName :: Symbol) (ds :: BiSignalDefault) (dom :: Domain) (n :: Nat) =
+  BiSignalOutPort (BiSignalOut ds dom n)
+
 -- | A generic port, where @portName@ is the name of the port that is mapped in
 -- the target HDL.
 data Port (portName :: Symbol) dom a = Port (Signal dom a)
@@ -122,12 +132,14 @@ data PrimParam a = PrimParam
   }
   deriving (Show, Functor)
 
--- | A term level, post-normalization version of 'ClockPort', 'ResetPort', or
--- 'Port'. Used internally by this module.
+-- | A term level, post-normalization version of 'ClockPort', 'ResetPort', 'Port',
+-- 'BiSignalInPort', or 'BiSignalOutPort'. Used internally by this module.
 data PrimPort a
-  = PrimClockPort  { name :: Text, dom :: Text, meta :: a }
-  | PrimResetPort  { name :: Text, dom :: Text, meta :: a, polarity :: ResetPolarity }
-  | PrimSignalPort { name :: Text, dom :: Text, meta :: a }
+  = PrimClockPort       { name :: Text, dom :: Text, meta :: a }
+  | PrimResetPort       { name :: Text, dom :: Text, meta :: a, polarity :: ResetPolarity }
+  | PrimSignalPort      { name :: Text, dom :: Text, meta :: a }
+  | PrimBiSignalInPort  { name :: Text, dom :: Text, meta :: a, n :: Integer }
+  | PrimBiSignalOutPort { name :: Text, dom :: Text, meta :: a, n :: Integer }
   deriving (Show, Functor)
 
 -- | Add meta information to a 'PrimPort'
@@ -191,6 +203,21 @@ instance TermLiteral (PrimPortOrParam ()) where
     , (LitTy (SymTy nm) : LitTy (SymTy domNm) : _) <- rights args
     = pure (MkPrimPort (PrimClockPort{name=Text.pack nm, dom=Text.pack domNm, meta=()}))
 
+    | constrName == show 'BiSignalInPort
+    , ( LitTy (SymTy nm)
+      : ConstTy _dflt
+      : LitTy (SymTy domNm)
+      : LitTy (NumTy width)
+      : _
+      ) <- rights args
+    = pure (MkPrimPort (PrimBiSignalInPort
+        { name=Text.pack nm
+        , dom=Text.pack domNm
+        , meta=()
+        , n = width
+        }
+      ))
+
     | constrName == show 'ResetPort
     , (LitTy (SymTy nm) : pol : LitTy (SymTy domNm) : _) <- rights args
     = pure (MkPrimPort (PrimResetPort
@@ -253,6 +280,8 @@ data InstConfig = InstConfig
     -- ^ Whether to add a @library <name>@. This is only used for VHDL.
   , libraryImport :: Maybe String
     -- ^ Whether to add a @import <name>@. This is only used for VHDL.
+  , renderVoid :: Bool
+    -- ^ Whether to render an instance that has no output ports.
   } deriving (Show)
 deriveTermLiteral ''InstConfig
 
@@ -265,6 +294,7 @@ instConfig nm = InstConfig
   { compName = nm
   , library = Nothing
   , libraryImport = Nothing
+  , renderVoid = False
   }
 
 -- | Type class to facilitate /polyvariadic/ behavior of 'inst'. A type @a@
@@ -300,11 +330,16 @@ instance KnownDomain dom => IsPort (Port name dom a) where
   type PortType (Port name dom a) = Signal dom a
   unPort (Port sig) = sig
 
+instance KnownDomain dom => IsPort (BiSignalOutPort s ds dom n) where
+  type PortType (BiSignalOutPort s ds dom n) = BiSignalOut ds dom n
+  unPort (BiSignalOutPort sig) = sig
+
 -- "Terminating" instances for 'Inst'
-instance Inst ()
-instance KnownDomain dom => Inst (Port s dom a)
-instance KnownDomain dom => Inst (ClockPort s dom)
-instance KnownDomain dom => Inst (ResetPort s polarity dom)
+instance Inst () -- Inst with only inputs
+instance KnownDomain dom => Inst (Port s dom a) -- Inst with a single port output
+instance KnownDomain dom => Inst (ClockPort s dom) -- Inst with a single clock output
+instance KnownDomain dom => Inst (ResetPort s polarity dom) -- Inst with a single reset output
+instance KnownDomain dom => Inst (BiSignalOutPort s ds dom n) -- Inst with a single bi-signal output
 
 -- A generous number of tuple instances: users typically don't have any choice
 -- in how many output ports a primitive has. I.e., the only workaround would be
@@ -350,6 +385,9 @@ instance Inst a => Inst (ClockPort s dom -> a) where
   instX !_i = instX @a
 
 instance Inst a => Inst (ResetPort s polarity dom -> a) where
+  instX !_i = instX @a
+
+instance Inst a => Inst (BiSignalInPort s ds dom n -> a) where
   instX !_i = instX @a
 
 instance Inst a => Inst (Param s const -> a) where
@@ -472,6 +510,15 @@ tyToPrimPort (splitTyConAppM -> Just (tyConName'@(Name{nameOcc=Text.unpack -> ty
         , polarity = getPolarity nm pol
         }]
 
+    | tyConName == show 'BiSignalOutPort
+    , LitTy (SymTy nm) : _ds : LitTy (SymTy domNm) : LitTy (NumTy width) : _ <- args
+    = Right [PrimBiSignalOutPort
+        { name=Text.pack nm
+        , dom=Text.pack domNm
+        , meta=()
+        , n = width
+        }]
+
     | isTupleTyConLike tyConName' = do
       xs <- mapM tyToPrimPort args
       pure $ P.concat xs
@@ -542,6 +589,7 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
     { bbKind = TDecl
     , bbLibrary = libToBBTemplate hdl library
     , bbImports = libToBBTemplate hdl libraryImport
+    , bbRenderVoid = if renderVoid then RenderVoid else NoRenderVoid
     , bbIncludes =
       case maybeXilinxWizard of
         Nothing -> []
@@ -668,7 +716,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
               #{ppShow userArgs}
           |]
 
-        outPorts <- mapM mkOutPort (P.zipWith addPrimPortMeta primResults0 outPortTys)
+        outPorts <- catMaybes <$> mapM mkOutPort (P.zipWith addPrimPortMeta primResults0 outPortTys)
         let
           -- Note that this critically depends on the Clash Netlist backed treating
           -- a data type with a single constructor with a single field as the
@@ -719,8 +767,10 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
       pure (name, rst)
     p -> pure (name p, meta p)
 
-  mkOutPort :: PrimPort HWType -> State (DSL.BlockState s) (Text, DSL.TExpr)
+  mkOutPort :: PrimPort HWType -> State (DSL.BlockState s) (Maybe (Text, DSL.TExpr))
   mkOutPort = \case
+    PrimBiSignalOutPort{} -> pure Nothing
+
     PrimResetPort{name, polarity, dom, meta=ty} -> do
       var <- DSL.declare name ty
       rst <-
@@ -730,12 +780,12 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
             | otherwise -> DSL.notExpr name var
           Nothing ->
             error ("Internal error: could not find domain " <> Text.unpack dom)
-      pure (name, rst)
+      pure (Just (name, rst))
 
     port -> do
       let ty = meta port
       var <- DSL.declare (name port) ty
-      pure (name port, var)
+      pure (Just (name port, var))
 
 instBBTF _nExtraArgs _doms _config _maybeXilinxWizard _primArgs _primResults bbCtx =
   error (show 'instBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
