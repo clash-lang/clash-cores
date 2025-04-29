@@ -40,6 +40,8 @@ module Clash.Cores.Xilinx.Xpm.Cdc.Internal
   -- * Params and ports
   , Param(..)
   , ClockPort(..)
+  , DiffClockPort (..)
+  , NamedDiffClockPort (..)
   , ResetPort(..)
   , Port(..)
 
@@ -104,6 +106,17 @@ data Param (name :: Symbol) a = Param a
 -- is mapped in the target HDL.
 data ClockPort (portName :: Symbol) dom = ClockPort (Clock dom)
 
+-- | Port with differential clock type, which gets 2 ports on hardware for a possitive
+-- and a negative phase. The @portName@ gets the suffix '_p' and '_n' respecively
+-- for the ports in the target HDL. For custom suffixes use 'NamedDiffClockPort'.
+data DiffClockPort (portName :: Symbol) dom = DiffClockPort (DiffClock dom)
+
+-- | Port with differential clock type, which gets 2 ports on hardware for a possitive
+-- and a negative phase. The @portNameP@ and @portNameN@ are the names of these ports
+-- in the target HDL.
+data NamedDiffClockPort (portNameP :: Symbol) (portNameN :: Symbol) dom =
+  NamedDiffClockPort (DiffClock dom)
+
 -- | Port with reset (bit) type, where @portName@ is the name of the port that
 -- is mapped in the target HDL. The @polarity@ is used to automatically insert
 -- a @not@ if the reset polarity does not match the reset polarity of the domain.
@@ -132,10 +145,12 @@ data PrimParam a = PrimParam
   }
   deriving (Show, Functor)
 
--- | A term level, post-normalization version of 'ClockPort', 'ResetPort', 'Port',
--- 'BiSignalInPort', or 'BiSignalOutPort'. Used internally by this module.
+-- | A term level, post-normalization version of 'ClockPort', 'DiffClockPort',
+-- 'NamedDiffClockPort', 'ResetPort', 'Port', 'BiSignalInPort', or
+-- 'BiSignalOutPort'. Used internally by this module.
 data PrimPort a
   = PrimClockPort       { name :: Text, dom :: Text, meta :: a }
+  | PrimDiffClockPort   { nameP :: Text, nameN :: Text, dom :: Text, meta :: a }
   | PrimResetPort       { name :: Text, dom :: Text, meta :: a, polarity :: ResetPolarity }
   | PrimSignalPort      { name :: Text, dom :: Text, meta :: a }
   | PrimBiSignalInPort  { name :: Text, dom :: Text, meta :: a, n :: Integer }
@@ -177,8 +192,8 @@ collectDataArgs (collectArgs -> (f, args))
   | otherwise
   = Nothing
 
--- | Interprets any of 'Param', 'ClockPort', 'ResetPort', or 'Port' into a single
--- data type 'PrimPortOrParam'.
+-- | Interprets any of 'Param', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort',
+-- 'ResetPort', or 'Port' into a single data type 'PrimPortOrParam'.
 instance TermLiteral (PrimPortOrParam ()) where
   termToData (collectDataArgs -> Just (constrName, args))
     | constrName == show 'Param
@@ -202,6 +217,24 @@ instance TermLiteral (PrimPortOrParam ()) where
     | constrName == show 'ClockPort
     , (LitTy (SymTy nm) : LitTy (SymTy domNm) : _) <- rights args
     = pure (MkPrimPort (PrimClockPort{name=Text.pack nm, dom=Text.pack domNm, meta=()}))
+
+    | constrName == show 'DiffClockPort
+    , (LitTy (SymTy nm) : LitTy (SymTy domNm) : _) <- rights args
+    = pure (MkPrimPort (PrimDiffClockPort
+        { nameP=(Text.pack nm <> "_p")
+        , nameN=(Text.pack nm <> "_n")
+        , dom=Text.pack domNm
+        , meta=()
+        }))
+
+    | constrName == show 'NamedDiffClockPort
+    , (LitTy (SymTy nmP) : LitTy (SymTy nmN) : LitTy (SymTy domNm) : _) <- rights args
+    = pure (MkPrimPort (PrimDiffClockPort
+        { nameP=(Text.pack nmP)
+        , nameN=(Text.pack nmN)
+        , dom=Text.pack domNm
+        , meta=()
+        }))
 
     | constrName == show 'BiSignalInPort
     , ( LitTy (SymTy nm)
@@ -384,6 +417,12 @@ instance Inst a => Inst (Port s dom i -> a) where
 instance Inst a => Inst (ClockPort s dom -> a) where
   instX !_i = instX @a
 
+instance Inst a => Inst (DiffClockPort s dom -> a) where
+  instX !_i = instX @a
+
+instance Inst a => Inst (NamedDiffClockPort sP sN dom -> a) where
+  instX !_i = instX @a
+
 instance Inst a => Inst (ResetPort s polarity dom -> a) where
   instX !_i = instX @a
 
@@ -399,9 +438,9 @@ instance Inst a => Inst (Param s const -> a) where
 -- > inst :: Inst a => InstConfig -> a_0 -> a_1 -> ... -> a_n -> r
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
--- result type. Each argument can be a 'Port', 'ClockPort', 'ResetPort', or
--- 'Param'. The result type, @r@ can be a 'Port', 'ClockPort', 'ResetPort', a
--- tuple of these, or unit (@()@).
+-- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
+-- 'NamedDiffClockPort', 'ResetPort', or 'Param'. The result type, @r@ can be a
+-- 'Port', 'ClockPort', 'ResetPort', a tuple of these, or unit (@()@).
 --
 -- Example usage:
 --
@@ -725,7 +764,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           (params0, inPorts0) = partitionPortOrPrims primArgs1
           params1 = P.map mkParam params0
 
-        inPorts1 <- mapM mkInPort inPorts0
+        inPorts1 <- P.concat <$> mapM mkInPort inPorts0
         instLabel <- Id.make (Text.pack (compName config) <> "_inst")
 
         let compName1 = case maybeXilinxWizard of
@@ -755,8 +794,19 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
       Just i -> (paramName, DSL.TExpr Integer (Literal Nothing (NumLit i)))
       Nothing -> (paramName, paramMeta)
 
-  mkInPort :: PrimPort DSL.TExpr -> State (DSL.BlockState s) (Text, DSL.TExpr)
+  mkInPort :: PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
   mkInPort = \case
+    PrimDiffClockPort{nameP, nameN, meta=diffClkExpr} -> do
+      clockPN <- DSL.deconstructProduct diffClkExpr [nameP, nameN]
+      let
+        (clockP, clockN) = case clockPN of
+          [p, n] -> (p, n)
+          _ -> error $ "mkInPort: Internal error: expected 2 elements: " <> show clockPN
+
+      pure
+        [ (nameP, clockP)
+        , (nameN, clockN)
+        ]
     PrimResetPort{name, polarity, dom, meta=rstIn} -> do
       rst <- case HashMap.lookup dom doms of
               Just (vResetPolarity -> domPolarity)
@@ -764,11 +814,14 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
                 | otherwise -> DSL.notExpr name rstIn
               Nothing ->
                 error ("Internal error: could not find domain " <> Text.unpack dom)
-      pure (name, rst)
-    p -> pure (name p, meta p)
+      pure [(name, rst)]
+    p -> pure [(name p, meta p)]
 
   mkOutPort :: PrimPort HWType -> State (DSL.BlockState s) (Maybe (Text, DSL.TExpr))
   mkOutPort = \case
+    PrimDiffClockPort{} -> do
+      error "Internal error: unreachable code: PrimDiffClockPort in mkOutPort"
+
     PrimBiSignalOutPort{} -> pure Nothing
 
     PrimResetPort{name, polarity, dom, meta=ty} -> do
