@@ -23,11 +23,15 @@ import Clash.Prelude
 type InputDelayState n = (Index n, Vec n (Bool, Bool, BitVector 8))
 
 -- | Transition function for the input queue that outputs the correct octet when
---   the system is ready. Note that, when the 'Index' that points to the next
---   value to be outputted starts going down, it should act one time instance
---   earlier than when it goes up.
+--   the system is ready. This is required because the PCS transmit can be in a
+--   state where it is unable to consume any input, while the protocol itself
+--   does not feature any mechanism to handle backpressure.
+--
+--   Note that, when the 'Index' that points to the next value to be outputted
+--   starts going down, it should act one time instance earlier than when it
+--   goes up.
 inputDelayT ::
-  (KnownNat n) =>
+  (KnownNat n, 1 <= n) =>
   -- | Current state
   InputDelayState n ->
   -- | New input values for @TX_EN@, @TX_ER@, the incoming data word and the
@@ -35,24 +39,26 @@ inputDelayT ::
   (Bool, Bool, BitVector 8, Bool) ->
   -- | Output tuple without the ready signal
   (InputDelayState n, (Bool, Bool, BitVector 8))
-inputDelayT (cur, txs) (txEn, txEr, dw, txRdy) = ((cur', txs'), tx)
+inputDelayT (idx, txs) (txEn, txEr, dw, txRdy) = ((idxNew, txsNew), tx)
  where
-  cur'
-    | (txEn || txEr) && txRdy = cur
-    | (txEn || txEr) && cur < maxBound = cur + 1
-    | txRdy && cur > minBound = cur - 1
-    | otherwise = cur
+  idxNew
+    | txEnOrEr && txRdy = idx
+    | txEnOrEr = satSucc SatBound idx
+    | txRdy = satPred SatBound idx
+    | otherwise = idx
 
-  txs'
-    | txEn || txEr = (txEn, txEr, dw) +>> txs
+  txsNew
+    | txEnOrEr = (txEn, txEr, dw) +>> txs
     | otherwise = txs
 
   tx
-    | not (txEn || txEr) && cur' < minBound + 2 = f (txs' !! cur')
-    | cur' < cur = txs' !! cur'
-    | otherwise = txs' !! cur
+    | not txEnOrEr && idxNew < minBound + 2 = f (txsNew !! idxNew)
+    | idxNew < idx = txsNew !! idxNew
+    | otherwise = txsNew !! idx
    where
     f (_, _, a) = (False, False, a)
+
+  txEnOrEr = txEn || txEr
 
 {-# OPAQUE inputDelayT #-}
 
