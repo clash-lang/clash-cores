@@ -107,7 +107,7 @@ data Param (name :: Symbol) a = Param a
 data ClockPort (portName :: Symbol) dom = ClockPort (Clock dom)
 
 -- | Port with differential clock type, which gets 2 ports on hardware for a possitive
--- and a negative phase. The @portName@ gets the suffix '_p' and '_n' respecively
+-- and a negative phase. The @portName@ gets the suffix @_p@ and @_n@ respectively
 -- for the ports in the target HDL. For custom suffixes use 'NamedDiffClockPort'.
 data DiffClockPort (portName :: Symbol) dom = DiffClockPort (DiffClock dom)
 
