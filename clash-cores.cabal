@@ -163,6 +163,7 @@ library
     Clash.Cores.Xilinx.Floating.Internal
     Clash.Cores.Xilinx.Ethernet.Gmii
     Clash.Cores.Xilinx.Ethernet.Gmii.Internal
+    Clash.Cores.Xilinx.Ibufds
     Clash.Cores.Xilinx.Ila
     Clash.Cores.Xilinx.Ila.Internal
     Clash.Cores.Xilinx.Internal
