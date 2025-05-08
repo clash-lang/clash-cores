@@ -183,6 +183,7 @@ library
 
   if !flag(clash-18)
     exposed-modules:
+      Clash.Cores.Ethernet.Rgmii
       Clash.Cores.Sgmii
       Clash.Cores.Sgmii.AutoNeg
       Clash.Cores.Sgmii.BitSlip
