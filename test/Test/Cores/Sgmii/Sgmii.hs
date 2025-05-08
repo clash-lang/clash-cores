@@ -89,7 +89,7 @@ prop_loopbackTest = H.property $ do
 
   inp <- H.forAll (Gen.list (Range.singleton simDuration) genDefinedBitVector)
   let setupSamples = 77
-      delaySamples = 20
+      delaySamples = 28
       controlCount = 9
 
       simOut =
@@ -120,7 +120,7 @@ prop_duplexTransmission = H.property $ do
   inp1 <- H.forAll (Gen.list (Range.singleton simDuration) genDefinedBitVector)
   inp2 <- H.forAll (Gen.list (Range.singleton simDuration) genDefinedBitVector)
   let setupSamples = 77
-      delaySamples = 10
+      delaySamples = 14
       controlCount = 9
 
       inp = zip inp1 inp2
@@ -155,7 +155,7 @@ prop_duplexTransmissionCarrierExtend = H.property $ do
   inp3 <- H.forAll (Gen.list (Range.singleton simDuration) genDefinedBitVector)
   inp4 <- H.forAll (Gen.list (Range.singleton simDuration) genDefinedBitVector)
   let setupSamples = 77
-      delaySamples = 10
+      delaySamples = 14
       controlCount = 9
       extendCount = 2
 
