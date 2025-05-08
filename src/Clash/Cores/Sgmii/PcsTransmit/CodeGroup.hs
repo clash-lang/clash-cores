@@ -1,5 +1,5 @@
 {- |
-  Copyright   :  (C) 2024, QBayLogic B.V.
+  Copyright   :  (C) 2024-2025, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
@@ -103,13 +103,13 @@ codeGroupO ::
   -- | Current state
   CodeGroupState ->
   -- | New output values
-  (CodeGroupState, CodeGroup, Even, Bool)
+  (CodeGroupState, CodeGroup, Even, Bool, Bool)
 codeGroupO s = case s of
-  SpecialGo{} -> (s, _cg s, nextEven (_txEven s), True)
-  DataGo{} -> (s, _cg s, nextEven (_txEven s), True)
-  IdleIB{} -> (s, _cg s, Odd, True)
-  ConfCB{} -> (s, _cg s, Odd, False)
-  ConfCD{} -> (s, _cg s, Odd, True)
-  _ -> (s, _cg s, Even, False)
+  SpecialGo{} -> (s, _cg s, nextEven (_txEven s), True, True)
+  DataGo{} -> (s, _cg s, nextEven (_txEven s), True, True)
+  IdleIB{} -> (s, _cg s, Odd, True, False)
+  ConfCB{} -> (s, _cg s, Odd, False, False)
+  ConfCD{} -> (s, _cg s, Odd, True, False)
+  _ -> (s, _cg s, Even, False, False)
 
 {-# OPAQUE codeGroupO #-}
