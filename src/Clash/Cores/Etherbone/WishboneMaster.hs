@@ -30,19 +30,19 @@ wishboneMasterT :: forall addrWidth dat .
   , Show dat
   )
   => WishboneMasterState dat
-  -> ( Df.Data (WishboneOperation addrWidth (ByteSize dat) dat)
+  -> ( Maybe (WishboneOperation addrWidth (ByteSize dat) dat)
      , (Ack, WishboneS2M dat, ())
      )
   -> ( WishboneMasterState dat
      , ( Ack
-       , ( Df.Data (WishboneResult dat)
+       , ( Maybe (WishboneResult dat)
          , WishboneM2S addrWidth (ByteSize dat) dat
          , Maybe Bit)
        )
      )
 -- This operation is for another @AddressSpace@.
-wishboneMasterT state (Df.Data WishboneOperation{_opAddrSpace=ConfigAddressSpace}, _)
-  = (state, (Ack True, (Df.NoData, wbEmpty, Nothing)))
+wishboneMasterT state (Just WishboneOperation{_opAddrSpace=ConfigAddressSpace}, _)
+  = (state, (Ack True, (Nothing, wbEmpty, Nothing)))
     where
       wbEmpty = emptyWishboneM2S
 wishboneMasterT state (iFwd, (Ack oBwd, wbBwd, _))
@@ -54,8 +54,8 @@ wishboneMasterT state (iFwd, (Ack oBwd, wbBwd, _))
     wbTerm = acknowledge wbBwd || wbErr
 
     oFwd = case state of
-      WaitForAck _ dat eor eop -> Df.Data $ WishboneResult dat eor eop
-      _                        -> Df.NoData
+      WaitForAck _ dat eor eop -> Just $ WishboneResult dat eor eop
+      _                        -> Nothing
 
     iBwd = case state of
       WaitForOp _  -> False
@@ -69,10 +69,10 @@ wishboneMasterT state (iFwd, (Ack oBwd, wbBwd, _))
     -- The wishbone bus receives the incoming operation in the transition from
     -- @WaitForOp@ to @Busy@.
     wbFwd = case (state, iFwd) of
-      (WaitForOp c, Df.NoData) -> wbEmpty   { strobe=False, busCycle=c }
-      (WaitForOp _, Df.Data i) -> (wbPkt i) { strobe=True,  busCycle=True }
-      (Busy, Df.NoData)        -> errorX "No input data in Busy state, this should be impossible!"
-      (Busy, Df.Data i)        -> (wbPkt i) { strobe=True,  busCycle=True }
+      (WaitForOp c, Nothing) -> wbEmpty   { strobe=False, busCycle=c }
+      (WaitForOp _, Just i) -> (wbPkt i) { strobe=True,  busCycle=True }
+      (Busy, Nothing)        -> errorX "No input data in Busy state, this should be impossible!"
+      (Busy, Just i)        -> (wbPkt i) { strobe=True,  busCycle=True }
       (WaitForAck c _ _ _, _)  -> wbEmpty   { strobe=False, busCycle=c }
     wbPkt WishboneOperation{..} = WishboneM2S
       { addr                = _opAddr
@@ -89,15 +89,15 @@ wishboneMasterT state (iFwd, (Ack oBwd, wbBwd, _))
 
     fsm
       :: WishboneMasterState dat  -- state
-      -> Df.Data (WishboneOperation addrWidth (ByteSize dat) dat)  -- iFwd
+      -> Maybe (WishboneOperation addrWidth (ByteSize dat) dat)  -- iFwd
       -> Bool                     -- oBwd
       -> WishboneMasterState dat  -- nextState
-    fsm st@WaitForOp{} Df.NoData _ = st
-    fsm WaitForOp{} (Df.Data WishboneOperation{..}) _
+    fsm st@WaitForOp{} Nothing _ = st
+    fsm WaitForOp{} (Just WishboneOperation{..}) _
       | _opAbort  = WaitForOp False
       | otherwise = Busy
-    fsm Busy{} Df.NoData _ = error "Sender did not keep Df channel constant!"
-    fsm Busy{} (Df.Data x) _
+    fsm Busy{} Nothing _ = error "Sender did not keep Df channel constant!"
+    fsm Busy{} (Just x) _
       | wbTerm    = WaitForAck (not $ _opDropCyc x) (dat $ _opDat x) (_opEOR x) (_opEOP x)
       | otherwise = Busy
       where

@@ -16,7 +16,6 @@ import Clash.Cores.Etherbone.WishboneMaster
 import qualified Clash.Prelude as C
 import Data.Maybe
 import Protocols
-import qualified Protocols.Df as Df
 import Protocols.Wishbone
 import Prelude
 import Clash.Cores.Etherbone.Base
@@ -67,7 +66,7 @@ prop_wishboneMasterT = property $ do
 
     -- Proper way to test this would be to create a model of the wishbone
     -- system. Instead I generate input 'signals' that are properly timed.
-    input' = replicate beginWait Df.NoData <> replicate wbTime' (Df.Data input) <> replicate ackTime' Df.NoData
+    input' = replicate beginWait Nothing <> replicate wbTime' (Just input) <> replicate ackTime' Nothing
     ackInput = replicate beginWait True <> replicate wbTime' False <> replicate (ackTime' - 1) False <> [True]
     wbAckInput = replicate beginWait False <> replicate (wbTime' - 1) False <> [True] <> replicate ackTime' False
 
@@ -82,7 +81,7 @@ prop_wishboneMasterT = property $ do
       (x, (Ack ack, (emptyWishboneS2M @WBData){readData = readData, acknowledge = wbAck}, ()))
 
     getWb (_, (_, x, _)) = x
-    getOutDat (_, (Df.Data x, _, _)) = x
+    getOutDat (_, (Just x, _, _)) = x
     getOutDat (_, (_, _, _)) = error "No data at the expected cycle"
   footnote (show input')
   footnote (show outStates)

@@ -49,16 +49,16 @@ recordProcessorT :: forall dataWidth addrWidth dat .
   -> ( RecordProcessorState addrWidth
      , ( PacketStreamS2M
        , ( Maybe (Bypass addrWidth)
-         , Df.Data (WishboneOperation addrWidth dataWidth dat)
+         , Maybe (WishboneOperation addrWidth dataWidth dat)
          )
        )
      )
 -- No data in -> no data out
 recordProcessorT state (Nothing, _)
-  = (state, (PacketStreamS2M True, (Nothing, Df.NoData)))
+  = (state, (PacketStreamS2M True, (Nothing, Nothing)))
 -- If in the initial state and abort is asserted, stay in this state.
 recordProcessorT WriteOrReadAddr (Just PacketStreamM2S{_abort=True}, _)
-  = (WriteOrReadAddr, (PacketStreamS2M True, (Nothing, Df.NoData)))
+  = (WriteOrReadAddr, (PacketStreamS2M True, (Nothing, Nothing)))
 recordProcessorT state (Just psFwd, ((), Ack wbAck))
   = (nextState, (PacketStreamS2M psBwd, (bpOut, wbOut)))
   where
@@ -81,7 +81,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
 
     -- Only write wishbone operations in the @Write@ or @Read@ state
     wbOut = case state of
-      Write i a -> Df.Data
+      Write i a -> Just
         $ WishboneOperation
           { _opAddr = a
           , _opDat = Just dat
@@ -92,7 +92,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
           , _opEOP = eop
           , _opAbort = abort
           }
-      Read i -> Df.Data
+      Read i -> Just
         $ WishboneOperation
           { _opAddr = resize psWord
           , _opDat = Nothing
@@ -103,7 +103,7 @@ recordProcessorT state (Just psFwd, ((), Ack wbAck))
           , _opEOP = eop
           , _opAbort = abort
           }
-      _ -> Df.NoData
+      _ -> Nothing
       where
         dat = bitCoerce $ _data psFwd
         isLast = isJust $ _last psFwd
