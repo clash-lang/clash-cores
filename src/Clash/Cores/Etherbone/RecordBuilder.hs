@@ -78,8 +78,8 @@ recordBuilderT :: forall addrWidth dataWidth dat .
   )
   => RecordBuilderState
   -> ( Maybe (Bypass addrWidth)
-     , Df.Data (WishboneResult dat)  -- Config space
-     , Df.Data (WishboneResult dat)  -- Wishbone space
+     , Maybe (WishboneResult dat)  -- Config space
+     , Maybe (WishboneResult dat)  -- Wishbone space
      , PacketStreamS2M
      )
   -> ( RecordBuilderState
@@ -141,8 +141,8 @@ recordBuilderT st@PadWrites{..} (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBw
       | otherwise          = wbm
 
     psFwd = case port of
-      Df.Data _ -> Just $ PacketStreamM2S (repeat 0) Nothing meta False
-      Df.NoData -> Nothing
+      Just _ -> Just $ PacketStreamM2S (repeat 0) Nothing meta False
+      Nothing -> Nothing
       where
         meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
 recordBuilderT st@Header (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
@@ -163,8 +163,8 @@ recordBuilderT st@Header (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
       | otherwise          = wbm
 
     psFwd = case port of
-      Df.Data r -> Just $ PacketStreamM2S headerDat (lst r) meta False
-      Df.NoData -> Nothing
+      Just r -> Just $ PacketStreamM2S headerDat (lst r) meta False
+      Nothing -> Nothing
       where
         headerDat = bitCoerce (pack (hdrRx2Tx hdr)) ++ repeat @(dataWidth - 4) 0
         lst r = if _resEOP r then Just maxBound else Nothing
@@ -192,8 +192,8 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
     st'
       | _bpAbort  = Aborted
       | otherwise = case port of
-        Df.Data p -> if _resEOR p then Init else ReadValues
-        Df.NoData -> ReadValues
+        Just p -> if _resEOR p then Init else ReadValues
+        Nothing -> ReadValues
     nextState
       | isJust psFwd && psBwd = st'
       | otherwise             = st
@@ -203,11 +203,11 @@ recordBuilderT st@ReadValues (Just Bypass{..}, cfg, wbm, PacketStreamS2M psBwd)
       | otherwise         = wbm
 
     psFwd = case port of
-      Df.Data WishboneResult{_resDat=Just d, _resEOP}
+      Just WishboneResult{_resDat=Just d, _resEOP}
         -> Just $ PacketStreamM2S (bitCoerce d) (lst _resEOP) meta False
-      Df.Data WishboneResult{_resDat=Nothing}
+      Just WishboneResult{_resDat=Nothing}
         -> deepErrorX "Each result should hold valid data."
-      Df.NoData -> Nothing
+      Nothing -> Nothing
       where
         lst r = if r then Just maxBound else Nothing
         meta = ebTxMeta (SNat @dataWidth) (SNat @addrWidth)
@@ -292,7 +292,7 @@ recordBuilderC = Circuit go
         -- the @bypassLatch@ should be reset.
         -- A master __may not__ send anything when it had not received an
         -- operation specifically meant for it.
-        wbPorts = (\a b -> Df.dataToMaybe a <|> Df.dataToMaybe b) <$> wbm <*> cfg
+        wbPorts = (<|>) <$> wbm <*> cfg
         isLast = maybe False _resEOR <$> wbPorts
 
         -- Backward signal to masters, used by @bypassLatchT@ to check if a

@@ -64,8 +64,8 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         packetCounterT cnt fwd (Ack bwd)
           | isLast fwd && bwd && not (isAbort fwd) = cnt + 1
           | otherwise = cnt
-        isLast  x = fromMaybe False $ Df.dataToMaybe (fmap _opEOP x)
-        isAbort x = fromMaybe False $ Df.dataToMaybe (fmap _opAbort x)
+        isLast  = maybe False _opEOP
+        isAbort = maybe False _opAbort
 
         -- The Etherbone internal config registers
         etherboneConfigRegs
@@ -89,16 +89,16 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         -- abort set. Selects to correct Word from the @configSpace@.
         regSelect ::
           ( KnownNat n )
-          => Df.Data (WishboneOperation addrWidth (ByteSize dat) dat)
+          => Maybe (WishboneOperation addrWidth (ByteSize dat) dat)
           -> Vec n (BitVector (BitSize dat))
-          -> Df.Data (Maybe dat)
-        regSelect Df.NoData _ = Df.NoData
-        regSelect (Df.Data WishboneOperation{..}) cs
+          -> Maybe (Maybe dat)
+        regSelect Nothing _ = Nothing
+        regSelect (Just WishboneOperation{..}) cs
           | _opAddrSpace == WishboneAddressSpace
-                          = Df.NoData
-          | _opAbort      = Df.NoData
-          | isJust _opDat = Df.Data Nothing
-          | otherwise     = Df.Data $ Just $ bitCoerce (cs !! index)
+                          = Nothing
+          | _opAbort      = Nothing
+          | isJust _opDat = Just Nothing
+          | otherwise     = Just $ Just $ bitCoerce (cs !! index)
             where
               bitsToShift = natToNum @(CLog 2 (ByteSize dat))
               index = shiftR _opAddr bitsToShift
