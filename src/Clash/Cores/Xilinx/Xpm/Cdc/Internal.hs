@@ -15,6 +15,7 @@ eventually made public.
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
@@ -690,10 +691,10 @@ instWizardBBTF xilinxWizard bbCtx | [compName] <- bbQsysIncName bbCtx =
 
       proc createIp {ipName0 args} {
         create_ip #{backslash}
-          -name floating_point #{backslash}
-          -vendor xilinx.com #{backslash}
-          -library ip #{backslash}
-          -version 7.1 #{backslash}
+          -name #{wizardName} #{backslash}
+          -vendor #{wizardVendor} #{backslash}
+          -library #{wizardLibrary} #{backslash}
+          -version #{wizardVersion} #{backslash}
           -module_name $ipName0 #{backslash}
           {*}$args
 
@@ -706,6 +707,10 @@ instWizardBBTF xilinxWizard bbCtx | [compName] <- bbQsysIncName bbCtx =
   |]
  where
   backslash = "\\" :: Text
+  wizardName = Text.pack xilinxWizard.wiz_name
+  wizardVendor = Text.pack xilinxWizard.wiz_vendor
+  wizardLibrary = Text.pack xilinxWizard.wiz_library
+  wizardVersion = Text.pack xilinxWizard.wiz_version
   props = Text.intercalate "\n" (toList (map ppProp (wiz_options xilinxWizard)))
   ppProp (name, value) =
     Text.replicate 29 " " <> Text.pack name <> " " <>
