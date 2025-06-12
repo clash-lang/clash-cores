@@ -179,7 +179,7 @@ mdioDfFifo ckt = Circuit go
   go (fwdIn, bwdIn) = (bwdOut, fwdOut)
    where
     (bwdOut, fwdToFifo) = toSignals ckt (fwdIn, pure ())
-    (_, fwdOut) = (toSignals $ Df.fifo d8) (Df.maybeToData <$> fwdToFifo, bwdIn)
+    (_, fwdOut) = (toSignals $ Df.fifo d8) (fwdToFifo, bwdIn)
 
 -- | Test the MDIO controller with a single PHY connected to the bus.
 prop_mdio_controller_single_phy :: Property
@@ -200,7 +200,7 @@ prop_mdio_controller_single_phy =
    where
     go (reqIn, _) = (Ack <$> ready, resp)
      where
-      (resp, ready, mdioOut) = mdioController @dom d4 mdioIn (Df.dataToMaybe <$> reqIn)
+      (resp, ready, mdioOut) = mdioController @dom d4 mdioIn reqIn
 
       -- Connect the PHY to the bus.
       (phyMdioT, phyMdio) = mdioPhy 0 (_mdc mdioOut) (boolToBit <$> _mdioT mdioOut)
@@ -226,7 +226,7 @@ prop_mdio_controller_two_phys =
    where
     go (reqIn, _) = (Ack <$> ready, resp)
      where
-      (resp, ready, mdioOut) = mdioController @dom d7 mdioIn (Df.dataToMaybe <$> reqIn)
+      (resp, ready, mdioOut) = mdioController @dom d7 mdioIn reqIn
 
       -- Connect the PHYs to the bus.
       (phyMdioT1, phyMdio1) = mdioPhy 3 (_mdc mdioOut) (boolToBit <$> _mdioT mdioOut)
