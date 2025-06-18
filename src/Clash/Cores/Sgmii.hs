@@ -62,7 +62,7 @@ module Clash.Cores.Sgmii
   )
 where
 
-import Clash.Cores.LineCoding8b10b
+import Clash.Cores.LineCoding.Lc8b10b
 import Clash.Cores.Sgmii.AutoNeg
 import Clash.Cores.Sgmii.BitSlip
 import Clash.Cores.Sgmii.Common

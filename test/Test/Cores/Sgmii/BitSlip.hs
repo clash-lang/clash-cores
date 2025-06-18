@@ -9,7 +9,7 @@ import Data.Maybe (isJust, isNothing)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Cores.LineCoding8b10b
+import Test.Cores.LineCoding.Lc8b10b
 import Test.Tasty
 import Test.Tasty.Hedgehog
 import Test.Tasty.TH
