@@ -1,6 +1,6 @@
 module Test.Cores.Sgmii.Sync where
 
-import Clash.Cores.LineCoding8b10b
+import Clash.Cores.LineCoding.Lc8b10b
 import Clash.Cores.Sgmii.Common
 import Clash.Cores.Sgmii.Sync
 import Clash.Hedgehog.Sized.BitVector
@@ -10,7 +10,7 @@ import Data.List (group, mapAccumL, maximumBy)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Cores.LineCoding8b10b
+import Test.Cores.LineCoding.Lc8b10b
 import Test.Tasty
 import Test.Tasty.Hedgehog
 import Test.Tasty.TH

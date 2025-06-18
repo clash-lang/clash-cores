@@ -4,10 +4,10 @@
 --   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 --
 --   8b/10b encoding and decoding functions
-module Clash.Cores.LineCoding8b10b where
+module Clash.Cores.LineCoding.Lc8b10b where
 
-import qualified Clash.Cores.LineCoding8b10b.Decoder as Dec
-import qualified Clash.Cores.LineCoding8b10b.Encoder as Enc
+import qualified Clash.Cores.LineCoding.Lc8b10b.Decoder as Dec
+import qualified Clash.Cores.LineCoding.Lc8b10b.Encoder as Enc
 import Clash.Prelude
 
 -- | Data type that contains a 'BitVector' with the corresponding error

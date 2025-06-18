@@ -15,7 +15,7 @@ module Clash.Cores.Sgmii.PcsReceive
   )
 where
 
-import Clash.Cores.LineCoding8b10b
+import Clash.Cores.LineCoding.Lc8b10b
 import Clash.Cores.Sgmii.Common
 import Clash.Prelude
 

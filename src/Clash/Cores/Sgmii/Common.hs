@@ -8,7 +8,7 @@
 -}
 module Clash.Cores.Sgmii.Common where
 
-import Clash.Cores.LineCoding8b10b
+import Clash.Cores.LineCoding.Lc8b10b
 import Clash.Prelude
 
 -- | Format of a single code group, 10-bit
