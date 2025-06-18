@@ -4,9 +4,9 @@
 --   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 --
 --   8b/10b encoding and decoding tests
-module Test.Cores.LineCoding8b10b where
+module Test.Cores.LineCoding.Lc8b10b where
 
-import Clash.Cores.LineCoding8b10b
+import Clash.Cores.LineCoding.Lc8b10b
 import Clash.Hedgehog.Sized.BitVector
 import qualified Clash.Prelude as C
 import Control.Monad (when)

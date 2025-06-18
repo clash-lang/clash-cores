@@ -5,7 +5,7 @@
 --   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 --
 --   8b/10b decoding look-up table
-module Clash.Cores.LineCoding8b10b.Decoder where
+module Clash.Cores.LineCoding.Lc8b10b.Decoder where
 
 import Clash.Prelude
 
