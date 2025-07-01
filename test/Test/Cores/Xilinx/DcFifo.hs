@@ -58,23 +58,23 @@ tests = testGroup "FIFO tests"
   , testPropertyNamed
       "FIFO preserves order (wrT = rdT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D3) feedState takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D3) feedState drainState)
   , testPropertyNamed
       "FIFO preserves order (wrT > rdT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D11) feedState takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D11) feedState drainState)
   , testPropertyNamed
       "FIFO preserves order (rdT > wrT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedState takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedState drainState)
   , testPropertyNamed
       "FIFO preserves order when writes don't respect overflow (rdT > wrT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedClumsy takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedClumsy drainState)
   , testPropertyNamed
       "FIFO doesn't throw exceptions on underflow (wrT > rdT)"
-      "prop_fifoOrder"
-      (prop_noException (SNat @4) (Proxy @D3) (Proxy @D11) feedState takeClumsy)
+      "prop_noException"
+      (prop_noException (SNat @4) (Proxy @D3) (Proxy @D11) feedState drainClumsy)
   , testOverflow
 
   , testGroup "Can be used in feedback loops"
@@ -247,7 +247,7 @@ prop_noloss ::
   SNat d -> Proxy read -> Proxy write -> Property
 prop_noloss d pr pw = property $ do
   (xs, wrIn, rdStalls) <- forAll $ genScenario (Gen.int (Range.linear 7 12)) (Gen.int (Range.linear 7 8))
-  throughFifo d pr pw feedState takeState wrIn rdStalls === xs
+  throughFifo d pr pw feedState drainState wrIn rdStalls === xs
 
 testOverflow :: TestTree
 testOverflow = testCase "Overflows appropriately" $ do
@@ -275,34 +275,34 @@ type Drain depth n =
 
 -- | Mealy machine which stalls reading from the FIFO based on ['Maybe'
 -- 'Int']
-takeState ::
+drainState ::
   (Bool, [Maybe Int]) ->
   (Empty, DataCount depth, BitVector n) ->
   ((Bool, [Maybe Int]), (Maybe (BitVector n), Bool))
-takeState (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
-    ((False, Just (n-1):stalls), (nextData, False))
-  where
-    nextData = readLastCycle `orNothing` d
-takeState (readLastCycle, stalls) (fifoEmpty, _, d) =
-    ((readThisCycle, L.drop 1 stalls), (nextData, readThisCycle))
-  where
-    readThisCycle = not fifoEmpty
-    nextData = readLastCycle `orNothing` d
+drainState (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
+  ((False, Just (n-1):stalls), (nextData, False))
+ where
+  nextData = readLastCycle `orNothing` d
+drainState (readLastCycle, stalls) (fifoEmpty, _, d) =
+  ((readThisCycle, L.drop 1 stalls), (nextData, readThisCycle))
+ where
+  readThisCycle = not fifoEmpty
+  nextData = readLastCycle `orNothing` d
 
 -- | Mealy machine which stalls reading from the FIFO based on ['Maybe'
 -- 'Int']. This ignores @empty@ signals out of the FIFO.
-takeClumsy ::
+drainClumsy ::
   (Bool, [Maybe Int]) ->
   (Empty, DataCount depth, BitVector n) ->
   ((Bool, [Maybe Int]), (Maybe (BitVector n), Bool))
-takeClumsy (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
-    ((False, Just (n-1):stalls), (nextData, False))
-  where
-    nextData = readLastCycle `orNothing` d
-takeClumsy (readLastCycle, stalls) (_, _, d) =
-    ((True, L.drop 1 stalls), (nextData, True))
-  where
-    nextData = readLastCycle `orNothing` d
+drainClumsy (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
+  ((False, Just (n-1):stalls), (nextData, False))
+ where
+  nextData = readLastCycle `orNothing` d
+drainClumsy (readLastCycle, stalls) (_, _, d) =
+  ((True, L.drop 1 stalls), (nextData, True))
+ where
+  nextData = readLastCycle `orNothing` d
 
 type Feed d =
   SNat d ->
@@ -334,8 +334,7 @@ feedClumsy ::
 feedClumsy _ [] _ = ([], Nothing)
 feedClumsy _ (Left 0:xs) (_, _) = (xs, Nothing)
 feedClumsy _ (Left i:xs) (_, _) = (Left (i-1):xs, Nothing)
-feedClumsy _ (Right x:xs) (_, _) =
-    (xs, Just x)
+feedClumsy _ (Right x:xs) (_, _) = (xs, Just x)
 
 throughFifo
   :: forall (read :: Symbol) (write :: Symbol) d.
