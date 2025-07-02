@@ -16,7 +16,9 @@ import Data.Proxy (Proxy (..))
 
 import Clash.Explicit.Prelude
 import Clash.Cores.Xilinx.DcFifo
+import Clash.Hedgehog.Sized.BitVector (genDefinedBitVector)
 import Clash.Netlist.Util (orNothing)
+import Protocols.Hedgehog (defExpectOptions, idWithModel)
 
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -39,7 +41,8 @@ createDomain vXilinxSystem{vName="F6", vPeriod=250}
 
 tests :: TestTree
 tests = testGroup "FIFO tests"
-  [ testPropertyNamed
+  [ -- Tests for dcFifo
+    testPropertyNamed
       "FIFO doesn't lose any data with small stalls (wrT > rdT)"
       "prop_noloss"
       (prop_noloss (SNat @4) (Proxy @D3) (Proxy @D5))
@@ -75,6 +78,14 @@ tests = testGroup "FIFO tests"
       "FIFO doesn't throw exceptions on underflow (wrT > rdT)"
       "prop_noException"
       (prop_noException (SNat @4) (Proxy @D3) (Proxy @D11) feedState drainClumsy)
+
+  -- Test for dcFifoDf
+  ,  testPropertyNamed
+      "FIFO with Df specialization functions as identity function"
+      "prop_dcFifoDf"
+      prop_dcFifoDf
+
+  -- More tests for dcFifo
   , testOverflow
 
   , testGroup "Can be used in feedback loops"
@@ -380,3 +391,19 @@ throughFifo d _ _ feed drain wrDataList rdStalls = rdDataList
 
     (FifoOut wrFull _ wrCnt rdEmpty _ rdCnt rdData) =
       dcFifo defConfig wrClk noWrRst rdClk noRdRst wrData rdEnaB
+
+-- | Test `dcFifoDf` with the @id@ as its model. Does not test for different
+-- read and write domains, as the underlying `dcFifo` is already tested.
+prop_dcFifoDf :: Property
+prop_dcFifoDf =
+  idWithModel
+    defExpectOptions
+    gen
+    model
+    impl
+ where
+  gen = Gen.list (Range.linear 0 100) (genDefinedBitVector @_ @32)
+  model = id
+  impl = dcFifoDf d4 wClk wRst rClk rRst
+  (wClk, wRst) = (clockGen @D3, resetGen)
+  (rClk, rRst) = (clockGen @D5, resetGen)

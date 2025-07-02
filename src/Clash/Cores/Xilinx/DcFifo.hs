@@ -46,9 +46,11 @@ Vivado 2022.1.)
 -}
 
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# OPTIONS_GHC -fplugin=Protocols.Plugin #-}
 
 module Clash.Cores.Xilinx.DcFifo
   ( -- ** Reset sequencing
@@ -57,6 +59,7 @@ module Clash.Cores.Xilinx.DcFifo
 
     -- * Instantiating IP
     dcFifo
+  , dcFifoDf
   , FifoOut(..)
 
     -- * Customizing IP
@@ -69,6 +72,7 @@ module Clash.Cores.Xilinx.DcFifo
   , DataCount
   ) where
 
+import Clash.Prelude (withClockResetEnable)
 import Clash.Explicit.Prelude
 import Clash.Signal.Internal (Signal (..), ClockAB (..), clockTicks)
 import Data.Maybe (isJust)
@@ -82,6 +86,8 @@ import Clash.Annotations.Primitive (Primitive (InlineYamlPrimitive))
 import Clash.Cores.Xilinx.DcFifo.Internal.BlackBoxes
 import Clash.Cores.Xilinx.DcFifo.Internal.Instances ()
 import Clash.Cores.Xilinx.DcFifo.Internal.Types
+import Protocols (Circuit (Circuit), Ack (..), (|>))
+import Protocols.Df (Df, forceResetSanity)
 
 {- $setup
 >>> import Clash.Explicit.Prelude
@@ -263,3 +269,70 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
             templateFunction: #{tfName}
             workInfo: Always
         |]) #-}
+
+-- | Xilinx dual clock FIFO specialized for Df
+dcFifoDf ::
+  ( KnownDomain write
+  , KnownDomain read
+  , KnownNat depth
+  , 4 <= depth
+  , depth <= 17
+  , NFDataX a
+  ) =>
+  SNat depth ->
+  Clock write ->
+  Reset write ->
+  Clock read ->
+  Reset read ->
+  Circuit
+    (Df write a)
+    (Df read a)
+dcFifoDf d wClk wRst rClk rRst =
+  withClockResetEnable wClk wRst enableGen forceResetSanity |> Circuit go
+ where
+  go (writeData, readAck) = (writeAck, readData)
+   where
+    writeAck = fmap Ack $ not <$> fifoOut.isFull
+
+    fifoOut = dcFifo cfg wClk wRst rClk rRst writeData rEnable
+    (rEnable, readData) =
+      mealyB
+        rClk
+        rRst
+        enableGen
+        goRead
+        InReset
+        ( fifoOut.fifoData
+        , readAck
+        , fifoOut.isUnderflow
+        )
+
+    goRead :: ReadState a -> (a, Ack, IsUnderflow) -> (ReadState a, (Bool, Maybe a))
+    goRead InReset _ = (FirstRead, (False, Nothing))
+    goRead FirstRead _ = (Read, (True, Nothing))
+    goRead Read (_, _, True) = (Read, (True, Nothing))
+    goRead Read (a, ~(Ack ack), False) =
+      ( if ack then Read else WaitForReadAck a
+      , (ack, Just a)
+      )
+    goRead (WaitForReadAck a) (_, ~(Ack ack), _) =
+      ( if ack then Read else WaitForReadAck a
+      , (ack, Just a)
+      )
+
+    cfg = DcConfig
+      { dcDepth = d
+      , dcReadDataCount = False
+      , dcWriteDataCount = False
+      , dcOverflow = False
+      , dcUnderflow = True
+      }
+
+data ReadState a
+  = InReset
+  | FirstRead
+  | Read
+  | WaitForReadAck a
+  deriving (Generic, NFDataX)
+
+type IsUnderflow = Bool
