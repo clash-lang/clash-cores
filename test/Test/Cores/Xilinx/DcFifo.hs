@@ -402,7 +402,8 @@ prop_dcFifoDf =
     model
     impl
  where
-  gen = Gen.list (Range.linear 0 100) (genDefinedBitVector @_ @32)
+  gen :: Gen [BitVector 32]
+  gen = Gen.list (Range.linear 0 100) genDefinedBitVector
   model = id
   impl = dcFifoDf d4 wClk wRst rClk rRst
   (wClk, wRst) = (clockGen @D3, resetGen)
