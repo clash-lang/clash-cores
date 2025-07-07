@@ -16,7 +16,9 @@ import Data.Proxy (Proxy (..))
 
 import Clash.Explicit.Prelude
 import Clash.Cores.Xilinx.DcFifo
+import Clash.Hedgehog.Sized.BitVector (genDefinedBitVector)
 import Clash.Netlist.Util (orNothing)
+import Protocols.Hedgehog (defExpectOptions, idWithModel)
 
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -39,7 +41,8 @@ createDomain vXilinxSystem{vName="F6", vPeriod=250}
 
 tests :: TestTree
 tests = testGroup "FIFO tests"
-  [ testPropertyNamed
+  [ -- Tests for dcFifo
+    testPropertyNamed
       "FIFO doesn't lose any data with small stalls (wrT > rdT)"
       "prop_noloss"
       (prop_noloss (SNat @4) (Proxy @D3) (Proxy @D5))
@@ -58,23 +61,31 @@ tests = testGroup "FIFO tests"
   , testPropertyNamed
       "FIFO preserves order (wrT = rdT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D3) feedState takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D3) feedState drainState)
   , testPropertyNamed
       "FIFO preserves order (wrT > rdT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D11) feedState takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D3) (Proxy @D11) feedState drainState)
   , testPropertyNamed
       "FIFO preserves order (rdT > wrT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedState takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedState drainState)
   , testPropertyNamed
       "FIFO preserves order when writes don't respect overflow (rdT > wrT)"
       "prop_fifoOrder"
-      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedClumsy takeState)
+      (prop_fifoOrder (SNat @4) (Proxy @D11) (Proxy @D3) feedClumsy drainState)
   , testPropertyNamed
       "FIFO doesn't throw exceptions on underflow (wrT > rdT)"
-      "prop_fifoOrder"
-      (prop_noException (SNat @4) (Proxy @D3) (Proxy @D11) feedState takeClumsy)
+      "prop_noException"
+      (prop_noException (SNat @4) (Proxy @D3) (Proxy @D11) feedState drainClumsy)
+
+  -- Test for dcFifoDf
+  ,  testPropertyNamed
+      "FIFO with Df specialization functions as identity function"
+      "prop_dcFifoDf"
+      prop_dcFifoDf
+
+  -- More tests for dcFifo
   , testOverflow
 
   , testGroup "Can be used in feedback loops"
@@ -247,7 +258,7 @@ prop_noloss ::
   SNat d -> Proxy read -> Proxy write -> Property
 prop_noloss d pr pw = property $ do
   (xs, wrIn, rdStalls) <- forAll $ genScenario (Gen.int (Range.linear 7 12)) (Gen.int (Range.linear 7 8))
-  throughFifo d pr pw feedState takeState wrIn rdStalls === xs
+  throughFifo d pr pw feedState drainState wrIn rdStalls === xs
 
 testOverflow :: TestTree
 testOverflow = testCase "Overflows appropriately" $ do
@@ -275,34 +286,34 @@ type Drain depth n =
 
 -- | Mealy machine which stalls reading from the FIFO based on ['Maybe'
 -- 'Int']
-takeState ::
+drainState ::
   (Bool, [Maybe Int]) ->
   (Empty, DataCount depth, BitVector n) ->
   ((Bool, [Maybe Int]), (Maybe (BitVector n), Bool))
-takeState (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
-    ((False, Just (n-1):stalls), (nextData, False))
-  where
-    nextData = readLastCycle `orNothing` d
-takeState (readLastCycle, stalls) (fifoEmpty, _, d) =
-    ((readThisCycle, L.drop 1 stalls), (nextData, readThisCycle))
-  where
-    readThisCycle = not fifoEmpty
-    nextData = readLastCycle `orNothing` d
+drainState (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
+  ((False, Just (n-1):stalls), (nextData, False))
+ where
+  nextData = readLastCycle `orNothing` d
+drainState (readLastCycle, stalls) (fifoEmpty, _, d) =
+  ((readThisCycle, L.drop 1 stalls), (nextData, readThisCycle))
+ where
+  readThisCycle = not fifoEmpty
+  nextData = readLastCycle `orNothing` d
 
 -- | Mealy machine which stalls reading from the FIFO based on ['Maybe'
 -- 'Int']. This ignores @empty@ signals out of the FIFO.
-takeClumsy ::
+drainClumsy ::
   (Bool, [Maybe Int]) ->
   (Empty, DataCount depth, BitVector n) ->
   ((Bool, [Maybe Int]), (Maybe (BitVector n), Bool))
-takeClumsy (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
-    ((False, Just (n-1):stalls), (nextData, False))
-  where
-    nextData = readLastCycle `orNothing` d
-takeClumsy (readLastCycle, stalls) (_, _, d) =
-    ((True, L.drop 1 stalls), (nextData, True))
-  where
-    nextData = readLastCycle `orNothing` d
+drainClumsy (readLastCycle, Just n:stalls) (_, _, d) | n > 0 =
+  ((False, Just (n-1):stalls), (nextData, False))
+ where
+  nextData = readLastCycle `orNothing` d
+drainClumsy (readLastCycle, stalls) (_, _, d) =
+  ((True, L.drop 1 stalls), (nextData, True))
+ where
+  nextData = readLastCycle `orNothing` d
 
 type Feed d =
   SNat d ->
@@ -334,8 +345,7 @@ feedClumsy ::
 feedClumsy _ [] _ = ([], Nothing)
 feedClumsy _ (Left 0:xs) (_, _) = (xs, Nothing)
 feedClumsy _ (Left i:xs) (_, _) = (Left (i-1):xs, Nothing)
-feedClumsy _ (Right x:xs) (_, _) =
-    (xs, Just x)
+feedClumsy _ (Right x:xs) (_, _) = (xs, Just x)
 
 throughFifo
   :: forall (read :: Symbol) (write :: Symbol) d.
@@ -381,3 +391,19 @@ throughFifo d _ _ feed drain wrDataList rdStalls = rdDataList
 
     (FifoOut wrFull _ wrCnt rdEmpty _ rdCnt rdData) =
       dcFifo defConfig wrClk noWrRst rdClk noRdRst wrData rdEnaB
+
+-- | Test `dcFifoDf` with the @id@ as its model. Does not test for different
+-- read and write domains, as the underlying `dcFifo` is already tested.
+prop_dcFifoDf :: Property
+prop_dcFifoDf =
+  idWithModel
+    defExpectOptions
+    gen
+    model
+    impl
+ where
+  gen = Gen.list (Range.linear 0 100) (genDefinedBitVector @_ @32)
+  model = id
+  impl = dcFifoDf d4 wClk wRst rClk rRst
+  (wClk, wRst) = (clockGen @D3, resetGen)
+  (rClk, rRst) = (clockGen @D5, resetGen)
