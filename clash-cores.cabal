@@ -142,6 +142,7 @@ library
     Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
     Clash.Cores.Etherbone.ConfigMaster
+    Clash.Cores.Ethernet.Mdio
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
@@ -228,6 +229,7 @@ test-suite unit-tests
     Test.Cores.Etherbone.WishboneMaster
     Test.Cores.Etherbone.RecordBuilder
     Test.Cores.Etherbone.RecordProcessor
+    Test.Cores.Ethernet.Mdio
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding8b10b
     Test.Cores.Internal.Signals
