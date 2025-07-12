@@ -146,6 +146,9 @@ library
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
     Clash.Cores.LatticeSemi.ICE40.IO
+    Clash.Cores.LineCoding.Lc5b6b
+    Clash.Cores.LineCoding.Lc5b6b.Decoder
+    Clash.Cores.LineCoding.Lc5b6b.Encoder
     Clash.Cores.LineCoding.Lc8b10b
     Clash.Cores.LineCoding.Lc8b10b.Decoder
     Clash.Cores.LineCoding.Lc8b10b.Encoder
