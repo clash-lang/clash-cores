@@ -1,13 +1,14 @@
--- |
---   Copyright   :  (C) 2024, QBayLogic B.V.
---   License     :  BSD2 (see the file LICENSE)
---   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
---
---   8b/10b encoding and decoding functions
-module Clash.Cores.LineCoding8b10b where
+{- |
+  Copyright   :  (C) 2024-2025, QBayLogic B.V.
+  License     :  BSD2 (see the file LICENSE)
+  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-import qualified Clash.Cores.LineCoding8b10b.Decoder as Dec
-import qualified Clash.Cores.LineCoding8b10b.Encoder as Enc
+  8b/10b encoding and decoding functions
+-}
+module Clash.Cores.LineCoding.Lc8b10b where
+
+import qualified Clash.Cores.LineCoding.Lc8b10b.Decoder as Dec
+import qualified Clash.Cores.LineCoding.Lc8b10b.Encoder as Enc
 import Clash.Prelude
 
 -- | Data type that contains a 'BitVector' with the corresponding error
@@ -69,7 +70,6 @@ decode8b10b rd cg = (rdNew, sym)
       $ asyncRomBlobPow2
         $(memBlobTH Nothing Dec.decoderLut)
       $ unpack (pack rd ++# cg)
-
 {-# OPAQUE decode8b10b #-}
 
 -- | Take the running disparity and the current 'Symbol8b10b', and return a
@@ -92,5 +92,4 @@ encode8b10b rd sym = out
       $ unpack (pack (isCw sym) ++# pack rd ++# fromSymbol sym)
 
   out = if isValidSymbol sym then (rdNew, cg) else (rd, 0)
-
 {-# OPAQUE encode8b10b #-}
