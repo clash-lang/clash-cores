@@ -18,4 +18,4 @@ This code was originally a sub-folder within the clash-compiler repo, but now it
 
 If you're looking for a pre-built Clash circuit and don't find it here, you can also check out [Clash Protocols](https://github.com/clash-lang/clash-protocols/tree/main/clash-protocols/src/Protocols) to see if it exists there.
 
-You can also look through Adam Walker's excellent list of [prebuilt Clash circuits](https://github.com/adamwalker/clash-utils).
+You can also look through Adam Walker's excellent list of [prebuilt Clash circuits](https://github.com/adamwalker/clash-utils) and other community projects on Clash's [ecosystem page](https://clash-lang.org/ecosystem/).
