@@ -34,20 +34,34 @@
         # The base of the overlay is clash-pkgs
         overlay = overlay;
 
-        devShells.default = hs-pkgs.shellFor {
-          packages = p: [
-            p.clash-cores
-          ];
+        devShells = rec {
+          minimal = hs-pkgs.shellFor {
+            packages = p: [
+              p.clash-cores
+            ];
 
-          nativeBuildInputs = 
-            [
-              # Haskell stuff
+            nativeBuildInputs = [
               hs-pkgs.cabal-install
-              hs-pkgs.haskell-language-server
-              hs-pkgs.fourmolu
-            ]
-          ;
+            ];
+          };
+
+          full = hs-pkgs.shellFor {
+            packages = p: [
+              p.clash-cores
+            ];
+
+            nativeBuildInputs = 
+              [
+                hs-pkgs.cabal-install
+                hs-pkgs.haskell-language-server
+                hs-pkgs.fourmolu
+              ]
+            ;
+          };
+
+          default = minimal;
         };
+
         packages = {
           clash-cores = hs-pkgs.clash-cores;
 
