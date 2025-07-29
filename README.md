@@ -14,7 +14,7 @@ These circuits include:
 
 Note: The `SGMII` circuits require `clash-prelude >= 1.9.0` and will be skipped if built against an earlier version of Clash.
 
-This code was originally a sub-folder within the clash-compiler repo, but now it's being moved into its own repository. This move is still in progress. You can still find the previous clash-cores folder [here](https://github.com/clash-lang/clash-compiler/tree/master/clash-cores)  and see the status of moving it to this repo [here](https://github.com/clash-lang/clash-compiler/issues/2757)
+This code was originally a sub-folder within the clash-compiler repo, but now it's being moved into its own repository. This move is still in progress. You can see the current status of move [here](https://github.com/clash-lang/clash-compiler/issues/2757).
 
 If you're looking for a pre-built Clash circuit and don't find it here, you can also check out [Clash Protocols](https://github.com/clash-lang/clash-protocols/tree/main/clash-protocols/src/Protocols) to see if it exists there.
 
