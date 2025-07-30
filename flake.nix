@@ -41,6 +41,12 @@
                 root = ./.;
                 overrides = _: _: final;
               }).overrideAttrs override-attrs;
+
+              # HDL tests
+              cores-hdl-tests = (prev.developPackage {
+                root = ./hdl-tests;
+                overrides = _: _: final;
+              });
             } // clash-protocols.overlays.${system}.${compiler-version} final prev;
           in
             { name = compiler-version; value = overlay; }
@@ -61,6 +67,7 @@
         minimal-shell = hs-pkgs: hs-pkgs.shellFor {
           packages = p: [
             p.clash-cores
+            p.cores-hdl-tests
           ];
 
           nativeBuildInputs =

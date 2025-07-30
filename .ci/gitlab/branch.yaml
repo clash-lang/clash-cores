@@ -2,76 +2,84 @@ include:
   - '/.ci/gitlab/common.yaml'
 
 stages:
+  - nix
   - pre
   - test
   - post
 
-tests-always:
-  stage: test
-  needs: []
-  trigger:
-    include: .ci/gitlab/test.yaml
-    strategy: depend
-  variables:
-    CLASH_BRANCH: "$CLASH_BRANCH"
-    CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
-  parallel:
-    matrix:
-      - GHC_VERSION: ["9.6.6", "9.10.1"]
+# No. Do not test when I'M TESTING!
+# tests-always:
+#   stage: test
+#   needs: []
+#   trigger:
+#     include: .ci/gitlab/test.yaml
+#     strategy: depend
+#   variables:
+#     CLASH_BRANCH: "$CLASH_BRANCH"
+#     CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
+#   parallel:
+#     matrix:
+#       - GHC_VERSION: ["9.6.6", "9.10.1"]
 
-tests-release:
-  stage: test
-  rules:
-    - if: $CLASH_BRANCH == "release"
-  needs: []
+do-nix-stuff:
+  stage: nix
   trigger:
-    include: .ci/gitlab/test.yaml
+    include: .ci/gitlab/nix.yaml
     strategy: depend
-  variables:
-    CLASH_BRANCH: "$CLASH_BRANCH"
-    CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
-  parallel:
-    matrix:
-      - GHC_VERSION: ["9.8.4"]
+
+# tests-release:
+#   stage: test
+#   rules:
+#     - if: $CLASH_BRANCH == "release"
+#   needs: []
+#   trigger:
+#     include: .ci/gitlab/test.yaml
+#     strategy: depend
+#   variables:
+#     CLASH_BRANCH: "$CLASH_BRANCH"
+#     CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
+#   parallel:
+#     matrix:
+#       - GHC_VERSION: ["9.8.4"]
 
 # Test GHC versions on master that our release version does
 # not support. In case there is no such GHC, set "matrix" to [] .
-tests-master:
-  stage: test
-  rules:
-    - if: $CLASH_BRANCH == "master"
-  needs: []
-  trigger:
-    include: .ci/gitlab/test.yaml
-    strategy: depend
-  variables:
-    CLASH_BRANCH: "$CLASH_BRANCH"
-    CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
-  parallel:
-    matrix: []
+# tests-master:
+#   stage: test
+#   rules:
+#     - if: $CLASH_BRANCH == "master"
+#   needs: []
+#   trigger:
+#     include: .ci/gitlab/test.yaml
+#     strategy: depend
+#   variables:
+#     CLASH_BRANCH: "$CLASH_BRANCH"
+#     CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
+#   parallel:
+#     matrix: []
 
-stack-build:
-  extends: .common-local
-  image: fpco/stack-build:lts-23.6
-  needs: []
-  stage: test
-  rules:
-    - if: $CLASH_BRANCH == "release"
-  variables:
-    CACHE_FALLBACK_KEY: $CI_JOB_NAME-clash-$CLASH_BRANCH-main-$CI_JOB_IMAGE-$CACHE_BUST_TOKEN-non_protected
-  before_script:
-    - apt-get update
-    - apt-get install -y zstd
-    - export THREADS=$(./.ci/effective_cpus.sh)
-    - export
-    - tar -xf cache.tar.zst -C / || true
-    # Print stack.yaml for debugging
-    - cat stack.yaml
-  script:
-    - stack build -j$THREADS --pedantic
-  after_script:
-    - export THREADS=$(./.ci/effective_cpus.sh)
-    - tar -cf - /root/.stack | zstd -T$THREADS -3 > cache.tar.zst
+# stack-build:
+#   extends: .common-local
+#   image: fpco/stack-build:lts-23.6
+#   needs: []
+#   stage: test
+#   rules:
+#     - if: $CLASH_BRANCH == "release"
+#   variables:
+#     CACHE_FALLBACK_KEY: $CI_JOB_NAME-clash-$CLASH_BRANCH-main-$CI_JOB_IMAGE-$CACHE_BUST_TOKEN-non_protected
+#   before_script:
+#     - apt-get update
+#     - apt-get install -y zstd
+#     - export THREADS=$(./.ci/effective_cpus.sh)
+#     - export
+#     - tar -xf cache.tar.zst -C / || true
+#     # Print stack.yaml for debugging
+#     - cat stack.yaml
+#   script:
+#     - stack build -j$THREADS --pedantic
+#   after_script:
+#     - export THREADS=$(./.ci/effective_cpus.sh)
+#     - tar -cf - /root/.stack | zstd -T$THREADS -3 > cache.tar.zst
 
 nix-build:
   image: nixos/nix:2.10.1
@@ -87,16 +95,16 @@ nix-build:
   tags:
     - local
 
-haddock:
-  extends: .common-local
-  needs: []
-  stage: test
-  artifacts:
-    paths:
-      - hadocs/*/*
-    expire_in: 1 month
-  script:
-    - .ci/build_docs.sh
+# haddock:
+#   extends: .common-local
+#   needs: []
+#   stage: test
+#   artifacts:
+#     paths:
+#       - hadocs/*/*
+#     expire_in: 1 month
+#   script:
+#     - .ci/build_docs.sh
 
 # We manually report status to GitHub to work around
 # <https://gitlab.com/gitlab-org/gitlab/-/issues/216629>.
