@@ -42,8 +42,16 @@
                 overrides = _: _: final;
               }).overrideAttrs override-attrs;
             } // clash-protocols.overlays.${system}.${compiler-version} final prev;
+
+            hdl-tests-overlay = final: prev: {
+              # The testsuite
+              cores-hdl-tests = (prev.developPackage {
+                root = ./hdl-tests;
+                overrides = _: _: final;
+              });
+            };
           in
-            { name = compiler-version; value = overlay; }
+            { name = compiler-version; value = { base = overlay; testsuite = hdl-tests-overlay; }; }
           ) supported-versions);
 
         all-hs-pkgs = builtins.mapAttrs (compiler-version: overlay:
@@ -53,7 +61,7 @@
             }).extend clash-compiler.overlays.${compiler-version};
             clash-pkgs = pkgs."clashPackages-${compiler-version}";
 
-            hs-pkgs = clash-pkgs.extend overlay;
+            hs-pkgs = (clash-pkgs.extend overlay.base).extend overlay.testsuite;
           in
             hs-pkgs
           ) all-overlays;
@@ -61,6 +69,7 @@
         minimal-shell = hs-pkgs: hs-pkgs.shellFor {
           packages = p: [
             p.clash-cores
+            p.cores-hdl-tests
           ];
 
           nativeBuildInputs =
@@ -82,9 +91,34 @@
                 hs-pkgs.haskell-language-server
               ];
             });
-          }) all-hs-pkgs;
+          }) all-hs-pkgs // (
+          let
+            hs-pkgs = all-hs-pkgs.${default-version};
+          in {
+            # This devshell is only meant to be used for the developer shell
+            # It includes the cores-hdl-tests package
+            # CI only uses default version for HDL tests
+            ci = hs-pkgs.shellFor {
+              packages = p: [
+                hs-pkgs.cores-hdl-tests
+              ];
 
-        all-packages = builtins.mapAttrs (_: hs-pkgs: hs-pkgs.clash-cores) all-hs-pkgs;
+              nativeBuildInputs =
+                [
+                  hs-pkgs.cabal-install
+                  hs-pkgs.cabal-plan
+                  hs-pkgs.fourmolu
+
+                  hs-pkgs.cores-hdl-tests
+                ];
+            };
+          });
+
+        all-packages = builtins.mapAttrs (_: hs-pkgs: {
+          cores-hdl-tests = hs-pkgs.cores-hdl-tests;
+          clash-cores = hs-pkgs.clash-cores;
+          default = hs-pkgs.clash-cores;
+        }) all-hs-pkgs;
       in
       {
         # Expose the overlay of each supported version which adds clash-cores
@@ -101,6 +135,6 @@
         devShells = all-shells // { default = all-shells."${default-version}-minimal"; };
 
         # Packages for each version of GHC, with a default package being set to the default-version's version
-        packages = all-packages // { default = all-packages.${default-version}; };
+        packages = all-packages // { default = all-packages.${default-version}.default; };
       });
 }

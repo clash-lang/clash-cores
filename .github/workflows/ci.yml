@@ -1,0 +1,158 @@
+name: CI
+
+# Trigger the workflow on all pull requests and pushes/merges to main branch
+on:
+  pull_request:
+  push:
+  #   branches: [main]
+  # workflow_dispatch:
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  stack:
+    name: Stack tests
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        ghc-version: [ "9.8.4", "9.10.1" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch cabal.project file
+        run: |
+          sed 's/1.8/master/' -i cabal.project
+
+      - name: Restore cached dependencies
+        uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-${{ matrix.ghc }}-${{ github.ref }}-${{ github.sha }}
+            ${{ runner.os }}-ghc-${{ matrix.ghc }}-${{ github.ref }}-
+            ${{ runner.os }}-ghc-${{ matrix.ghc }}-
+
+      - name: Install dependencies
+        run: stack build --test --only-dependencies --nix
+
+      # Cache dependencies already at this point, so that we do not have to
+      # rebuild them should the subsequent steps fail
+      - name: Save cached dependencies
+        uses: actions/cache/save@v4
+        # Trying to save over an existing cache gives distracting
+        # "Warning: Cache save failed." since they are immutable
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-${{ github.ref }}-${{ github.sha }}
+
+      - name: Build with Stack
+        run: stack build --nix
+
+  hdl-tests:
+    name: HDL Tests
+    runs-on: self-hosted
+    # Technically doesn't need it
+    # However, if this runs before the default GHC version finished, we'd be compiling the same thing
+    # twice for no reason. So it's best to just wait for compilation to succeed
+    # Only downside is that we're not running HDL tests in parallel right now, but we wouldn't be
+    # able to do that anyways if we'd still need to compile cores-hdl-tests
+    needs: ci-devshell
+    strategy:
+      matrix:
+        ghc-version: [ "ghc9101" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run HDL tests
+        run: |
+          nix develop -L .#ci \
+            --command bash -c "bash .github/scripts/hdl-tests.sh"
+
+  nix:
+    name: Nix/Cabal tests
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        ghc-version: [ "ghc9101", "ghc982", "ghc964" ]
+    steps:
+        # There's no need to configure Nix, the dockerfile handling the GHA has it done for us!
+        # If a dependencies are already cached, we can simply re-use them!
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build & test
+        run: |
+          # The -L flag outputs build logs to stderr
+          nix build -L .#${{ matrix.ghc-version }}.clash-cores
+
+      # In case building the HDL tests fail, cache some of the intermediary results
+      - name: Push cores package to cache
+        env:
+          ATTIC_TOKEN: ${{ secrets.ATTIC_SECRET }}
+        run: |
+          attic login --set-default public http://192.168.102.136:9200/ "$ATTIC_TOKEN"
+          attic push public $(nix path-info .#${{ matrix.ghc-version }}.clash-cores)
+
+      # - name: Build HDL Tests
+      #   run: |
+      #     nix build -L .#${{ matrix.ghc-version }}.cores-hdl-tests
+      #
+      # - name: Push tests to cache
+      #   env:
+      #     ATTIC_TOKEN: ${{ secrets.ATTIC_SECRET }}
+      #   run: |
+      #     attic login --set-default public http://192.168.102.136:9200/ "$ATTIC_TOKEN"
+      #     attic push public $(nix path-info .#${{ matrix.ghc-version }}.cores-hdl-tests)
+
+  devshells:
+    name: Nix build developer shells
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        ghc-version: [ "ghc9101", "ghc982", "ghc964" ]
+    steps:
+        # There's no need to configure Nix, the dockerfile handling the GHA has it done for us!
+        # If a dependencies are already cached, we can simply re-use them!
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build devshell
+        run: |
+          # Since the server is x86_64-linux, we can only build the devshell
+          # for that
+          nix build .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full
+
+      - name: Push devshell to cache
+        env:
+          ATTIC_TOKEN: ${{ secrets.ATTIC_SECRET }}
+        run: |
+          attic login --set-default public http://192.168.102.136:9200/ "$ATTIC_TOKEN"
+          attic push public $(nix path-info .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full)
+
+  ci-devshell:
+    name: CI developer shell
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build devshell
+        run: |
+          nix build .#devShells.x86_64-linux.ci
+
+      - name: Push devshell to cache
+        env:
+          ATTIC_TOKEN: ${{ secrets.ATTIC_SECRET }}
+        run: |
+          attic login --set-default public http://192.168.102.136:9200/ "$ATTIC_TOKEN"
+          attic push public $(nix path-info .#devShells.x86_64-linux.ci)
+    
