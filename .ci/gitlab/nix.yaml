@@ -1,0 +1,33 @@
+include:
+  - '/.ci/gitlab/common.yaml'
+
+stages:
+  - pre
+  - build
+  - post
+
+write-nix-file:
+  image: nixpkgs/nix-flakes
+  stage: build
+  script:
+    - bash ./.ci/write-nix-config.sh
+
+build-binary:
+  image: nixpkgs/nix-flakes
+  stage: build
+  variables:
+    NIX_USER_CONF_FILES: /root/.config/nix/nix.conf
+  script:
+    - echo $NIX_USER_CONF_FILES
+    - cat $NIX_USER_CONF_FILES
+    - nix config show
+    - nix build .#
+    - echo $(nix path-info .#)
+
+upload-binary:
+  image: nixpkgs/nix-flakes
+  stage: post
+  script:
+    - echo "Did it yoink the build?"
+    - echo $(nix --extra-experimental-features nix-command --extra-experimental-features flakes path-info .#)
+
