@@ -232,6 +232,7 @@ test-suite unit-tests
     Test.Cores.Etherbone.RecordBuilder
     Test.Cores.Etherbone.RecordProcessor
     Test.Cores.Internal.SampleSPI
+    Test.Cores.LineCoding.Lc5b6b
     Test.Cores.LineCoding.Lc8b10b
     Test.Cores.Internal.Signals
     Test.Cores.SPI
