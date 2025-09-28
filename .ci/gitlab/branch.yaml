@@ -83,7 +83,7 @@ nix-build:
     - nix-env -i gawk
     - export
   script:
-    - nix-build -j$(./.ci/effective_cpus.sh) --log-format raw --max-silent-time 3600
+    - nix build --extra-experimental-features nix-command --extra-experimental-features flakes -j$(./.ci/effective_cpus.sh) --log-format raw --max-silent-time 3600
   tags:
     - local
 
