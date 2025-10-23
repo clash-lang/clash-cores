@@ -28,17 +28,18 @@ jobs:
 
       - name: Push package to cache
         env:
-          ATTIC_TOKEN: ${{ secrets.ATTIC_SECRET }}
+          ATTIC_AUTH_TOKEN: ${{ secrets.ATTIC_SECRET }}
         run: |
-          attic login --set-default public http://192.168.102.136:9200/ "$ATTIC_TOKEN"
+          .ci/attic-auth.sh
           attic push public $(nix path-info .#${{ matrix.ghc-version }})
 
       - name: Push package to cachix
         # if: github.ref == 'refs/heads/main'
         env:
-          CACHIX_TOKEN: ${{ secrets.CACHIX_SECRET }}
+          # Having the variable be named `CACHIX_AUTH_TOKEN` authenticates cachix
+          # https://docs.cachix.org/getting-started#authenticating
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_SECRET }}
         run: |
-          cachix authtoken $CACHIX_TOKEN
           nix path-info .#${{ matrix.ghc-version }} | cachix push clash-lang
 
   devshells:
@@ -65,16 +66,17 @@ jobs:
         # public key: public:PGGlJMx1gGmU069blMqve8tS1ndzBuriUAwGBHGOo4g=
       - name: Push devshell to cache
         env:
-          ATTIC_TOKEN: ${{ secrets.ATTIC_SECRET }}
+          ATTIC_AUTH_TOKEN: ${{ secrets.ATTIC_SECRET }}
         run: |
-          attic login --set-default public http://192.168.102.136:9200/ "$ATTIC_TOKEN"
+          .ci/attic-auth.sh
           attic push public $(nix path-info .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full)
 
         # Pushes the binaries to Cachix
       - name: Push devshell to cachix
         env:
-          CACHIX_TOKEN: ${{ secrets.CACHIX_SECRET }}
+          # Having the variable be named `CACHIX_AUTH_TOKEN` authenticates cachix
+          # https://docs.cachix.org/getting-started#authenticating
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_SECRET }}
         run: |
-          cachix authtoken $CACHIX_TOKEN
           nix path-info .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full | cachix push clash-lang
 
