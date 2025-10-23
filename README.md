@@ -33,13 +33,23 @@ Compiling Clash and all dependencies related to it may take a long time. To remi
 
 Cachix contains all commits on the main branch of `clash-cores` since the cache has been setup. It is recommended to add the publically available cachix cache to your project/computer to minimize the amount of time manually compiling Clash related dependencies.
 
-You can either add user-wide on your local system via `nix.conf` (usually located under `~/.config/nix`, create it if it does not exist):
+To make use of Cachix, you can (temporarily) install the CLI:
+
+`nix shell nixpkgs#cachix`
+
+And then run:
+
+`cachix use clash-lang`
+
+And that's it! Whenever you run a Nix command, it will look if there are precompiled binaries available in Cachix.
+
+Alternatively, you can add it to your `nix.conf` manually without installing Cachix. This file is usually located under `~/.config/nix`, you can create it if it does not exist:
 ```conf
 extra-substituters = https://clash-lang.cachix.org
 extra-trusted-public-keys = clash-lang.cachix.org-1:/2N1uka38B/heaOAC+Ztd/EWLmF0RLfizWgC5tamCBg=
 ```
 
-Or as part of your `flake.nix` in your local project:
+If you would like to use the substituter for your local projects only, then it is possible to add it as part of your `flake.nix` like thus:
 ```nix
 {
   nixConfig = {
