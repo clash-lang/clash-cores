@@ -75,7 +75,7 @@ arpReceiverPropertyGenerator ::
 arpReceiverPropertyGenerator SNat =
   idWithModelSingleDomain
     @System
-    defExpectOptions{eoStopAfterEmpty = 1000}
+    defExpectOptions{eoStopAfterEmpty = Just 1000}
     (genPackets 1 5 genPkt)
     (exposeClockResetEnable model)
     (exposeClockResetEnable @System (arpReceiverC $ pure ourIPv4))

@@ -40,10 +40,10 @@ timer :: forall dom ps.
   SNat ps ->
   Signal dom Bool
 timer SNat = case knownDomain @dom of
-  SDomainConfiguration{} -> case compareSNat d2 (SNat @(ps `Div` DomainPeriod dom)) of
+  SDomainConfiguration{} -> case compareSNat d2 (SNat @(ps `Div` (Max 1 (DomainPeriod dom)))) of
     SNatGT -> clashCompileError
       "timer: (ps / DomainPeriod dom) must be at least 2."
     SNatLE -> isRising 0 $ msb <$> counter
      where
-      counter :: Signal dom (Index (ps `Div` DomainPeriod dom))
+      counter :: Signal dom (Index (ps `Div` (Max 1 (DomainPeriod dom))))
       counter = register maxBound (satPred SatWrap <$> counter)

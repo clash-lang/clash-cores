@@ -52,7 +52,7 @@ arpManagerT ::
   ( ArpManagerState maxWaitMs
   , ( Maybe ArpResponse
     , Maybe IPv4Address
-    , Df.Data ArpLite
+    , Maybe ArpLite
     )
   )
 -- User issues a lookup request. We don't have a timeout, because the ARP table
@@ -65,22 +65,22 @@ arpManagerT AwaitLookup{..} (Just lookupIPv4, arpResponseIn, Ack readyIn, _) =
     Nothing ->
       ( Nothing
       , if _awaitTransmission
-          then Df.Data (ArpLite broadcastMac lookupIPv4 Request)
-          else Df.NoData
+          then Just (ArpLite broadcastMac lookupIPv4 Request)
+          else Nothing
       , if readyIn && _awaitTransmission
           then AwaitArpReply maxBound
           else AwaitLookup False
       )
     Just ArpEntryNotFound ->
       ( Nothing
-      , Df.Data (ArpLite broadcastMac lookupIPv4 Request)
+      , Just (ArpLite broadcastMac lookupIPv4 Request)
       , if readyIn
           then AwaitArpReply maxBound
           else AwaitLookup True
       )
     Just (ArpEntryFound _) ->
       ( arpResponseIn
-      , Df.NoData
+      , Nothing
       , AwaitLookup False
       )
 
@@ -88,7 +88,7 @@ arpManagerT AwaitLookup{..} (Just lookupIPv4, arpResponseIn, Ack readyIn, _) =
 -- We keep polling the ARP table until either a timeout occurs or the entry is found.
 -- This requires the ARP table to handle read and write requests in parallel.
 arpManagerT AwaitArpReply{..} (Just lookupIPv4, arpResponseIn, _, secondPassed) =
-  (nextSt, (arpResponseOut, Just lookupIPv4, Df.NoData))
+  (nextSt, (arpResponseOut, Just lookupIPv4, Nothing))
  where
   newTimer =
     if secondPassed
@@ -106,7 +106,7 @@ arpManagerT AwaitArpReply{..} (Just lookupIPv4, arpResponseIn, _, secondPassed) 
       -- Therefore timer can be slightly inaccurate, depending on the latency of the ARP table.
       (_, _) ->
         (Nothing, AwaitArpReply newTimer)
-arpManagerT st (Nothing, _, _, _) = (st, (Nothing, Nothing, Df.NoData))
+arpManagerT st (Nothing, _, _, _) = (st, (Nothing, Nothing, Nothing))
 
 {- |
 Handles ARP lookup requests by client components. If a lookup IPv4 address is
@@ -165,7 +165,7 @@ arpTransmitterC ourMacS ourIPv4S =
     |> packetizeFromDfC toTargetMac constructArpPkt
  where
   go (ourMac, ourIPv4, maybeArpLite) =
-    maybeArpLite >>= \arpLite -> Df.Data (ourMac, ourIPv4, arpLite)
+    maybeArpLite >>= \arpLite -> Just (ourMac, ourIPv4, arpLite)
 
   toTargetMac (_, _, arpLite) = _liteTha arpLite
 

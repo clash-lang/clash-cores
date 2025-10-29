@@ -120,27 +120,6 @@ library
     Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
     Clash.Cores.Etherbone.ConfigMaster
-    Clash.Cores.Ethernet.Arp
-    Clash.Cores.Ethernet.Arp.ArpManager
-    Clash.Cores.Ethernet.Arp.ArpTable
-    Clash.Cores.Ethernet.Arp.ArpTypes
-    Clash.Cores.Ethernet.Examples.FullUdpStack
-    Clash.Cores.Ethernet.Examples.RxStacks
-    Clash.Cores.Ethernet.Examples.TxStacks
-    Clash.Cores.Ethernet.Icmp
-    Clash.Cores.Ethernet.InternetChecksum
-    Clash.Cores.Ethernet.IPv4
-    Clash.Cores.Ethernet.IP.EthernetStream
-    Clash.Cores.Ethernet.IP.IPPacketizers
-    Clash.Cores.Ethernet.IP.IPv4Types
-    Clash.Cores.Ethernet.Mac
-    Clash.Cores.Ethernet.Mac.EthernetTypes
-    Clash.Cores.Ethernet.Mac.FrameCheckSequence
-    Clash.Cores.Ethernet.Mac.InterpacketGapInserter
-    Clash.Cores.Ethernet.Mac.MacPacketizers
-    Clash.Cores.Ethernet.Mac.PaddingInserter
-    Clash.Cores.Ethernet.Mac.Preamble
-    Clash.Cores.Ethernet.Udp
     Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
     Clash.Cores.LatticeSemi.ECP5.IO
     Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
@@ -179,6 +158,10 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+
+    -- Allows to build with newer clash, but we should
+    -- remove this module in favor of primitives in `clash-protocols`
+    Protocols.PacketStream.Extra
 
   if !flag(clash-18)
     exposed-modules:
@@ -255,17 +238,6 @@ test-suite unit-tests
     Test.Cores.Etherbone.WishboneMaster
     Test.Cores.Etherbone.RecordBuilder
     Test.Cores.Etherbone.RecordProcessor
-    Test.Cores.Ethernet
-    Test.Cores.Ethernet.Arp.ArpManager
-    Test.Cores.Ethernet.Base
-    Test.Cores.Ethernet.InternetChecksum
-    Test.Cores.Ethernet.Icmp
-    Test.Cores.Ethernet.IP.EthernetStream
-    Test.Cores.Ethernet.IP.IPPacketizers
-    Test.Cores.Ethernet.Mac.FrameCheckSequence
-    Test.Cores.Ethernet.Mac.InterpacketGapInserter
-    Test.Cores.Ethernet.Mac.PaddingInserter
-    Test.Cores.Ethernet.Mac.Preamble
     Test.Cores.Internal.SampleSPI
     Test.Cores.LineCoding.Lc8b10b
     Test.Cores.Internal.Signals

@@ -1,7 +1,7 @@
-{ 
+{
   description = "A flake for the clash-cores";
   inputs = {
-    clash-compiler.url = "github:clash-lang/clash-compiler";
+    clash-compiler.url = "github:clash-lang/clash-compiler/5ec337c04139f74dd706db77ccb25f92ad5dc3dc";
     clash-protocols = {
       url = "github:clash-lang/clash-protocols";
       inputs.clash-compiler.follows = "clash-compiler";

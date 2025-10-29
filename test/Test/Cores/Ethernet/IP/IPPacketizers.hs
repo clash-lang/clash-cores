@@ -35,7 +35,7 @@ testIPPacketizer ::
 testIPPacketizer SNat =
   idWithModelSingleDomain
     @System
-    defExpectOptions{eoSampleMax = 400, eoStopAfterEmpty = 400}
+    defExpectOptions{eoSampleMax = 400, eoStopAfterEmpty = Just 400}
     (genPackets 1 4 (genValidPacket defPacketOptions genIPv4Header (Range.linear 0 30)))
     (exposeClockResetEnable (packetizerModel _ipv4Destination id . setChecksums))
     (exposeClockResetEnable (ipPacketizerC @_ @dataWidth))
@@ -57,7 +57,7 @@ testIPDepacketizer ::
 testIPDepacketizer SNat =
   idWithModelSingleDomain
     @System
-    defExpectOptions{eoStopAfterEmpty = 400}
+    defExpectOptions{eoStopAfterEmpty = Just 400}
     (genPackets 1 10 genPkt)
     (exposeClockResetEnable model)
     (exposeClockResetEnable (ipDepacketizerC @_ @dataWidth))

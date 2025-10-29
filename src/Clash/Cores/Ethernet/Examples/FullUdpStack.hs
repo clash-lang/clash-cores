@@ -201,6 +201,7 @@ import Clash.Cores.Ethernet.Udp
 import Clash.Prelude
 
 import Protocols
+import Protocols.Df(CollectMode(..))
 import Protocols.PacketStream
 
 -- | Full stack from ethernet to ethernet.
@@ -272,7 +273,7 @@ arpIcmpUdpStackC ourMacS ipS = circuit $ \(udpOut, ethIn) -> do
   ipIn <- filterMetaS (isForMyIp <$> ipS) <| ipDepacketizerLiteC -< ipEthIn
   (udpIn, ipOut) <- icmpUdpStackC ipS -< (udpOut, ipIn)
   (ipEthOut, arpLookup) <- toEthernetStreamC ourMacS <| ipLitePacketizerC -< ipOut
-  ethOut <- packetArbiterC RoundRobin -< [arpEthOut, ipEthOut]
+  ethOut <- packetArbiterC Skip -< [arpEthOut, ipEthOut]
   idC -< (udpIn, ethOut)
  where
   isForMyIp (ip, subnet) (_ipv4lDestination -> to) = to == ip || isBroadcast subnet to
@@ -299,5 +300,5 @@ icmpUdpStackC ipS = circuit $ \(udpOut, ipIn) -> do
   icmpOut <- icmpEchoResponderC (fst <$> ipS) -< icmpIn
   udpInParsed <- udpDepacketizerC -< udpIn
   udpOutParsed <- udpPacketizerC (fst <$> ipS) -< udpOut
-  ipOut <- packetArbiterC RoundRobin -< [icmpOut, udpOutParsed]
+  ipOut <- packetArbiterC Skip -< [icmpOut, udpOutParsed]
   idC -< (udpInParsed, ipOut)

@@ -28,6 +28,7 @@ import Data.Type.Equality ((:~:) (Refl))
 
 import Protocols
 import Protocols.PacketStream
+import Protocols.PacketStream.Extra (dropTailC)
 
 toCrcInput ::
   (KnownNat dataWidth) =>

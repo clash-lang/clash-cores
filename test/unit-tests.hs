@@ -16,13 +16,6 @@ import Test.Tasty
 import qualified Test.Cores.Crc
 import qualified Test.Cores.Etherbone
 import qualified Test.Cores.LineCoding.Lc8b10b
-#if MIN_VERSION_clash_prelude(1,9,0)
-import qualified Test.Cores.Sgmii.AutoNeg
-import qualified Test.Cores.Sgmii.BitSlip
-import qualified Test.Cores.Sgmii.RateAdapt
-import qualified Test.Cores.Sgmii.Sgmii
-import qualified Test.Cores.Sgmii.Sync
-#endif
 import qualified Test.Cores.SPI
 import qualified Test.Cores.SPI.MultiSlave
 import qualified Test.Cores.UART
