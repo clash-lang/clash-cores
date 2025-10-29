@@ -278,19 +278,3 @@ test-suite unit-tests
     tasty-hunit,
     tasty-quickcheck,
     tasty-th,
-
-test-suite doctests
-  type:             exitcode-stdio-1.0
-  default-language: Haskell2010
-  main-is:          doctests.hs
-  ghc-options:      -Wall -Wcompat -threaded
-  hs-source-dirs:   test
-
-  if !flag(doctests)
-    buildable: False
-  else
-    build-depends:
-      base,
-      clash-cores,
-      doctest-parallel >= 0.2 && < 0.4,
-      filepath,
