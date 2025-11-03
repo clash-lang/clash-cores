@@ -23,7 +23,46 @@ You can also look through Adam Walker's excellent list of [prebuilt Clash circui
 # Nix
 This project exposes several Nix flake outputs. Most notably the `clash-cores` package, exposed individually or as an overlay (which you need to apply on top of clash-compiler).
 
+## Usage
+
 Contributing to `clash-cores` can be done via the developer shell exposed by the Nix flake. Open a terminal and type: `nix develop`. Optionally a specific GHC version can be selected as well as a `-minimal` or `-full` version. The `-minimal` shell does **NOT** contain the Haskell Language Server, whilst the `-full` shell does. When using the developer shell, do not forget to remove the `cabal.project` file. This file contains a package source and Cabal prioritizes local package sources over Nix sources. Removing the `cabal.project` file should work fine when developing with Nix.
+
+Compiling Clash and all dependencies related to it may take a long time. To remidy long compilation times, you can make use of the publically available cache on Cachix:
+
+### Cachix (binary cache)
+
+Cachix contains all commits on the main branch of `clash-cores` since the cache has been setup. It is recommended to add the publically available cachix cache to your project/computer to minimize the amount of time manually compiling Clash related dependencies.
+
+To make use of Cachix, you can (temporarily) install the CLI:
+
+`nix shell nixpkgs#cachix`
+
+And then run:
+
+`cachix use clash-lang`
+
+And that's it! Whenever you run a Nix command, it will look if there are precompiled binaries available in Cachix.
+
+Alternatively, you can add it to your `nix.conf` manually without installing Cachix. This file is usually located under `~/.config/nix`, you can create it if it does not exist:
+```conf
+extra-substituters = https://clash-lang.cachix.org
+extra-trusted-public-keys = clash-lang.cachix.org-1:/2N1uka38B/heaOAC+Ztd/EWLmF0RLfizWgC5tamCBg=
+```
+
+If you would like to use the substituter for your local projects only, then it is possible to add it as part of your `flake.nix` like thus:
+```nix
+{
+  nixConfig = {
+    extra-substituters = [ "https://clash-lang.cachix.org" ];
+    extra-trusted-public-keys = [ "clash-lang.cachix.org-1:/2N1uka38B/heaOAC+Ztd/EWLmF0RLfizWgC5tamCBg=" ];
+  };
+  description = ...;
+  inputs = ...;
+  outputs = ...;
+}
+```
+
+## As a dependency
 
 You can also add this project as a Nix-dependency. This project depends on `clash-compiler`, the recommended way to add this to your project as a Nix dependency is as follows:
 
