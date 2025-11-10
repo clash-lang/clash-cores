@@ -4,7 +4,7 @@ Copyright  :  (C) 2021,      QBayLogic B.V.,
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
-Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://www.xilinx.com/support/documentation/ip_documentation/floating_point/v7_1/pg060-floating-point.pdf).
+Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point).
 
 The functions in this module make it possible to use the Xilinx IP in Clash.
 Compilation will instantiate the Xilinx IP. Clash will output a TCL script
