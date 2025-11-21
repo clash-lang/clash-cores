@@ -46,7 +46,7 @@ configMasterC
              (Df.Df dom (WishboneResult dat))
 configMasterC sdbAddress userConfigRegs = Circuit go
   where
-    go ((iFwd, errBit), oBwd) = ((oBwd, pure ()), oFwd)
+    go ((iFwd, errBit), oBwd) = ((oBwd, ()), oFwd)
       where
         -- Shift register keeping track of wishbone bus errors.
         errorReg = register (0 :: ConfigReg) $ errorRegT <$> errBit <*> errorReg

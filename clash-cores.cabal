@@ -195,6 +195,7 @@ test-suite unit-tests
   hs-source-dirs: test
   type: exitcode-stdio-1.0
   main-is: unit-tests.hs
+  ghc-options: -threaded
 
   if !flag(unit-tests)
     buildable: False

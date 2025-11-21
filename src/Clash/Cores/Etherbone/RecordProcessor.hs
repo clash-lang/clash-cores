@@ -5,12 +5,11 @@ module Clash.Cores.Etherbone.RecordProcessor where
 
 import Clash.Cores.Etherbone.Base
 import Clash.Prelude
+import Data.Maybe
 import Protocols
-import qualified Protocols.Df as Df
 import Protocols.PacketStream
 
-import qualified Data.Bifunctor as B
-import Data.Maybe
+import qualified Protocols.Df as Df
 
 data RecordProcessorState addrWidth
   -- | Initial state of the @RecordProcessor@.
@@ -43,24 +42,23 @@ recordProcessorT :: forall dataWidth addrWidth dat .
   , Show dat
   )
   => RecordProcessorState addrWidth
-  -> (Maybe (PacketStreamM2S dataWidth (Bool, RecordHeader))
-     , ((), Ack)
+  -> ( Maybe (PacketStreamM2S dataWidth (Bool, RecordHeader))
+     , Ack
      )
   -> ( RecordProcessorState addrWidth
      , ( PacketStreamS2M
-       , ( Maybe (Bypass addrWidth)
-         , Maybe (WishboneOperation addrWidth dataWidth dat)
-         )
+       , Maybe (Bypass addrWidth)
+       , Maybe (WishboneOperation addrWidth dataWidth dat)
        )
      )
 -- No data in -> no data out
 recordProcessorT state (Nothing, _)
-  = (state, (PacketStreamS2M True, (Nothing, Nothing)))
+  = (state, (PacketStreamS2M True, Nothing, Nothing))
 -- If in the initial state and abort is asserted, stay in this state.
 recordProcessorT WriteOrReadAddr (Just PacketStreamM2S{_abort=True}, _)
-  = (WriteOrReadAddr, (PacketStreamS2M True, (Nothing, Nothing)))
-recordProcessorT state (Just psFwd, ((), Ack wbAck))
-  = (nextState, (PacketStreamS2M psBwd, (bpOut, wbOut)))
+  = (WriteOrReadAddr, (PacketStreamS2M True, Nothing, Nothing))
+recordProcessorT state (Just psFwd, Ack wbAck)
+  = (nextState, (PacketStreamS2M psBwd, bpOut, wbOut))
   where
     nextState
       | ack       = state'
@@ -200,7 +198,9 @@ recordProcessorC :: forall dom dataWidth addrWidth dat .
              ( CSignal dom (Maybe (Bypass addrWidth))
              , Df.Df dom (WishboneOperation addrWidth dataWidth dat)
              )
-recordProcessorC = forceResetSanity |> Circuit (B.second unbundle . fsm . B.second bundle)
+recordProcessorC = forceResetSanity |> Circuit go
   where
-    fsm = mealyB recordProcessorT WriteOrReadAddr
+    go (m2s, (_, ack)) = (s2m, (bypass, wbOp))
+      where
+        (s2m, bypass, wbOp) = mealyB recordProcessorT WriteOrReadAddr (m2s, ack)
 {-# OPAQUE recordProcessorC #-}

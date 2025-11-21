@@ -77,12 +77,12 @@ prop_wishboneMasterT = property $ do
      where
       (state, result) = wishboneMasterT (last states) inp
 
-    mapInput (x, ack, wbAck) =
-      (x, (Ack ack, (emptyWishboneS2M @WBData){readData = readData, acknowledge = wbAck}, ()))
+    mapInput (wbOp, ack, wbAck) =
+      (wbOp, Ack ack, (emptyWishboneS2M @WBData){readData = readData, acknowledge = wbAck})
 
-    getWb (_, (_, x, _)) = x
-    getOutDat (_, (Just x, _, _)) = x
-    getOutDat (_, (_, _, _)) = error "No data at the expected cycle"
+    getWb (_, _, x, _) = x
+    getOutDat (_, Just x, _, _) = x
+    getOutDat (_, _, _, _) = error "No data at the expected cycle"
   footnote (show input')
   footnote (show outStates)
   footnote (show out)

@@ -1,15 +1,15 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 
 module Clash.Cores.Etherbone.WishboneMaster where
 
 import Clash.Cores.Etherbone.Base
 import Clash.Prelude
+import Data.Maybe
 import Protocols
-import qualified Protocols.Df as Df
 import Protocols.Wishbone
 
-import qualified Data.Bifunctor as B
-import Data.Maybe
+import qualified Protocols.Df as Df
 
 data WishboneMasterState dat
   -- | Wait for an incoming wishbone operation. If an op is available, it is
@@ -31,22 +31,23 @@ wishboneMasterT :: forall addrWidth dat .
   )
   => WishboneMasterState dat
   -> ( Maybe (WishboneOperation addrWidth (ByteSize dat) dat)
-     , (Ack, WishboneS2M dat, ())
+     , Ack
+     , WishboneS2M dat
      )
   -> ( WishboneMasterState dat
      , ( Ack
-       , ( Maybe (WishboneResult dat)
-         , WishboneM2S addrWidth (ByteSize dat) dat
-         , Maybe Bit)
+       , Maybe (WishboneResult dat)
+       , WishboneM2S addrWidth (ByteSize dat) dat
+       , Maybe Bit
        )
      )
 -- This operation is for another @AddressSpace@.
-wishboneMasterT state (Just WishboneOperation{_opAddrSpace=ConfigAddressSpace}, _)
-  = (state, (Ack True, (Nothing, wbEmpty, Nothing)))
+wishboneMasterT state (Just WishboneOperation{_opAddrSpace=ConfigAddressSpace}, _, _)
+  = (state, (Ack True, Nothing, wbEmpty, Nothing))
     where
       wbEmpty = emptyWishboneM2S
-wishboneMasterT state (iFwd, (Ack oBwd, wbBwd, _))
-  = (nextState, (Ack iBwd, (oFwd, wbFwd, errBit)))
+wishboneMasterT state (iFwd, Ack oBwd, wbBwd)
+  = (nextState, (Ack iBwd, oFwd, wbFwd, errBit))
   where
     nextState = fsm state iFwd oBwd
 
@@ -130,7 +131,9 @@ wishboneMasterC
              , Wishbone dom Standard addrWidth dat
              , CSignal dom (Maybe Bit)
              )
-wishboneMasterC = Circuit $ B.second unbundle . fsm . B.second bundle
+wishboneMasterC = Circuit go
   where
-    fsm = mealyB wishboneMasterT (WaitForOp False)
+    go (op, (ackIn, s2m, _)) = (ackOut, (resOut, m2s, err))
+      where
+        (ackOut, resOut, m2s, err) = mealyB wishboneMasterT (WaitForOp False) (op, ackIn, s2m)
 {-# OPAQUE wishboneMasterC #-}

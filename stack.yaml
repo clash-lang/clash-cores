@@ -24,7 +24,7 @@ extra-deps:
   - git: https://github.com/cchalmers/circuit-notation.git
     commit: '564769c52aa05b90f81bbc898b7af7087d96613d'
   - git: https://github.com/clash-lang/clash-protocols.git
-    commit: '8b6a7695161c2bada9d1373c6fcaf0da887c787a'
+    commit: '4fdfab2bf07679aa84d9efb38c84d00bcd8b2ed1'
     subdirs:
       - clash-protocols-base
       - clash-protocols
