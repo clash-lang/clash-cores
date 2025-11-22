@@ -84,9 +84,9 @@ recordBuilderTest wMax rMax =
         bypassC ::
           Circuit (Df.Df dom (Bypass addrWidth))
                   (CSignal dom (Maybe(Bypass addrWidth)))
-        bypassC = Circuit $ C.unbundle . fmap go . C.bundle
+        bypassC = Circuit $ C.unbundle . fmap go . fst
           where
-            go (dat, _) = (Ack True, dat)
+            go dat = (Ack True, dat)
 
 recordBuilderModel
   :: [(Bypass AddrWidth, WishboneResult WBData)]

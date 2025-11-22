@@ -284,7 +284,7 @@ recordBuilderC :: forall dom addrWidth dataWidth dat .
              (PacketStream dom dataWidth EBHeader)
 recordBuilderC = Circuit go
   where
-    go ((bypass, cfg, wbm), psBwd) = ((pure (), wbBwd, wbBwd), psFwd)
+    go ((bypass, cfg, wbm), psBwd) = (((), wbBwd, wbBwd), psFwd)
       where
         (wbBwd, psFwd) = mealyB recordBuilderT Init (bypassLatch, cfg, wbm, psBwd)
 

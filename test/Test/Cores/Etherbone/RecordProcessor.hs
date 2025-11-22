@@ -3,6 +3,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 module Test.Cores.Etherbone.RecordProcessor (
   tests,
@@ -108,7 +109,7 @@ prop_recordProcessor_wishbone =
       where
         go (iFwd, oBwd) = (iBwd, snd oFwd)
           where
-            (iBwd, oFwd) = toSignals recordProcessorC (iFwd, (pure (), oBwd))
+            (iBwd, oFwd) = toSignals recordProcessorC (iFwd, ((), oBwd))
 
 -- Check whether the Bypass data returned is formatted correctly.
 prop_recordProcessor_bypass :: Property
@@ -133,9 +134,8 @@ prop_recordProcessor_bypass = property $ do
             (iBwd, oFwd) = toSignals (recordProcessorC @_ @_ @_ @dat) (iFwd, (oBwd, pure $ Ack True))
 
     inputs = map Just inputs'
-    inputsS = zip inputs (repeat ())
 
-    res = take (length inputs) $ C.simulate (C.bundle . go . C.unbundle) inputsS
+    res = take (length inputs) $ C.simulate (C.bundle . go . (, ())) inputs
       where
         go = toSignals (C.withClockResetEnable C.clockGen C.resetGen C.enableGen (ckt @C.System @DataWidth @AddrWidth @WBData))
 
