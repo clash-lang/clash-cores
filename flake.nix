@@ -1,4 +1,4 @@
-{ 
+{
   description = "A flake for the clash-cores";
   inputs = {
     clash-compiler.url = "github:clash-lang/clash-compiler";
@@ -14,6 +14,10 @@
         default-version = clash-compiler.ghcVersion.${system};
         # A list of all ghc versions this package supports
         supported-versions = clash-compiler.supportedGhcVersions.${system};
+
+        regular-pkgs = import clash-compiler.inputs.nixpkgs {
+          inherit system;
+        };
 
         all-overlays = builtins.listToAttrs (builtins.map (compiler-version:
           let
@@ -63,13 +67,16 @@
             p.clash-cores
           ];
 
-          nativeBuildInputs =
-            [
-              hs-pkgs.cabal-install
-              hs-pkgs.cabal-plan
-              hs-pkgs.fourmolu
-            ]
-          ;
+          # https://discourse.nixos.org/t/non-interactive-bash-errors-from-flake-nix-mkshell/33310
+          buildInputs = [
+            regular-pkgs.bashInteractive
+          ];
+
+          nativeBuildInputs = [
+            hs-pkgs.cabal-install
+            hs-pkgs.cabal-plan
+            hs-pkgs.fourmolu
+          ];
         };
 
         all-shells = clash-compiler.inputs.nixpkgs.lib.attrsets.concatMapAttrs (name: hs-pkgs: {
