@@ -32,7 +32,7 @@ import Clash.Cores.Etherbone.RecordBuilder (hdrRx2Tx, ebTxMeta, recordBuilderC)
 testBaseAddr :: C.BitVector AddrWidth
 testBaseAddr = 0xdeadbeef
 
-genRecordBuilderInput :: C.Unsigned 8 -> C.Unsigned 8 -> Gen [(Bypass AddrWidth, WishboneResult WBData)]
+genRecordBuilderInput :: C.Unsigned 8 -> C.Unsigned 8 -> Gen [(Bypass AddrWidth, WishboneResult 4)]
 genRecordBuilderInput wMax rMax = do
   hdr <- genRecordHeader (Range.linear 0 wMax) (Range.linear 0 rMax)
 
@@ -62,15 +62,13 @@ recordBuilderTest wMax rMax =
     -- bypass signal and the @WishboneResult@ are always related. So they are
     -- put in the same @Df@ signal, where the backwards signal on bypass is
     -- being dropped.
-    ckt :: forall dom addrWidth dataWidth dat .
+    ckt :: forall dom addrWidth dataWidth .
       ( C.HiddenClockResetEnable dom
       , C.KnownNat addrWidth
       , C.KnownNat dataWidth
-      , C.BitPack dat
-      , C.BitSize dat ~ dataWidth C.* 8
       , 4 C.<= dataWidth
       )
-      => Circuit (Df.Df dom (Bypass addrWidth, WishboneResult dat))
+      => Circuit (Df.Df dom (Bypass addrWidth, WishboneResult dataWidth))
                  (PacketStream dom dataWidth EBHeader)
     ckt = circuit $ \input -> do
       [in0, in1] <- Df.fanout -< input
@@ -89,7 +87,7 @@ recordBuilderTest wMax rMax =
             go dat = (Ack True, dat)
 
 recordBuilderModel
-  :: [(Bypass AddrWidth, WishboneResult WBData)]
+  :: [(Bypass AddrWidth, WishboneResult 4)]
   -> [PacketStreamM2S DataWidth EBHeader]
 recordBuilderModel [] = error "recordBuilderModel: No input data"
 recordBuilderModel inp@((fst -> bypassHead): _) = out

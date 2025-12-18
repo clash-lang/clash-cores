@@ -34,12 +34,9 @@ data RecordProcessorState addrWidth
   | WaitForLast
   deriving (Show, Generic, ShowX, NFDataX)
 
-recordProcessorT :: forall dataWidth addrWidth dat .
+recordProcessorT :: forall dataWidth addrWidth .
   ( KnownNat dataWidth
   , KnownNat addrWidth
-  , BitPack dat
-  , BitSize dat ~ dataWidth * 8
-  , Show dat
   )
   => RecordProcessorState addrWidth
   -> ( Maybe (PacketStreamM2S dataWidth (Bool, RecordHeader))
@@ -48,7 +45,7 @@ recordProcessorT :: forall dataWidth addrWidth dat .
   -> ( RecordProcessorState addrWidth
      , ( PacketStreamS2M
        , Maybe (Bypass addrWidth)
-       , Maybe (WishboneOperation addrWidth dataWidth dat)
+       , Maybe (WishboneOperation addrWidth dataWidth)
        )
      )
 -- No data in -> no data out
@@ -186,17 +183,14 @@ recordProcessorT state (Just psFwd, Ack wbAck)
 -- of a Record packet, so that no additional edge-cases need to be handled here.
 -- The @Bool@ in the @_meta@ field indicates the end of a whole Etherbone
 -- packet, and is forwarded.
-recordProcessorC :: forall dom dataWidth addrWidth dat .
+recordProcessorC :: forall dom dataWidth addrWidth .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth
   , KnownNat addrWidth
-  , BitPack dat
-  , Show dat
-  , BitSize dat ~ dataWidth * 8
   )
   => Circuit (PacketStream dom dataWidth (Bool, RecordHeader))
              ( CSignal dom (Maybe (Bypass addrWidth))
-             , Df.Df dom (WishboneOperation addrWidth dataWidth dat)
+             , Df.Df dom (WishboneOperation addrWidth dataWidth)
              )
 recordProcessorC = forceResetSanity |> Circuit go
   where

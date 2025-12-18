@@ -16,21 +16,15 @@ import Protocols.PacketStream
 import Protocols.Wishbone
 
 
-recordHandlerC :: forall dom dataWidth addrWidth dat configRegs .
+recordHandlerC :: forall dom dataWidth addrWidth configRegs .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth
   , KnownNat addrWidth
   , KnownNat configRegs
-  , BitPack dat
-  , NFDataX dat
-  , Show dat
-  , ShowX dat
-  , 1 <= BitSize dat
-  , BitSize dat ~ dataWidth * 8
-  , ByteSize dat ~ dataWidth
+  , 1 <= dataWidth * 8
   , addrWidth <= dataWidth * 8
   , 4 <= dataWidth
-  , DivRU 64 (BitSize dat) * BitSize dat ~ 64
+  , DivRU 8 dataWidth * (dataWidth * 8) ~ 64
   )
   -- | Self-describing bus base address
   => BitVector addrWidth
@@ -38,7 +32,7 @@ recordHandlerC :: forall dom dataWidth addrWidth dat configRegs .
   -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit (PacketStream dom dataWidth EBHeader)
              ( PacketStream dom dataWidth EBHeader
-             , Wishbone dom Standard addrWidth dat)
+             , Wishbone dom Standard addrWidth dataWidth)
 recordHandlerC sdbAddr userConfigRegs = circuit $ \psIn -> do
   dpkt <- recordDepacketizerC -< psIn
 
@@ -46,7 +40,7 @@ recordHandlerC sdbAddr userConfigRegs = circuit $ \psIn -> do
   [wbmIn, cfgIn] <- Df.fanout -< wbOp
 
   (wbmRes, wbBus, wbmErr) <- wishboneMasterC -< wbmIn
-  cfgRes <- configMasterC @_ @_ @dat sdbAddr userConfigRegs -< (cfgIn, wbmErr)
+  cfgRes <- configMasterC sdbAddr userConfigRegs -< (cfgIn, wbmErr)
 
   psOut <- recordBuilderC -< (bypass, cfgRes, wbmRes)
   idC -< (psOut, wbBus)
@@ -64,21 +58,15 @@ recordHandlerC sdbAddr userConfigRegs = circuit $ \psIn -> do
 --
 -- The Wishbone bus attatched to this circuit determines the bus and address
 -- widths.
-etherboneC :: forall dom dataWidth addrWidth dat configRegs .
+etherboneC :: forall dom dataWidth addrWidth configRegs .
   ( HiddenClockResetEnable dom
   , KnownNat dataWidth
   , KnownNat addrWidth
   , KnownNat configRegs
-  , BitPack dat
-  , NFDataX dat
-  , Show dat
-  , ShowX dat
-  , 1 <= BitSize dat
-  , BitSize dat ~ dataWidth * 8
-  , ByteSize dat ~ dataWidth
+  , 1 <= dataWidth * 8
   , addrWidth <= dataWidth * 8
   , 4 <= dataWidth
-  , DivRU 64 (BitSize dat) * BitSize dat ~ 64
+  , DivRU 8 dataWidth * (dataWidth * 8) ~ 64
   )
   -- | Self-describing bus base address
   => BitVector addrWidth
@@ -86,7 +74,7 @@ etherboneC :: forall dom dataWidth addrWidth dat configRegs .
   -> Signal dom (Vec configRegs ConfigReg)
   -> Circuit (PacketStream dom dataWidth ())
              ( PacketStream dom dataWidth ()
-             , Wishbone dom Standard addrWidth dat)
+             , Wishbone dom Standard addrWidth dataWidth)
 etherboneC sdbAddr userConfigRegs = circuit $ \psIn -> do
   [probe, record] <- receiverC (SNat @addrWidth) <| etherboneDepacketizerC -< psIn
 
