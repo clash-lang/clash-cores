@@ -3,7 +3,7 @@
   inputs = {
     clash-compiler.url = "github:clash-lang/clash-compiler";
     clash-protocols = {
-      url = "github:clash-lang/clash-protocols";
+      url = "github:clash-lang/clash-protocols/589ddca20d7e11b0e1ec402240606a27c9b33a2d";
       inputs.clash-compiler.follows = "clash-compiler";
     };
   };
