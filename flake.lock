@@ -55,17 +55,17 @@
         "flake-utils": "flake-utils_3"
       },
       "locked": {
-        "lastModified": 1765987165,
-        "narHash": "sha256-XNCWIA3gF08aqSfAppkBbCnyi+mG96dl8Ca3l8nm8nE=",
+        "lastModified": 1766065626,
+        "narHash": "sha256-OFI4aiWVZAjIEiPn6sh+Fi8qkF+3WqtcjoXwPSL34U8=",
         "owner": "clash-lang",
         "repo": "clash-protocols",
-        "rev": "589ddca20d7e11b0e1ec402240606a27c9b33a2d",
+        "rev": "f8ffcb32efee574e67208010ed634c540b53debb",
         "type": "github"
       },
       "original": {
         "owner": "clash-lang",
         "repo": "clash-protocols",
-        "rev": "589ddca20d7e11b0e1ec402240606a27c9b33a2d",
+        "rev": "f8ffcb32efee574e67208010ed634c540b53debb",
         "type": "github"
       }
     },
