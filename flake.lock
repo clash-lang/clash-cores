@@ -33,11 +33,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1763724643,
-        "narHash": "sha256-cqrViPu7pamyp+f235CZllzu5ivm200px/kKzQWdk8g=",
+        "lastModified": 1765828993,
+        "narHash": "sha256-njyNZfzGJsuRBUQyBgQys+e9BnyMcAhrXZKEYOmm7yY=",
         "owner": "clash-lang",
         "repo": "clash-compiler",
-        "rev": "91799cd9c964861e70762876f3af857fc6c4aedb",
+        "rev": "b5f11c51fd692aefc2922ba035fe6fee2b4f1035",
         "type": "github"
       },
       "original": {
@@ -55,11 +55,11 @@
         "flake-utils": "flake-utils_3"
       },
       "locked": {
-        "lastModified": 1763724657,
-        "narHash": "sha256-QMAoE1NjT5JtX8XMfgH+NiAz0nPnU2q1Ord8apHJMIs=",
+        "lastModified": 1767688939,
+        "narHash": "sha256-cgaxmOgpDbrPQ8heBHHrJUQIB4/k/+VRjGRryAV8WhA=",
         "owner": "clash-lang",
         "repo": "clash-protocols",
-        "rev": "4fdfab2bf07679aa84d9efb38c84d00bcd8b2ed1",
+        "rev": "9b12c63dabaaa5a8228286bf9406b58c44a48359",
         "type": "github"
       },
       "original": {
