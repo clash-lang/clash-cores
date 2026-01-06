@@ -11,7 +11,7 @@ import Protocols.Wishbone
 
 import qualified Protocols.Df as Df
 
-data WishboneMasterState dat
+data WishboneMasterState dataWidth
   -- | Wait for an incoming wishbone operation. If an op is available, it is
   -- directly forwarded to the wishbone bus.
   = WaitForOp  { _wbmCyc :: Bool }
@@ -20,24 +20,22 @@ data WishboneMasterState dat
   -- | Forward result and wait for an Ack. In this state, a new operation can
   -- already be sent on the input, though only in the @WaitForOp@ state is it
   -- being handled.
-  | WaitForAck { _wbmCyc :: Bool, _retDat :: Maybe dat, _isEOR :: Bool, isEOP :: Bool}
+  | WaitForAck { _wbmCyc :: Bool, _retDat :: Maybe (BitVector (dataWidth * 8)), _isEOR :: Bool, isEOP :: Bool}
   deriving (Generic, NFDataX, Show, Eq)
 
-wishboneMasterT :: forall addrWidth dat .
+wishboneMasterT :: forall addrWidth dataWidth .
   ( KnownNat addrWidth
-  , BitPack dat
-  , NFDataX dat
-  , Show dat
+  , KnownNat dataWidth
   )
-  => WishboneMasterState dat
-  -> ( Maybe (WishboneOperation addrWidth (ByteSize dat) dat)
+  => WishboneMasterState dataWidth
+  -> ( Maybe (WishboneOperation addrWidth dataWidth)
      , Ack
-     , WishboneS2M dat
+     , WishboneS2M dataWidth
      )
-  -> ( WishboneMasterState dat
+  -> ( WishboneMasterState dataWidth
      , ( Ack
-       , Maybe (WishboneResult dat)
-       , WishboneM2S addrWidth (ByteSize dat) dat
+       , Maybe (WishboneResult dataWidth)
+       , WishboneM2S addrWidth dataWidth
        , Maybe Bit
        )
      )
@@ -89,10 +87,10 @@ wishboneMasterT state (iFwd, Ack oBwd, wbBwd)
     wbEmpty = emptyWishboneM2S
 
     fsm
-      :: WishboneMasterState dat  -- state
-      -> Maybe (WishboneOperation addrWidth (ByteSize dat) dat)  -- iFwd
+      :: WishboneMasterState dataWidth  -- state
+      -> Maybe (WishboneOperation addrWidth dataWidth)  -- iFwd
       -> Bool                     -- oBwd
-      -> WishboneMasterState dat  -- nextState
+      -> WishboneMasterState dataWidth  -- nextState
     fsm st@WaitForOp{} Nothing _ = st
     fsm WaitForOp{} (Just WishboneOperation{..}) _
       | _opAbort  = WaitForOp False
@@ -119,16 +117,14 @@ wishboneMasterT state (iFwd, Ack oBwd, wbBwd)
 -- operation. If this is set, the @CYC@ line is dropped in the @WaitForAck@
 -- state and kept low until a new operation arives.
 wishboneMasterC
-  :: forall dom addrWidth dat .
+  :: forall dom addrWidth dataWidth .
   ( HiddenClockResetEnable dom
   , KnownNat addrWidth
-  , BitPack dat
-  , NFDataX dat
-  , Show dat
+  , KnownNat dataWidth
   )
-  => Circuit (Df.Df dom (WishboneOperation addrWidth (ByteSize dat) dat))
-             ( Df.Df dom (WishboneResult dat)
-             , Wishbone dom Standard addrWidth dat
+  => Circuit (Df.Df dom (WishboneOperation addrWidth dataWidth))
+             ( Df.Df dom (WishboneResult dataWidth)
+             , Wishbone dom Standard addrWidth dataWidth
              , CSignal dom (Maybe Bit)
              )
 wishboneMasterC = Circuit go
