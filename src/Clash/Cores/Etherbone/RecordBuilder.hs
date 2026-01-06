@@ -69,17 +69,15 @@ data RecordBuilderState
 -- with no data and @_abort@ asserted as well.
 -- The ConfigMaster and WishboneMaster __may not__ send anything after an abort
 -- was asserted. So there is no need to manage the incoming Df data lines.
-recordBuilderT :: forall addrWidth dataWidth dat .
+recordBuilderT :: forall addrWidth dataWidth .
   ( KnownNat addrWidth
   , KnownNat dataWidth
-  , BitPack dat
-  , BitSize dat ~ dataWidth * 8
   , 4 <= dataWidth
   )
   => RecordBuilderState
   -> ( Maybe (Bypass addrWidth)
-     , Maybe (WishboneResult dat)  -- Config space
-     , Maybe (WishboneResult dat)  -- Wishbone space
+     , Maybe (WishboneResult dataWidth)  -- Config space
+     , Maybe (WishboneResult dataWidth)  -- Wishbone space
      , PacketStreamS2M
      )
   -> ( RecordBuilderState
@@ -269,17 +267,15 @@ bypassLatchT (Just bs) (Nothing, lst, bwd) = (nextState, Just bs)
 --
 -- This implementation waits not only for reads, but also for writes when
 -- constructing a response.
-recordBuilderC :: forall dom addrWidth dataWidth dat .
+recordBuilderC :: forall dom addrWidth dataWidth .
   ( HiddenClockResetEnable dom
   , KnownNat addrWidth
   , KnownNat dataWidth
-  , BitPack dat
-  , BitSize dat ~ dataWidth * 8
   , 4 <= dataWidth
   )
   => Circuit ( CSignal dom (Maybe (Bypass addrWidth))
-             , Df.Df dom (WishboneResult dat)  -- Config space
-             , Df.Df dom (WishboneResult dat)  -- Wishbone space
+             , Df.Df dom (WishboneResult dataWidth)  -- Config space
+             , Df.Df dom (WishboneResult dataWidth)  -- Wishbone space
              )
              (PacketStream dom dataWidth EBHeader)
 recordBuilderC = Circuit go
