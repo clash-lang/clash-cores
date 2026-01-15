@@ -22,7 +22,7 @@ import Clash.Cores.Etherbone.Base
 
 type WBData = C.BitVector 32
 
-genWishboneOperation :: Gen (WishboneOperation 32 4 WBData)
+genWishboneOperation :: Gen (WishboneOperation 32 4)
 genWishboneOperation = do
   _opAddr :: C.BitVector 32 <- Gen.integral Range.linearBounded
   _opDat :: Maybe WBData <- Gen.maybe $ Gen.integral Range.linearBounded
@@ -78,7 +78,7 @@ prop_wishboneMasterT = property $ do
       (state, result) = wishboneMasterT (last states) inp
 
     mapInput (wbOp, ack, wbAck) =
-      (wbOp, Ack ack, (emptyWishboneS2M @WBData){readData = readData, acknowledge = wbAck})
+      (wbOp, Ack ack, (emptyWishboneS2M @4){readData = readData, acknowledge = wbAck})
 
     getWb (_, _, x, _) = x
     getOutDat (_, Just x, _, _) = x

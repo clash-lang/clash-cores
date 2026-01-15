@@ -66,14 +66,14 @@ data AddressSpace = WishboneAddressSpace | ConfigAddressSpace
   deriving (Generic, Show, ShowX, NFDataX, NFData, Eq)
 
 -- | Input data for 'Clash.Cores.Etherbone.WishboneMaster.wishboneMasterC' and 'Clash.Cores.Etherbone.ConfigMaster.configMasterC'
-data WishboneOperation addrWidth selWidth dat
+data WishboneOperation addrWidth dataWidth
   = WishboneOperation
   { _opAddr      :: BitVector addrWidth
   -- | Input data. This determines whether the operation is a read or a write.
   -- Read for @Nothing@, write for @Just@.
-  , _opDat       :: Maybe dat
+  , _opDat       :: Maybe (BitVector (dataWidth * 8))
   -- | Wishbone @sel@ field
-  , _opSel       :: BitVector selWidth
+  , _opSel       :: BitVector dataWidth
   -- | Indicates whether the @busCycle@ line should be dropped after the
   -- operation.
   , _opDropCyc   :: Bool
@@ -94,10 +94,10 @@ data WishboneOperation addrWidth selWidth dat
 
 -- | Output data from 'Clash.Cores.Etherbone.WishboneMaster.wishboneMasterC' and
 -- 'Clash.Cores.Etherbone.ConfigMaster.configMasterC'
-data WishboneResult dat
+data WishboneResult dataWidth
   = WishboneResult
   -- | @Nothing@ for a write and @Just dat@ for a read.
-  { _resDat  :: Maybe dat
+  { _resDat  :: Maybe (BitVector (dataWidth * 8))
   -- | Forwarded End-of-record flag
   , _resEOR  :: Bool
   -- | Forwarded End-of-packet flag
@@ -124,8 +124,6 @@ data Bypass addrWidth = Bypass
   -- into its initial state.
   , _bpAbort  :: Bool
   } deriving (Generic, NFDataX, NFData, Show, ShowX, Eq)
-
-type ByteSize dat = DivRU (BitSize dat) 8
 
 -- | Extract 'EBHeader' data from a @PacketStream@ into the metadata.
 -- With a 64-bit bus this shifts the data-stream by 4 bytes.

@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
 
 module Clash.Cores.Etherbone.ConfigMaster where
 
@@ -25,25 +26,23 @@ type ConfigReg = BitVector 64
 -- 1. Self-describing bus base address.
 -- 2. Packet counter. Counts the number of correctly received packets.
 configMasterC
-  :: forall dom addrWidth dat configRegs.
+  :: forall dom addrWidth dataWidth configRegs.
   ( HiddenClockResetEnable dom
   , KnownNat addrWidth
+  , KnownNat dataWidth
   , KnownNat configRegs
-  , BitPack dat
-  , NFDataX dat
-  , Show dat
-  , 4 <= ByteSize dat
-  , 1 <= BitSize dat
-  , DivRU 64 (BitSize dat) * BitSize dat ~ 64
+  , 4 <= dataWidth
+  , 1 <= dataWidth * 8
+  , DivRU 8 dataWidth * (dataWidth * 8) ~ 64
   )
   -- | Self-describing bus base address
   => BitVector addrWidth
   -- | Optional user-defined config registers
   -> Signal dom (Vec configRegs ConfigReg)
-  -> Circuit ( Df.Df dom (WishboneOperation addrWidth (ByteSize dat) dat)
+  -> Circuit ( Df.Df dom (WishboneOperation addrWidth dataWidth)
              , CSignal dom (Maybe Bit)
              )
-             (Df.Df dom (WishboneResult dat))
+             (Df.Df dom (WishboneResult dataWidth))
 configMasterC sdbAddress userConfigRegs = Circuit go
   where
     go ((iFwd, errBit), oBwd) = ((oBwd, ()), oFwd)
@@ -77,7 +76,7 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         configSpace = (++) <$> bundle etherboneConfigRegs <*> userConfigRegs
 
         reMap ::
-          ConfigReg -> Vec (DivRU 64 (BitSize dat)) (BitVector (BitSize dat))
+          ConfigReg -> Vec (DivRU 8 dataWidth) (BitVector (dataWidth * 8))
         reMap = bitCoerce
 
         configSpaceRemapped = fmap (concatMap reMap) configSpace
@@ -89,9 +88,9 @@ configMasterC sdbAddress userConfigRegs = Circuit go
         -- abort set. Selects to correct Word from the @configSpace@.
         regSelect ::
           ( KnownNat n )
-          => Maybe (WishboneOperation addrWidth (ByteSize dat) dat)
-          -> Vec n (BitVector (BitSize dat))
-          -> Maybe (Maybe dat)
+          => Maybe (WishboneOperation addrWidth dataWidth)
+          -> Vec n (BitVector (dataWidth * 8))
+          -> Maybe (Maybe (BitVector (dataWidth * 8)))
         regSelect Nothing _ = Nothing
         regSelect (Just WishboneOperation{..}) cs
           | _opAddrSpace == WishboneAddressSpace
@@ -100,6 +99,6 @@ configMasterC sdbAddress userConfigRegs = Circuit go
           | isJust _opDat = Just Nothing
           | otherwise     = Just $ Just $ bitCoerce (cs !! index)
             where
-              bitsToShift = natToNum @(CLog 2 (ByteSize dat))
+              bitsToShift = natToNum @(CLog 2 dataWidth)
               index = shiftR _opAddr bitsToShift
 

@@ -93,18 +93,15 @@ prop_recordProcessor_wishbone =
     defExpectOptions {eoSampleMax = 256}
     genRecordProcessorInput
     (C.exposeClockResetEnable (snd . recordProcessorModel))
-    (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth @WBData))
+    (C.exposeClockResetEnable (ckt @C.System @DataWidth @AddrWidth))
   where
-    ckt :: forall dom dataWidth addrWidth dat .
+    ckt :: forall dom dataWidth addrWidth .
       ( C.HiddenClockResetEnable dom
       , C.KnownNat dataWidth
       , C.KnownNat addrWidth
-      , C.BitPack dat
-      , C.BitSize dat ~ dataWidth C.* 8
-      , Show dat
       )
       => Circuit (PacketStream dom dataWidth (Bool, RecordHeader))
-                 (Df.Df dom (WishboneOperation addrWidth dataWidth dat))
+                 (Df.Df dom (WishboneOperation addrWidth dataWidth))
     ckt = Circuit go
       where
         go (iFwd, oBwd) = (iBwd, snd oFwd)
@@ -117,13 +114,10 @@ prop_recordProcessor_bypass = property $ do
   inputs' <- forAll genRecordProcessorInput
 
   let
-    ckt :: forall dom dataWidth addrWidth dat .
+    ckt :: forall dom dataWidth addrWidth .
       ( C.HiddenClockResetEnable dom
       , C.KnownNat dataWidth
       , C.KnownNat addrWidth
-      , C.BitPack dat
-      , C.BitSize dat ~ dataWidth C.* 8
-      , C.Show dat
       )
       => Circuit (PacketStream dom dataWidth (Bool, RecordHeader))
                  (CSignal dom (Maybe(Bypass addrWidth)))
@@ -131,32 +125,29 @@ prop_recordProcessor_bypass = property $ do
       where
         go (iFwd, oBwd) = (iBwd, fst oFwd)
           where
-            (iBwd, oFwd) = toSignals (recordProcessorC @_ @_ @_ @dat) (iFwd, (oBwd, pure $ Ack True))
+            (iBwd, oFwd) = toSignals recordProcessorC (iFwd, (oBwd, pure $ Ack True))
 
     inputs = map Just inputs'
 
     res = take (length inputs) $ C.simulate (C.bundle . go . (, ())) inputs
       where
-        go = toSignals (C.withClockResetEnable C.clockGen C.resetGen C.enableGen (ckt @C.System @DataWidth @AddrWidth @WBData))
+        go = toSignals (C.withClockResetEnable C.clockGen C.resetGen C.enableGen (ckt @C.System @DataWidth @AddrWidth))
 
     bypass = map (fromJust . snd) res
 
-    modelBypass = fst $ (recordProcessorModel @DataWidth @AddrWidth @WBData) inputs'
+    modelBypass = fst $ (recordProcessorModel @DataWidth @AddrWidth) inputs'
   footnote $ "Circit output: " <> show bypass
   footnote $ "Model output:  " <> show modelBypass
 
   assert $ length bypass == length modelBypass
   assert $ bypass == modelBypass
 
-recordProcessorModel :: forall dataWidth addrWidth dat .
+recordProcessorModel :: forall dataWidth addrWidth .
   ( C.KnownNat dataWidth
   , C.KnownNat addrWidth
-  , C.BitPack dat
-  , C.BitSize dat ~ dataWidth C.* 8
-  , Show dat
   )
   => [PacketStreamM2S dataWidth (Bool, RecordHeader)]
-  -> ([Bypass addrWidth], [WishboneOperation addrWidth dataWidth dat])
+  -> ([Bypass addrWidth], [WishboneOperation addrWidth dataWidth])
 recordProcessorModel [] = error "recordProcessorModel: empty input"
 recordProcessorModel inputs@(head:tail) = (bypass, wbmInput)
   where
