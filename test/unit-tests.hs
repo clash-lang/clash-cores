@@ -13,6 +13,7 @@ module Main where
 import Prelude
 import Test.Tasty
 
+import qualified Test.Cores.ClashFloPoCo.MPFR
 import qualified Test.Cores.Crc
 import qualified Test.Cores.Etherbone
 import qualified Test.Cores.LineCoding.Lc8b10b
@@ -33,7 +34,8 @@ import qualified Test.Cores.Xilinx.Ethernet.Gmii
 
 tests :: TestTree
 tests = testGroup "Unittests" $
-  [ Test.Cores.Crc.tests
+  [ Test.Cores.ClashFloPoCo.MPFR.tests
+  , Test.Cores.Crc.tests
   , Test.Cores.Etherbone.tests
   , Test.Cores.LineCoding.Lc8b10b.tests
   , Test.Cores.SPI.tests

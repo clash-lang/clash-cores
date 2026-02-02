@@ -17,6 +17,7 @@
 
         regular-pkgs = import clash-compiler.inputs.nixpkgs {
           inherit system;
+          config.allowUnfree = true;
         };
 
         all-overlays = builtins.listToAttrs (builtins.map (compiler-version:
@@ -70,6 +71,11 @@
           # https://discourse.nixos.org/t/non-interactive-bash-errors-from-flake-nix-mkshell/33310
           buildInputs = [
             regular-pkgs.bashInteractive
+            regular-pkgs.mpfr
+            regular-pkgs.pkgsStatic.mpfr
+            regular-pkgs.pkg-config
+            regular-pkgs.gmp
+            regular-pkgs.flopoco
           ];
 
           nativeBuildInputs = [
@@ -103,9 +109,8 @@
         # These can be invoked using `nix develop .#ghc9101-minimal`
         #
         # Please do note that if you work with Nix, you need to remove ALL the `cabal*.project` files at
-        # the root of the directory! Cabal prioritizes local source overrides over Nix, which causes
-        # the many packages to incorrectly be fetched.
-        devShells = all-shells // { default = all-shells."${default-version}-minimal"; };
+        # the root of the directory  to avoid Cabal incorrectly fetching packages.
+        devShells = all-shells // { default = all-shells."${default-version}-full"; };
 
         # Packages for each version of GHC, with a default package being set to the default-version's version
         packages = all-packages // { default = all-packages.${default-version}; };

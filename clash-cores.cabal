@@ -106,11 +106,18 @@ common basic-config
       clash-lib               >= 1.9.0,
       clash-prelude           >= 1.9.0,
 
+flag use-pkg-config
+  description: Use pkg-config to find system libraries (mpfr).
+  default: True
+  manual: False
+
 library
   import: basic-config
   hs-source-dirs: src
 
   exposed-modules:
+    Clash.Cores.ClashFloPoCo.Example
+    Clash.Cores.ClashFloPoCo.MPFR
     Clash.Cores.Crc
     Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
@@ -175,6 +182,12 @@ library
   other-modules:
     Clash.Core.TermLiteral.Compat
     Data.Text.Extra
+    -- Clash.Cores.ClashFloPoCo.GenTemDSL
+    Clash.Cores.ClashFloPoCo.FloPoCoCall
+    Clash.Cores.ClashFloPoCo.InfoEn
+    Clash.Cores.ClashFloPoCo.Lexer
+    Clash.Cores.ClashFloPoCo.DSL
+    Clash.Cores.ClashFloPoCo.NT
 
   ghc-options:
     -fexpose-all-unfoldings
@@ -186,9 +199,28 @@ library
     pretty-show,
     prettyprinter           >= 1.7 && < 1.8,
     prettyprinter-interp    ^>= 0.2,
+    pretty,
+    unicode-show,
     reducers                >= 3.12.2 && < 4.0,
     text                    >= 1.2.2 && < 2.2,
     unordered-containers,
+    process,
+
+  -- Flag to control how we find system libraries
+  -- Default to True (pkg-config) as it's more robust, especially for Nix
+  if flag(use-pkg-config)
+    pkgconfig-depends: mpfr, gmp
+  else
+    extra-libraries: mpfr
+
+executable clash
+  import: basic-config
+  main-is: Clash.hs
+  build-depends:
+    clash-cores,
+    clash-ghc
+  hs-source-dirs: bin
+  ghc-options: -threaded
 
 test-suite unit-tests
   import: basic-config
@@ -201,6 +233,7 @@ test-suite unit-tests
     buildable: False
 
   other-modules:
+    Test.Cores.ClashFloPoCo.MPFR
     Test.Cores.Crc
     Test.Cores.Etherbone
     Test.Cores.Etherbone.Internal

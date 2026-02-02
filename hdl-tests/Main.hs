@@ -150,7 +150,14 @@ runClashTest = defaultMain $ clashTestRoot
         ]
       ]
     , clashTestGroup "shouldwork"
-      [ clashTestGroup "Xilinx"
+      [ clashTestGroup "ClashFloPoCo"
+        [ runTest "FloPoCoAdderTest" def
+          { hdlTargets = [VHDL]
+          , hdlLoad = []
+          , hdlSim = []
+          }
+        ]
+      , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
           ]
