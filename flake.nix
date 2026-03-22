@@ -73,6 +73,7 @@
           ];
 
           nativeBuildInputs = [
+            regular-pkgs.trellis
             hs-pkgs.cabal-install
             hs-pkgs.cabal-plan
             hs-pkgs.fourmolu
