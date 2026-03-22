@@ -18,6 +18,7 @@ import qualified Test.Cores.Etherbone
 import qualified Test.Cores.LineCoding.Lc8b10b
 #if MIN_VERSION_clash_prelude(1,9,0)
 import qualified Test.Cores.LatticeSemi.ECP5.Pll
+import qualified Test.Cores.LatticeSemi.ICE40.Pll
 import qualified Test.Cores.Sgmii.AutoNeg
 import qualified Test.Cores.Sgmii.BitSlip
 import qualified Test.Cores.Sgmii.RateAdapt
@@ -50,6 +51,7 @@ tests_modern :: [TestTree]
 #if MIN_VERSION_clash_prelude(1,9,0)
 tests_modern =
   [ Test.Cores.LatticeSemi.ECP5.Pll.tests
+  , Test.Cores.LatticeSemi.ICE40.Pll.tests
   , Test.Cores.Sgmii.AutoNeg.tests
   , Test.Cores.Sgmii.BitSlip.tests
   , Test.Cores.Sgmii.RateAdapt.tests
