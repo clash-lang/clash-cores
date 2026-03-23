@@ -8,8 +8,6 @@ Contains a wrapper for the Xilinx GMII to SGMII PMA
 "LogiCORE IP Ethernet 1000BASE-X PCS/PMA or SGMII"
 
 https://www.xilinx.com/xsw/gig_ethernet_pcs_pma
-
-Currently only the Verilog primitive is supported.
 -}
 
 {-# LANGUAGE RecordWildCards #-}
@@ -18,6 +16,8 @@ Currently only the Verilog primitive is supported.
 module Clash.Cores.Xilinx.Ethernet.Gmii (
   -- * GMII SGMII bridge function
   gmiiSgmiiBridge,
+  gmiiSgmiiBridgeWith,
+  Version (..),
   -- * GMII interface
   Gmii (..),
   -- * GMII SGMII bridge function output
@@ -32,7 +32,6 @@ module Clash.Cores.Xilinx.Ethernet.Gmii (
   AutoNegConfig (..),
   DuplexMode (..),
   LinkSpeed (..),
-
   -- * Internal
   Nanoseconds,
   Picoseconds,
@@ -58,8 +57,8 @@ data BridgeOutput gmii125 sgmii625 = BridgeOutput
   }
 
 {- | Wrapper for the LogiCORE IP Ethernet 1000BASE-X PCS/PMA or SGMII, configured to
-function as a GMII to SGMII bridge using LVDS in MAC mode. Currently only the Verilog
-primitive is supported.
+function as a GMII to SGMII bridge using LVDS in MAC mode. Uses IP version 17.0,
+to use a different version, see 'gmiiSgmiiBridgeWith'.
 -}
 gmiiSgmiiBridge ::
   forall sgmii625 gmii125.
@@ -93,7 +92,50 @@ gmiiSgmiiBridge ::
   Signal gmii125 Gmii ->
   -- | Output record, see @BridgeOutput@
   BridgeOutput gmii125 sgmii625
-gmiiSgmiiBridge refClk refRst signalDetect bridgeConfig anConfig anRestart lvdsIn gmiiTx = BridgeOutput{..}
+gmiiSgmiiBridge = gmiiSgmiiBridgeWith V17_0
+
+{- | Wrapper for the LogiCORE IP Ethernet 1000BASE-X PCS/PMA or SGMII, configured to
+function as a GMII to SGMII bridge using LVDS in MAC mode.
+Tested versions:
+
+* Vivado 2025.2, IP version 17.0
+* Vivado 2022.2, IP version 16.2
+-}
+gmiiSgmiiBridgeWith ::
+  forall sgmii625 gmii125.
+  KnownDomain sgmii625 =>
+  KnownDomain gmii125 =>
+  DomainPeriod sgmii625 ~ Picoseconds 1600 =>
+  DomainPeriod gmii125 ~ Nanoseconds 8 =>
+  DomainActiveEdge sgmii625 ~ 'Rising =>
+  DomainActiveEdge gmii125 ~ 'Rising =>
+  HasAsynchronousReset sgmii625 =>
+  HasSynchronousReset gmii125 =>
+  DomainResetPolarity sgmii625 ~ 'ActiveHigh =>
+  DomainResetPolarity gmii125 ~ 'ActiveHigh =>
+  -- | Revision version of the IP.
+  Version ->
+  -- | Reference clock coming from the PHY
+  DiffClock sgmii625 ->
+  -- | Asynchronous reset for the bridge
+  Reset sgmii625 ->
+  -- | Signal detect from the PHY. Either connect to the PHY's signal detect or use
+  -- a constant @True@, otherwise the link will never come up. The IP core considers this
+  -- an asynchronous signal, so synchronisation logic is not needed.
+  Signal sgmii625 Bool ->
+  -- | Configuration for the bridge
+  Signal gmii125 Config ->
+  -- | Auto negotiation configuration for the bridge
+  Signal gmii125 AutoNegConfig ->
+  -- | Restart auto negotiation
+  Signal gmii125 Bool ->
+  -- | LVDS input from the PHY
+  Signal sgmii625 Lvds ->
+  -- | GMII input from the MAC
+  Signal gmii125 Gmii ->
+  -- | Output record, see @BridgeOutput@
+  BridgeOutput gmii125 sgmii625
+gmiiSgmiiBridgeWith version refClk refRst signalDetect bridgeConfig anConfig anRestart lvdsIn gmiiTx = BridgeOutput{..}
  where
   ( bridgeClk125
     , activeHighRxRst
@@ -105,6 +147,7 @@ gmiiSgmiiBridge refClk refRst signalDetect bridgeConfig anConfig anRestart lvdsI
     , fmap fromStatusVector -> bridgeStatus
     ) =
       gmiiSgmiiBridgePrim
+        version
         clockP
         clockN
         refRst

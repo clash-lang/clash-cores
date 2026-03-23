@@ -19,15 +19,8 @@ module Clash.Cores.Xilinx.Ethernet.Gmii.Internal where
 
 import Clash.Explicit.Prelude hiding ((:<))
 
-import Clash.Annotations.Primitive
-import Clash.Backend (Backend)
-import Clash.Netlist.Types (BlackBoxContext (..), TemplateFunction (..))
+import Clash.Cores.Xilinx.Xpm.Cdc.Internal
 import Clash.Signal.Internal
-import Control.Monad.State (State)
-import Data.List.Infinite ((...), Infinite(..))
-import Data.String.Interpolate
-import Data.Text.Prettyprint.Doc.Extra (Doc)
-import Prettyprinter.Interpolate (__di)
 
 import qualified Clash.Explicit.Prelude as C
 
@@ -171,9 +164,17 @@ fromStatusVector v = Status{..}
     ) = unpack v
   sRemoteFault = if remoteFaultValid then Just remoteFaultCode else Nothing
 
+-- | 'Clash.Cores.Xilinx.Ethernet.Gmii.gmiiSgmiiBridge' IP version  to use. Other versions have not been tested and might not work.
+-- Unsafe versions should be formatted as "major.minor", e.g. "17.0" or "16.2".
+data Version = V16_2 | V17_0 | UnsafeVersion String
+
+versionToString :: Version -> String
+versionToString V16_2 = "16.2"
+versionToString V17_0 = "17.0"
+versionToString (UnsafeVersion v) = v
+
 {- | Primitive for the LogiCORE IP Ethernet 1000BASE-X PCS/PMA or SGMII, configured
-to function as a GMII to SGMII bridge using LVDS in MAC mode. Currently only the Verilog
-primitive is supported.
+to function as a GMII to SGMII bridge using LVDS in MAC mode.
 -}
 gmiiSgmiiBridgePrim ::
   forall sgmii625 gmii125.
@@ -188,6 +189,8 @@ gmiiSgmiiBridgePrim ::
   , DomainResetPolarity sgmii625 ~ 'ActiveHigh
   , DomainResetPolarity gmii125 ~ 'ActiveHigh
   ) =>
+  -- | Revision version of the IP. Unsafe versions should be formatted as "major.minor", e.g. "17.0" or "16.2".
+  Version ->
   -- | P channel of the reference clock coming from the PHY
   Clock sgmii625 ->
   -- | N channel of the reference clock coming from the PHY
@@ -233,174 +236,81 @@ gmiiSgmiiBridgePrim ::
   , Signal gmii125 Bit
   , Signal gmii125 StatusVector
   )
--- Can't use @deepErrorX@ because one of the results is a clock
-gmiiSgmiiBridgePrim !_ !_ !_ !_ !_ !_ !_ !_ !_ !_ !_ !_ =
-  (clockGen, undefined, undefined, undefined, undefined, undefined, undefined, undefined)
-{-# OPAQUE gmiiSgmiiBridgePrim #-}
-{-# ANN
-  gmiiSgmiiBridgePrim
-  ( let
-      tfName = 'tclTemplateFunction
-      primName = 'gmiiSgmiiBridgePrim
-      -- Constraints
-      _knownDomSgmii
-        :< _knownDomGmii
-        :< _domPeriodSgmii
-        :< _domPeriodGmii1
-        :< _domEdgeSgmii
-        :< _domEdgeGmii
-        :< _hasAsyncRstSgmii
-        :< _hasSyncRstGmii
-        :< _domRstPolSgmii
-        :< _domRstPolgmii
-        :<
-        -- Arguments
-        sgmiiClkP
-        :< sgmiiClkN
-        :< rst
-        :< signalDetect
-        :< pmaConfig
-        :< pmaAnAdvancedConfig
-        :< restartAn
-        :< lvdsInP
-        :< lvdsInN
-        :< gmiiTxD
-        :< gmiiTxDv
-        :< gmiiTxEr
-        :< _ =
-          ((0 :: Int) ...)
-
-      -- Symbols
-      clk125
-        :< rst125
-        :< lvdsOutP
-        :< lvdsOutN
-        :< gmiiRxD
-        :< gmiiRxDv
-        :< gmiiRxEr
-        :< statusVector
-        :< compName
-        :< _ =
-          ((0 :: Int) ...)
-     in
-      InlineYamlPrimitive
-        [Verilog]
-        [__i|
-      BlackBox:
-        kind: Declaration
-        name: #{primName}
-        template: |-
-          wire ~GENSYM[pmaClk125][#{clk125}];
-          wire ~GENSYM[pmaRst125][#{rst125}];
-          wire ~GENSYM[lvdsOutP][#{lvdsOutP}];
-          wire ~GENSYM[lvdsOutN][#{lvdsOutN}];
-          wire [7:0] ~GENSYM[gmiiRxD][#{gmiiRxD}];
-          wire ~GENSYM[gmiiRxDv][#{gmiiRxDv}];
-          wire ~GENSYM[gmiiRxEr][#{gmiiRxEr}];
-          wire [15:0] ~GENSYM[pmaStatusVector][#{statusVector}];
-
-          ~INCLUDENAME[0] ~GENSYM[gig_ethernet_pcs_pma][#{compName}] (
-            .refclk625_p(~ARG[#{sgmiiClkP}]),
-            .refclk625_n(~ARG[#{sgmiiClkN}]),
-            .reset(~ARG[#{rst}]),
-            .speed_is_100(0),
-            .speed_is_10_100(0),
-            .signal_detect(~ARG[#{signalDetect}]),
-            .configuration_vector(~ARG[#{pmaConfig}]),
-            .an_adv_config_vector(~ARG[#{pmaAnAdvancedConfig}]),
-            .an_restart_config(~ARG[#{restartAn}]),
-            .rxp(~ARG[#{lvdsInP}]),
-            .rxn(~ARG[#{lvdsInN}]),
-            .gmii_txd(~ARG[#{gmiiTxD}]),
-            .gmii_tx_en(~ARG[#{gmiiTxDv}]),
-            .gmii_tx_er(~ARG[#{gmiiTxEr}]),
-            .clk125_out(~SYM[#{clk125}]),
-            .rst_125_out(~SYM[#{rst125}]),
-            .txp(~SYM[#{lvdsOutP}]),
-            .txn(~SYM[#{lvdsOutN}]),
-            .gmii_rxd(~SYM[#{gmiiRxD}]),
-            .gmii_rx_dv(~SYM[#{gmiiRxDv}]),
-            .gmii_rx_er(~SYM[#{gmiiRxEr}]),
-            .status_vector(~SYM[#{statusVector}])
-          );
-          assign ~RESULT =
-            { ~SYM[#{clk125}]
-            , ~SYM[#{rst125}]
-            , ~SYM[#{lvdsOutP}]
-            , ~SYM[#{lvdsOutN}]
-            , ~SYM[#{gmiiRxD}]
-            , ~SYM[#{gmiiRxDv}]
-            , ~SYM[#{gmiiRxEr}]
-            , ~SYM[#{statusVector}]
-            };
-        includes:
-          - extension: clash.tcl
-            name: gig_ethernet_pcs_pma
-            format: Haskell
-            templateFunction: #{tfName}
-
-          |]
+gmiiSgmiiBridgePrim
+  version
+  clockP
+  clockN
+  rst
+  signalDetect
+  pmaConfig
+  pmaAnAdvancedConfig
+  restartAn
+  lvdsInP
+  lvdsInN
+  gmiiTxD
+  gmiiTxDv
+  gmiiTxEr
+  =
+  ( unPort clk125
+  , bitToBool <$> unPort rst125
+  , unPort txp
+  , unPort txn
+  , unPort gmiiRxD
+  , unPort gmiiRxDv
+  , unPort gmiiRxEr
+  , unPort statusVector
   )
-  #-}
-
-tclTemplateFunction :: TemplateFunction
-tclTemplateFunction = TemplateFunction used valid tclTemplate
  where
-  used = [sgmiiClkP .. gmiiTxEr] -- use all arguments
-  valid = const True
-  -- Constraints
-  _knownDomSgmii
-    :< _knownDomGmii
-    :< _domPeriodSgmii
-    :< _domPeriodGmii
-    :< _domEdgeSgmii
-    :< _domEdgeGmii
-    :< _hasAsyncRstSgmii
-    :< _hasSyncRstGmii
-    :< _domRstPolSgmii
-    :< _domRstPolGmii
-    :<
-    -- Arguments
-    sgmiiClkP
-    :< _sgmiiClkN
-    :< _rst
-    :< _signalDetect
-    :< _pmaConfig
-    :< _pmaAnAdvancedConfig
-    :< _restartAn
-    :< _lvdsInP
-    :< _lvdsInN
-    :< _gmiiTxD
-    :< _gmiiTxDv
-    :< gmiiTxEr
-    :< _ =
-      (0...)
+  ( clk125
+    , rst125
+    , txp
+    , txn
+    , gmiiRxD
+    , gmiiRxDv
+    , gmiiRxEr
+    , statusVector
+    ) = go
 
-tclTemplate :: Backend s => BlackBoxContext -> State s Doc
-tclTemplate bbCtx
-  | [compName] <- bbQsysIncName bbCtx =
-      let
-        bbText =
-          [__di|
-      namespace eval $tclIface {
-        variable api 1
-        variable scriptPurpose createIp
-        variable ipName {#{compName}}
-        proc createIp {ipName0 args} {
-          create_ip -name gig_ethernet_pcs_pma -vendor xilinx.com -library ip \\\&
-            -version 16.2 -module_name $ipName0
-          set_property -dict [list \\\&
-            CONFIG.LvdsRefClk {625} \\\&
-            CONFIG.Standard {SGMII} \\\&
-            CONFIG.Physical_Interface {LVDS} \\\&
-            CONFIG.Management_Interface {false} \\\&
-            CONFIG.Ext_Management_Interface {false} \\\&
-            CONFIG.SGMII_PHY_Mode {false} \\\&
-            CONFIG.SupportLevel {Include_Shared_Logic_in_Core}] [get_ips $ipName0]
-          return
-        }
-      }
-      |]
-       in
-        pure bbText
-  | otherwise = error "gmiiSgmiiBridgePrim: Expected exactly one component name"
+  diffClk = DiffClock clockP clockN
+
+  go ::
+    ( ClockPort "clk125_out" gmii125
+    , Port "rst_125_out" gmii125 Bit
+    , Port "txp" sgmii625 Bit
+    , Port "txn" sgmii625 Bit
+    , Port "gmii_rxd" gmii125 (BitVector 8)
+    , Port "gmii_rx_dv" gmii125 Bit
+    , Port "gmii_rx_er" gmii125 Bit
+    , Port "status_vector" gmii125 StatusVector
+    )
+  go =
+    instWithXilinxWizard
+      (instConfig "gig_ethernet_pcs_pma")
+      (XilinxWizard
+        { wiz_name = "gig_ethernet_pcs_pma"
+        , wiz_vendor = "xilinx.com"
+        , wiz_library = "ip"
+        , wiz_version = versionToString version
+        , wiz_options =
+             ("CONFIG.LvdsRefClk",               StrOpt "625")
+          :> ("CONFIG.Standard",                 StrOpt "SGMII")
+          :> ("CONFIG.Physical_Interface",       StrOpt "LVDS")
+          :> ("CONFIG.Management_Interface",     BoolOpt False)
+          :> ("CONFIG.Ext_Management_Interface", BoolOpt False)
+          :> ("CONFIG.SGMII_PHY_Mode",           BoolOpt False)
+          :> ("CONFIG.SupportLevel",             StrOpt "Include_Shared_Logic_in_Core")
+          :> Nil
+        })
+      (NamedDiffClockPort @"refclk625_p" @"refclk625_n" diffClk)
+      (ResetPort @"reset" @'ActiveHigh rst)
+      (Port @"speed_is_100" (pure 0 :: Signal gmii125 Bit))
+      (Port @"speed_is_10_100" (pure 0 :: Signal gmii125 Bit))
+      (Port @"signal_detect" (boolToBit <$> signalDetect))
+      (Port @"configuration_vector" (pack <$> pmaConfig))
+      (Port @"an_adv_config_vector" (pack <$> pmaAnAdvancedConfig))
+      (Port @"an_restart_config" (boolToBit <$> restartAn))
+      (Port @"rxp" lvdsInP)
+      (Port @"rxn" lvdsInN)
+      (Port @"gmii_txd" gmiiTxD)
+      (Port @"gmii_tx_en" gmiiTxDv)
+      (Port @"gmii_tx_er" gmiiTxEr)
