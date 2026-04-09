@@ -17,7 +17,7 @@ tests-always:
     CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
   parallel:
     matrix:
-      - GHC_VERSION: ["9.6.6", "9.10.1"]
+      - GHC_VERSION: ["9.6.7", "9.10.3"]
 
 tests-release:
   stage: test
@@ -74,7 +74,7 @@ stack-build:
     - tar -cf - /root/.stack | zstd -T$THREADS -3 > cache.tar.zst
 
 nix-build:
-  image: nixos/nix:2.10.1
+  image: nixos/nix:2.34.6
   needs: []
   stage: test
   rules:
