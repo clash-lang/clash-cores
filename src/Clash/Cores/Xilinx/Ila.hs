@@ -37,6 +37,8 @@ module Clash.Cores.Xilinx.Ila
   , ilaWith
   , probe
   , probeWith
+  , dataProbe
+  , triggerProbe
 
   -- * Config
   , IlaConfig(..)
@@ -84,6 +86,30 @@ instance Ila dom (Signal dom ()) where
 
 instance Ila dom a => Ila dom (Probe (Signal dom i) -> a) where
   ilaX !_i = ilaX @dom @a
+
+-- | Probe with default config, see 'probeConfig', but with its 'probeType'
+-- set to 'Data'.
+dataProbe ::
+  forall dom a.
+  -- | Probe name
+  String ->
+  -- | Signal to capture
+  Signal dom a ->
+  -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
+  Probe (Signal dom a)
+dataProbe name = probeWith name probeConfig{probeType=Data}
+
+-- | Probe with default config, see 'probeConfig', but with its 'probeType'
+-- set to 'DataAndTrigger'.
+triggerProbe ::
+  forall dom a.
+  -- | Probe name
+  String ->
+  -- | Signal to capture
+  Signal dom a ->
+  -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
+  Probe (Signal dom a)
+triggerProbe name = probeWith name probeConfig{probeType=DataAndTrigger}
 
 -- | A [polyvariadic](https://github.com/AJFarmar/haskell-polyvariadic) function
 -- that instantiates a Xilinx Integrated Logic Analyzer (ILA).
