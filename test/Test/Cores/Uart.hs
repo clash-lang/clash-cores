@@ -12,7 +12,7 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Test.Cores.UART where
+module Test.Cores.Uart where
 
 import qualified Data.List as List
 import           Data.Maybe
@@ -22,7 +22,7 @@ import qualified Test.Tasty.QuickCheck as QC
 import           Clash.Prelude (exposeClockResetEnable)
 import           Clash.Explicit.Prelude hiding (interleave)
 
-import           Clash.Cores.UART
+import           Clash.Cores.Uart
 
 #if !MIN_VERSION_clash_prelude(1,9,0)
 -- | Number of clock cycles required at the clock frequency of @dom@ before a minimum

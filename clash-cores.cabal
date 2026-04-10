@@ -128,7 +128,7 @@ library
     Clash.Cores.LineCoding.Lc8b10b.Decoder
     Clash.Cores.LineCoding.Lc8b10b.Encoder
     Clash.Cores.Spi
-    Clash.Cores.UART
+    Clash.Cores.Uart
     Clash.Cores.Xilinx.BlockRam
     Clash.Cores.Xilinx.BlockRam.BlackBoxes
     Clash.Cores.Xilinx.BlockRam.Internal
@@ -212,7 +212,7 @@ test-suite unit-tests
     Test.Cores.Internal.Signals
     Test.Cores.Spi
     Test.Cores.Spi.MultiSlave
-    Test.Cores.UART
+    Test.Cores.Uart
     Test.Cores.Xilinx.BlockRam
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2

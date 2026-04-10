@@ -25,7 +25,7 @@ import qualified Test.Cores.Sgmii.Sync
 #endif
 import qualified Test.Cores.Spi
 import qualified Test.Cores.Spi.MultiSlave
-import qualified Test.Cores.UART
+import qualified Test.Cores.Uart
 import qualified Test.Cores.Xilinx.BlockRam
 import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
@@ -38,7 +38,7 @@ tests = testGroup "Unittests" $
   , Test.Cores.LineCoding.Lc8b10b.tests
   , Test.Cores.Spi.tests
   , Test.Cores.Spi.MultiSlave.tests
-  , Test.Cores.UART.tests
+  , Test.Cores.Uart.tests
   , Test.Cores.Xilinx.BlockRam.tests
   , Test.Cores.Xilinx.DcFifo.tests
   , Test.Cores.Xilinx.DnaPortE2.tests
