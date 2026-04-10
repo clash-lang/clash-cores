@@ -14,7 +14,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Clash.Cores.LatticeSemi.ICE40.IO
+module Clash.Cores.LatticeSemi.Ice40.IO
   ( sbio
   , spiConfig
   , PinOutputConfig(..)
@@ -200,7 +200,7 @@ sbio pinConf pkgPinIn latchInput dOut_0 _dOut_1 outputEnable0 =
   clockLessLatchErr =
     "Either LATCH_INPUT_VALUE was asserted or pin type was set to one of " <>
     "INPUT_REGISTERED_LATCH or PIN_INPUT_LATCH. This is currently not " <>
-    "supported by this 'Clash.Cores.LatticeSemi.ICE40.IO.sbio', due to CLash not " <>
+    "supported by this 'Clash.Cores.LatticeSemi.Ice40.IO.sbio', due to CLash not " <>
     "supporting clockless latches."
 
   latch_dIn_0 =
@@ -234,8 +234,8 @@ sbio pinConf pkgPinIn latchInput dOut_0 _dOut_1 outputEnable0 =
 {-# ANN sbio hasBlackBox #-}
 {-# ANN sbio (InlineYamlPrimitive [VHDL,Verilog,SystemVerilog] [__i|
    BlackBox:
-    name: Clash.Cores.LatticeSemi.ICE40.IO.sbio
+    name: Clash.Cores.LatticeSemi.Ice40.IO.sbio
     kind: Declaration
     format: Haskell
-    templateFunction: Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO.sbioTF
+    templateFunction: Clash.Cores.LatticeSemi.Ice40.Blackboxes.IO.sbioTF
    |]) #-}

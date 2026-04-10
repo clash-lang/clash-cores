@@ -11,7 +11,7 @@
 
 {-# OPTIONS_HADDOCK hide #-}
 
-module Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO (bbTF) where
+module Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO (bbTF) where
 
 import           Clash.Backend
 import           Clash.Netlist.BlackBox.Util
@@ -72,4 +72,4 @@ bbTemplate bbCtx
  where
   instPort pn = Identifier (Id.unsafeMake pn) Nothing
 
-bbTemplate bbCtx = error ("ECP5.bidirectionalBuffer, bad bbCtx: " <> show bbCtx)
+bbTemplate bbCtx = error ("Ecp5.bidirectionalBuffer, bad bbCtx: " <> show bbCtx)

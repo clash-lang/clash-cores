@@ -120,10 +120,10 @@ library
     Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
     Clash.Cores.Etherbone.ConfigMaster
-    Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO
-    Clash.Cores.LatticeSemi.ECP5.IO
-    Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO
-    Clash.Cores.LatticeSemi.ICE40.IO
+    Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO
+    Clash.Cores.LatticeSemi.Ecp5.IO
+    Clash.Cores.LatticeSemi.Ice40.Blackboxes.IO
+    Clash.Cores.LatticeSemi.Ice40.IO
     Clash.Cores.LineCoding.Lc8b10b
     Clash.Cores.LineCoding.Lc8b10b.Decoder
     Clash.Cores.LineCoding.Lc8b10b.Encoder

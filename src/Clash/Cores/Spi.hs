@@ -24,8 +24,8 @@ import Test.QuickCheck as QC
 import Clash.Prelude
 import Clash.Sized.Internal.BitVector
 
-import Clash.Cores.LatticeSemi.ICE40.IO
-import Clash.Cores.LatticeSemi.ECP5.IO
+import Clash.Cores.LatticeSemi.Ice40.IO
+import Clash.Cores.LatticeSemi.Ecp5.IO
 
 -- | SPI mode
 --

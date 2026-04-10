@@ -14,7 +14,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Clash.Cores.LatticeSemi.ECP5.IO
+module Clash.Cores.LatticeSemi.Ecp5.IO
   ( bidirectionalBuffer
   ) where
 
@@ -43,7 +43,7 @@ bidirectionalBuffer
 bidirectionalBuffer en pkgPinOut output = (pkgPinIn, dIn)
   where
     (pkgPinIn,dIn) = -- the BB primitve has an active low enable signal
-      bbECP5 intrinsicName pkgPinOut output invertedEnable
+      bbEcp5 intrinsicName pkgPinOut output invertedEnable
     invertedEnable = not <$> fromEnable en
     intrinsicName = case (pullUpMode pkgPinOut) of
                       SFloating -> "BB"
@@ -51,7 +51,7 @@ bidirectionalBuffer en pkgPinOut output = (pkgPinIn, dIn)
                       SPullDown -> "BBPD"
 -- {-# NOINLINE bidirectionalBuffer #-}
 
-bbECP5
+bbEcp5
   :: forall ds dom
    . ( HasCallStack
      , HasBiSignalDefault ds
@@ -64,7 +64,7 @@ bbECP5
   -> ( BiSignalOut ds dom 1
      , Signal dom Bit
      )
-bbECP5 _intrinsicName pkgPinIn output notOutputEnable
+bbEcp5 _intrinsicName pkgPinIn output notOutputEnable
   = (pkgPinOut, dIn)
    where
      dIn :: Signal dom Bit
@@ -74,12 +74,12 @@ bbECP5 _intrinsicName pkgPinIn output notOutputEnable
      toMaybe :: Bool -> a -> Maybe a
      toMaybe True a  = Just a
      toMaybe False _ = Nothing
-{-# OPAQUE bbECP5 #-}
-{-# ANN bbECP5 hasBlackBox #-}
-{-# ANN bbECP5 (InlineYamlPrimitive [VHDL,Verilog,SystemVerilog] [__i|
+{-# OPAQUE bbEcp5 #-}
+{-# ANN bbEcp5 hasBlackBox #-}
+{-# ANN bbEcp5 (InlineYamlPrimitive [VHDL,Verilog,SystemVerilog] [__i|
   BlackBox:
-    name: Clash.Cores.LatticeSemi.ECP5.IO.bbECP5
+    name: Clash.Cores.LatticeSemi.Ecp5.IO.bbEcp5
     kind: Declaration
     format: Haskell
-    templateFunction: Clash.Cores.LatticeSemi.ECP5.Blackboxes.IO.bbTF
+    templateFunction: Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO.bbTF
   |]) #-}
