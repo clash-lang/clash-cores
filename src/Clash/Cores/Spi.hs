@@ -6,12 +6,12 @@
 
   SPI master and slave core
 -}
-module Clash.Cores.SPI
-  ( SPIMode(..)
+module Clash.Cores.Spi
+  ( SpiMode(..)
     -- * SPI master
   , spiMaster
     -- * SPI slave
-  , SPISlaveConfig(..)
+  , SpiSlaveConfig(..)
   , spiSlave
     -- ** Vendor configured SPI slaves
   , spiSlaveLatticeSBIO
@@ -31,29 +31,29 @@ import Clash.Cores.LatticeSemi.ECP5.IO
 --
 -- * CPOL: Clock POLarity
 -- * CPHA: Clock PHAse
-data SPIMode
-  = SPIMode0
+data SpiMode
+  = SpiMode0
   -- ^ CPOL = 0, CPHA = 0
   --
   -- Clock is idle low, so the leading edge is rising.
   -- Phase is low, so data is sampled on the leading edge.
   --
   -- TL;DR Data is shifted on the rising edge of SCK.
-  | SPIMode1
+  | SpiMode1
   -- ^ CPOL = 0, CPHA = 1
   --
   -- Clock is idle low, so the leading edge is rising.
   -- Phase is high, so data is sampled on the trailing edge.
   --
   -- TL;DR Data is shifted on the falling edge of SCK.
-  | SPIMode2
+  | SpiMode2
   -- ^ CPOL = 1, CPHA = 0
   --
   -- Clock is idle high, so the leading edge is falling.
   -- Phase is low, so data is sampled on the leading edge.
   --
   -- TL;DR Data is shifted on the falling edge of SCK.
-  | SPIMode3
+  | SpiMode3
   -- ^ CPOL = 1, CPHA = 1
   --
   -- Clock is idle high, so the leading edge is falling.
@@ -62,30 +62,30 @@ data SPIMode
   -- TL;DR Data is shifted on the rising edge of SCK.
   deriving (Eq, Show)
 
-instance Arbitrary SPIMode where
-  arbitrary = QC.elements [SPIMode0, SPIMode1, SPIMode2, SPIMode3]
+instance Arbitrary SpiMode where
+  arbitrary = QC.elements [SpiMode0, SpiMode1, SpiMode2, SpiMode3]
 
-idleOnLow :: SPIMode -> Bool
-idleOnLow SPIMode0 = True
-idleOnLow SPIMode1 = True
+idleOnLow :: SpiMode -> Bool
+idleOnLow SpiMode0 = True
+idleOnLow SpiMode1 = True
 idleOnLow _        = False
 
-sampleOnRising :: SPIMode -> Bool
-sampleOnRising SPIMode0 = True
-sampleOnRising SPIMode3 = True
+sampleOnRising :: SpiMode -> Bool
+sampleOnRising SpiMode0 = True
+sampleOnRising SpiMode3 = True
 sampleOnRising _        = False
 
-sampleOnLeading :: SPIMode -> Bool
-sampleOnLeading SPIMode0 = True
-sampleOnLeading SPIMode2 = True
+sampleOnLeading :: SpiMode -> Bool
+sampleOnLeading SpiMode0 = True
+sampleOnLeading SpiMode2 = True
 sampleOnLeading _        = False
 
-sampleOnTrailing :: SPIMode -> Bool
+sampleOnTrailing :: SpiMode -> Bool
 sampleOnTrailing = not . sampleOnLeading
 
-data SPISlaveConfig ds dom
-  = SPISlaveConfig
-  { spiSlaveConfigMode :: SPIMode
+data SpiSlaveConfig ds dom
+  = SpiSlaveConfig
+  { spiSlaveConfigMode :: SpiMode
   -- ^ SPI mode
   , spiSlaveConfigLatch :: Bool
   -- ^ Whether to latch the SPI pins
@@ -110,7 +110,7 @@ data SPISlaveConfig ds dom
 spiCommon
   :: forall n dom
    . (HiddenClockResetEnable dom, KnownNat n, 1 <= n)
-  => SPIMode
+  => SpiMode
   -> Signal dom Bool
   -- ^ Slave select
   -> Signal dom Bit
@@ -182,7 +182,7 @@ spiCommon mode ssI msI sckI dinI =
 spiSlave
   :: forall n ds dom
    . (HiddenClockResetEnable dom, KnownNat n, 1 <= n)
-  => SPISlaveConfig ds dom
+  => SpiSlaveConfig ds dom
   -- ^ Configure SPI mode and tri-state buffer
   -> Signal dom Bool
   -- ^ Serial Clock (SCLK)
@@ -206,7 +206,7 @@ spiSlave
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
   -- 2. (Maybe) the word send by the master
-spiSlave (SPISlaveConfig mode latch buf) sclk mosi bin ss din =
+spiSlave (SpiSlaveConfig mode latch buf) sclk mosi bin ss din =
   let ssL   = if latch then delay undefined ss   else ss
       mosiL = if latch then delay undefined mosi else mosi
       sclkL = if latch then delay undefined sclk else sclk
@@ -225,7 +225,7 @@ spiMaster
      , 1 <= n
      , 1 <= halfPeriod
      , 1 <= waitTime )
-  => SPIMode
+  => SpiMode
   -- ^ SPI Mode
   -> SNat halfPeriod
   -- ^ Clock divider (half period)
@@ -272,7 +272,7 @@ spiGen
      , 1 <= n
      , 1 <= halfPeriod
      , 1 <= waitTime )
-  => SPIMode
+  => SpiMode
   -> SNat halfPeriod
   -> SNat waitTime
   -> Signal dom (Maybe (BitVector n))
@@ -316,7 +316,7 @@ spiGen mode SNat SNat =
       Transfer n | n == maxBound -> not sckQ
       _ -> sckQ
 
-data SPIMasterState halfPeriod waitTime
+data SpiMasterState halfPeriod waitTime
   = Idle
   | Wait (Index waitTime)
   | Transfer (Index halfPeriod)
@@ -328,7 +328,7 @@ data SPIMasterState halfPeriod waitTime
 spiSlaveLatticeSBIO
   :: forall dom n
    . (HiddenClockResetEnable dom, 1 <= n, KnownNat n)
-  => SPIMode
+  => SpiMode
   -- ^ SPI Mode
   -> Bool
   -- ^ Whether to latch the SPI pins
@@ -361,8 +361,8 @@ spiSlaveLatticeSBIO
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
   -- 2. (Maybe) the word send by the master
-spiSlaveLatticeSBIO mode latchSPI =
-  spiSlave (SPISlaveConfig mode latchSPI sbioX)
+spiSlaveLatticeSBIO mode latchSpi =
+  spiSlave (SpiSlaveConfig mode latchSpi sbioX)
  where
   sbioX bin en dout = bout
    where
@@ -374,7 +374,7 @@ spiSlaveLatticeSBIO mode latchSPI =
 spiSlaveLatticeBB
   :: forall dom n
    . (HiddenClockResetEnable dom, 1 <= n, KnownNat n)
-  => SPIMode
+  => SpiMode
   -- ^ SPI Mode
   -> Bool
   -- ^ Whether to latch the SPI pins
@@ -407,8 +407,8 @@ spiSlaveLatticeBB
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
   -- 2. (Maybe) the word send by the master
-spiSlaveLatticeBB mode latchSPI =
-  spiSlave (SPISlaveConfig mode latchSPI bbX)
+spiSlaveLatticeBB mode latchSpi =
+  spiSlave (SpiSlaveConfig mode latchSpi bbX)
  where
     bbX bin en dout = bout
       where

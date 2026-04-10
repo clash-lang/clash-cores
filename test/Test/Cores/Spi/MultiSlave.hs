@@ -1,4 +1,4 @@
-module Test.Cores.SPI.MultiSlave where
+module Test.Cores.Spi.MultiSlave where
 
 import qualified Prelude as P (length)
 import qualified Data.List as L (nub, unzip4)
@@ -8,9 +8,9 @@ import           Test.Tasty.HUnit
 
 import           Clash.Prelude
 import qualified Clash.Explicit.Prelude as E
-import           Clash.Cores.SPI
+import           Clash.Cores.Spi
 
-import           Test.Cores.Internal.SampleSPI
+import           Test.Cores.Internal.SampleSpi
 import           Test.Cores.Internal.Signals
 
 -- TODO Ideally there should only be one generic test driver which allows
@@ -93,7 +93,7 @@ tests =
     , threeSlaveNoLatch
     , threeSlavesDelayLatch
     , threeSlavesDelayNoLatch
-    ] <*> [SPIMode0, SPIMode1, SPIMode2, SPIMode3]
+    ] <*> [SpiMode0, SpiMode1, SpiMode2, SpiMode3]
  where
   threeSlaveLatch spi =
     testCase (show spi <> ", Divider 8, Slave Latch") $

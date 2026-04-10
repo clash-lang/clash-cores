@@ -23,8 +23,8 @@ import qualified Test.Cores.Sgmii.RateAdapt
 import qualified Test.Cores.Sgmii.Sgmii
 import qualified Test.Cores.Sgmii.Sync
 #endif
-import qualified Test.Cores.SPI
-import qualified Test.Cores.SPI.MultiSlave
+import qualified Test.Cores.Spi
+import qualified Test.Cores.Spi.MultiSlave
 import qualified Test.Cores.UART
 import qualified Test.Cores.Xilinx.BlockRam
 import qualified Test.Cores.Xilinx.DcFifo
@@ -36,8 +36,8 @@ tests = testGroup "Unittests" $
   [ Test.Cores.Crc.tests
   , Test.Cores.Etherbone.tests
   , Test.Cores.LineCoding.Lc8b10b.tests
-  , Test.Cores.SPI.tests
-  , Test.Cores.SPI.MultiSlave.tests
+  , Test.Cores.Spi.tests
+  , Test.Cores.Spi.MultiSlave.tests
   , Test.Cores.UART.tests
   , Test.Cores.Xilinx.BlockRam.tests
   , Test.Cores.Xilinx.DcFifo.tests

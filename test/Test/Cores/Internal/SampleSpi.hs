@@ -1,8 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Test.Cores.Internal.SampleSPI
-  ( SPISamples(..)
+module Test.Cores.Internal.SampleSpi
+  ( SpiSamples(..)
   , Duration(..)
   , CyclingTest
   , SimpleTest
@@ -15,7 +15,7 @@ import           Data.List.NonEmpty (NonEmpty)
 import           Test.QuickCheck (Arbitrary(..), suchThat)
 
 import           Clash.Prelude
-import           Clash.Cores.SPI
+import           Clash.Cores.Spi
 
 import           Test.Cores.Internal.Signals
 
@@ -23,7 +23,7 @@ import           Test.Cores.Internal.Signals
 -- by looking at the values of the master and slave, and the acknowledgement
 -- signals sent over time.
 --
-data SPISamples master slave = SPISamples
+data SpiSamples master slave = SpiSamples
   { ssMasterOut :: [Maybe (BitVector master)]
   , ssMasterAck :: [Bool]
   , ssSlaveOut  :: [Maybe (BitVector slave)]
@@ -50,7 +50,7 @@ type CyclingTest halfPeriod waitTime master slave a =
   -- ^ Values master sends to slave
   -> NonEmpty (BitVector slave)
   -- ^ Values slave sends to master
-  -> SPIMode
+  -> SpiMode
   -- ^ SPI Mode
   -> Bool
   -- ^ Whether the SPI slave should latch signals
@@ -65,9 +65,9 @@ sampleCycling
      )
   => GenMaster master
   -> GenSlave slave
-  -> CyclingTest halfPeriod waitTime master slave (SPISamples master slave)
+  -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
 sampleCycling genM genS divHalf wait mVals sVals mode latch duration =
-  (\(mO, mA, sO, sA) -> SPISamples mO mA sO sA) $ List.unzip4 samples
+  (\(mO, mA, sO, sA) -> SpiSamples mO mA sO sA) $ List.unzip4 samples
  where
   samples = sampleN (getDuration duration) $ bundle (mOut, mAck, sOut, sAck)
   slaveIn = genS clk rst sVals sAck
@@ -96,7 +96,7 @@ type SimpleTest halfPeriod waitTime master slave a =
   -- ^ Value master sends to slave
   -> BitVector slave
   -- ^ Value slave sends to master
-  -> SPIMode
+  -> SpiMode
   -- ^ SPI Mode
   -> Bool
   -- ^ Whether the SPI slave should latch signals
@@ -111,6 +111,6 @@ sampleSimple
      )
   => GenMaster master
   -> GenSlave slave
-  -> SimpleTest halfPeriod waitTime master slave (SPISamples master slave)
+  -> SimpleTest halfPeriod waitTime master slave (SpiSamples master slave)
 sampleSimple genM genS divHalf wait mVal sVal =
   sampleCycling genM genS divHalf wait (pure mVal) (pure sVal)
