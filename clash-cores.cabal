@@ -147,8 +147,8 @@ library
     Clash.Cores.Xilinx.Internal
     Clash.Cores.Xilinx.Unisim.DnaPortE2
     Clash.Cores.Xilinx.Unisim.DnaPortE2.Internal
-    Clash.Cores.Xilinx.VIO
-    Clash.Cores.Xilinx.VIO.Internal.BlackBoxes
+    Clash.Cores.Xilinx.Vio
+    Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
     Clash.Cores.Xilinx.Xpm
     Clash.Cores.Xilinx.Xpm.Cdc
     Clash.Cores.Xilinx.Xpm.Cdc.ArraySingle

@@ -4,7 +4,7 @@
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-  Blackbox implementation for primitives in "Clash.Cores.Xilinx.VIO".
+  Blackbox implementation for primitives in "Clash.Cores.Xilinx.Vio".
 -}
 
 {-# LANGUAGE ViewPatterns #-}
@@ -16,7 +16,7 @@
 
 {-# OPTIONS_HADDOCK hide #-}
 
-module Clash.Cores.Xilinx.VIO.Internal.BlackBoxes (vioProbeBBF) where
+module Clash.Cores.Xilinx.Vio.Internal.BlackBoxes (vioProbeBBF) where
 
 import Prelude
 
@@ -335,13 +335,13 @@ validateVioProbeBBC bbCtx = case probesFromTypes bbCtx of
 
 -- | Determines the number of specified input/output probes from the
 -- argument and result types, every argument is mapped to a single
--- probe. See 'Clash.Cores.Xilinx.VIO' for the details on how result
+-- probe. See 'Clash.Cores.Xilinx.Vio' for the details on how result
 -- types are mapped to probes.
 probesFromTypes :: BlackBoxContext -> Either String ([HWType], [HWType])
 probesFromTypes Context{..} = do
   is <- case map (\(_,x,_) -> x) bbInputs of
     (   _knownDomainDom
-      : _VIOConstraint
+      : _VioConstraint
       : _inputNames
       : _outputNames
       : _clk

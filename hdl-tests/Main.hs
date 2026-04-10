@@ -117,7 +117,7 @@ runClashTest = defaultMain $ clashTestRoot
   [ clashTestGroup "hdl-tests"
     [ clashTestGroup "shouldfail"
       [ clashTestGroup "Xilinx"
-        [ clashTestGroup "VIO"
+        [ clashTestGroup "Vio"
           [ runTest "DuplicateOutputNames" def{
               hdlTargets=[VHDL]
             , expectClashFail=Just (def, "Tried create a signal called 'a', but identifier generation returned")
@@ -297,7 +297,7 @@ runClashTest = defaultMain $ clashTestRoot
                                                 , "withSetNameNoResult"
                                                 ]
                     }
-          in runTest "VIO" _opts
+          in runTest "Vio" _opts
         , let _opts =
                 def{ hdlTargets=[VHDL, Verilog, SystemVerilog]
                     , hdlLoad=[Vivado]
@@ -324,7 +324,7 @@ runClashTest = defaultMain $ clashTestRoot
                     }
           in outputTest "Ila" _opts
 #endif
-        , outputTest "VIO" def{
+        , outputTest "Vio" def{
             hdlTargets=[VHDL]
           , buildTargets=BuildSpecific ["withSetName", "withSetNameNoResult"]
           }

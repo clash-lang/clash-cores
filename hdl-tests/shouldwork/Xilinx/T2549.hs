@@ -1,7 +1,7 @@
 module T2549 where
 
 import Clash.Prelude
-import Clash.Cores.Xilinx.VIO
+import Clash.Cores.Xilinx.Vio
 import GHC.Magic
 
 topEntity :: Clock System -> Signal System Bit

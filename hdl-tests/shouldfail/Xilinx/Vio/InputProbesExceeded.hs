@@ -1,7 +1,7 @@
 module InputProbesExceeded where
 
 import Clash.Prelude
-import Clash.Cores.Xilinx.VIO
+import Clash.Cores.Xilinx.Vio
 
 import qualified Data.List as L
 
