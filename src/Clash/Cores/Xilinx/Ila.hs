@@ -35,10 +35,16 @@ When using the generated ILAs make sure you have set the correct JTAG clock spee
 module Clash.Cores.Xilinx.Ila
   ( ila
   , ilaWith
+
   , probe
   , probeWith
   , dataProbe
   , triggerProbe
+
+  , probeTh
+  , probeWithTh
+  , dataProbeTh
+  , triggerProbeTh
 
   -- * Config
   , IlaConfig(..)
@@ -60,6 +66,8 @@ import Clash.Annotations.Primitive (Primitive (InlineYamlPrimitive))
 import Data.String.Interpolate (__i)
 
 import Clash.Cores.Xilinx.Ila.Internal
+
+import qualified Language.Haskell.TH as TH
 
 -- | A default ILA config that:
 --
@@ -110,6 +118,68 @@ triggerProbe ::
   -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
   Probe (Signal dom a)
 triggerProbe name = probeWith name probeConfig{probeType=DataAndTrigger}
+
+-- | Like 'probeWith', but can be used to make sure probe names correspond to
+-- names in the Clash source code. For example, instead of writing:
+--
+-- > probeWith myConfig "foo" foo
+--
+-- You can write:
+--
+-- > $(probeWithTH myConfig 'foo)
+probeWithTh ::
+  -- | Custom config, see 'probeConfig' for defaults
+  ProbeConfig ->
+  -- | Signal name to capture
+  TH.Name ->
+  -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
+  TH.Q TH.Exp
+probeWithTh = mkProbeTh 'probe
+
+-- | Like 'probe', but can be used to make sure probe names correspond to
+-- name in the Clash source code. For example, instead of writing:
+--
+-- > probe "foo" foo
+--
+-- You can write:
+--
+-- > $(probeTh 'foo)
+probeTh ::
+  -- | Signal name to capture
+  TH.Name ->
+  -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
+  TH.Q TH.Exp
+probeTh = mkProbeTh 'probe probeConfig
+
+-- | Like 'dataProbe', but can be used to make sure probe names correspond to
+-- name in the Clash source code. For example, instead of writing:
+--
+-- > dataProbe "foo" foo
+--
+-- You can write:
+--
+-- > $(dataProbeTh 'foo)
+dataProbeTh ::
+  -- | Signal name to capture
+  TH.Name ->
+  -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
+  TH.Q TH.Exp
+dataProbeTh = mkProbeTh 'dataProbe probeConfig
+
+-- | Like 'triggerProbe', but can be used to make sure probe names correspond to
+-- name in the Clash source code. For example, instead of writing:
+--
+-- > triggerProbe "foo" foo
+--
+-- You can write:
+--
+-- > $(triggerProbeTh 'foo)
+triggerProbeTh ::
+  -- | Signal name to capture
+  TH.Name ->
+  -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
+  TH.Q TH.Exp
+triggerProbeTh = mkProbeTh 'triggerProbe probeConfig
 
 -- | A [polyvariadic](https://github.com/AJFarmar/haskell-polyvariadic) function
 -- that instantiates a Xilinx Integrated Logic Analyzer (ILA).

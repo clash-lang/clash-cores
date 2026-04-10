@@ -23,6 +23,8 @@ module Clash.Cores.Xilinx.Ila.Internal where
 import Prelude
 import qualified Clash.Prelude as C
 
+import Language.Haskell.TH (Name, Q, Exp, nameBase, varE, stringE)
+
 import Clash.Annotations.SynthesisAttributes (Attr(StringAttr))
 import Clash.Backend (Backend)
 import Clash.Core.Term (Term)
@@ -137,6 +139,23 @@ probeWith ::
   -- | Probe structure to give to 'Clash.Cores.Xilinx.Ila.ila'
   Probe (C.Signal dom a)
 probeWith name config signal = Probe{name, config, signal}
+
+-- | Template Haskell helper used by @probeTh@, @dataProbeTh@, @triggerProbeTh@,
+-- and @probeWithTh@. Generates a call to 'probeWith' using the base name of the
+-- given signal variable as the probe name:
+--
+-- > mkProbeTh cfg 'foo  ===  probeWith cfg "foo" foo
+mkProbeTh ::
+  -- | Probe function (e.g. @'probe@, @'dataProbe@) — ignored; the generated
+  -- expression always calls 'probeWith' directly.
+  Name ->
+  -- | Probe configuration
+  ProbeConfig ->
+  -- | Name of the signal variable to probe
+  Name ->
+  Q Exp
+mkProbeTh _probeFn cfg signalName =
+  [| probeWith cfg $(stringE (nameBase signalName)) $(varE signalName) |]
 
 -- | Configures the static properties of an 'Clash.Cores.Xilinx.Ila.ila'. Note
 -- that most properties (triggers, number of samples before/after trigger, ...)
