@@ -159,6 +159,11 @@ data IlaConfig = IlaConfig
   , advancedTriggers :: Bool
   -- ^  Whether state machines can be used to describe trigger logic.
   -- Corresponds to @C_ADV_TRIGGER@.
+  , exactNames :: Bool
+  -- ^ If set, require probe names to match variable names in the generated HDL
+  -- exactly. If Clash cannot do this, an error will be thrown. If not set,
+  -- the ILA will continue to work correctly, though names might have suffixes
+  -- (@_1@, @_2@, etc.).
   }
   deriving (Show, Lift)
 
@@ -274,7 +279,7 @@ ilaBbTf ::
   [Probe ()] ->
   BlackBoxContext ->
   State s Doc
-ilaBbTf _config probes bbCtx
+ilaBbTf IlaConfig{exactNames} probes bbCtx
   | (   _knownDomainDom
       : _ilaConstraint
       : _ilaConfig
@@ -312,9 +317,11 @@ ilaBbTf _config probes bbCtx
   -- they are not optimized away by the synthesis tool.
   keepAttrs = [StringAttr "KEEP" "true"]
 
-  toNameCheckedBv nameHint inProbe =
-    checkNameCollision nameHint <$>
-      DSL.toBvWithAttrs keepAttrs nameHint inProbe
+  toNameCheckedBv nameHint inProbe
+    | exactNames = checkNameCollision nameHint <$> bvs
+    | otherwise = bvs
+   where
+    bvs = DSL.toBvWithAttrs keepAttrs nameHint inProbe
 
 ilaTclBbTf ::
   forall s .

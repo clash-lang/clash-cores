@@ -72,6 +72,7 @@ ilaConfig = IlaConfig
   , depth = D4096
   , captureControl = True
   , advancedTriggers = False
+  , exactNames = True
   }
 
 
