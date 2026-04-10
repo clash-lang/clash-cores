@@ -107,12 +107,12 @@ data Param (name :: Symbol) a = Param a
 -- is mapped in the target HDL.
 data ClockPort (portName :: Symbol) dom = ClockPort (Clock dom)
 
--- | Port with differential clock type, which gets 2 ports on hardware for a possitive
+-- | Port with differential clock type, which gets 2 ports on hardware for a positive
 -- and a negative phase. The @portName@ gets the suffix @_p@ and @_n@ respectively
 -- for the ports in the target HDL. For custom suffixes use 'NamedDiffClockPort'.
 data DiffClockPort (portName :: Symbol) dom = DiffClockPort (DiffClock dom)
 
--- | Port with differential clock type, which gets 2 ports on hardware for a possitive
+-- | Port with differential clock type, which gets 2 ports on hardware for a positive
 -- and a negative phase. The @portNameP@ and @portNameN@ are the names of these ports
 -- in the target HDL.
 data NamedDiffClockPort (portNameP :: Symbol) (portNameN :: Symbol) dom =
