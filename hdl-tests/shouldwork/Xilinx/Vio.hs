@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module VIO where
+module Vio where
 
 import Clash.Prelude
-import Clash.Cores.Xilinx.VIO
+import Clash.Cores.Xilinx.Vio
 import Clash.Annotations.TH
 import Clash.Annotations.BitRepresentation
 import Clash.Explicit.Testbench
@@ -169,7 +169,7 @@ data T = R Bool Bool
                   [ ConstrRepr 'R 0b111 0b000 [0b010, 0b001]
                   ]) #-}
 {- TODO: Custom bit representations are not supported within VIOs
-   yet. See Clash.Cores.Xilinx.VIO.Internal.BlackBoxes for details.
+   yet. See Clash.Cores.Xilinx.Vio.Internal.BlackBoxes for details.
 noInputCustomRep ::
   "clk" ::: Clock Dom ->
   "result" ::: Signal Dom T

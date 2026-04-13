@@ -54,3 +54,6 @@ cabal.config
 vivado.jou
 vivado_*.backup.jou
 work-obj93.cf
+
+# Nix
+/result

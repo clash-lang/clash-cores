@@ -1,4 +1,4 @@
-module Test.Cores.SPI where
+module Test.Cores.Spi where
 
 import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty (..))
@@ -9,7 +9,7 @@ import           Test.Tasty.QuickCheck as QC
 
 import           Clash.Prelude hiding (interleave)
 
-import           Test.Cores.Internal.SampleSPI
+import           Test.Cores.Internal.SampleSpi
 import           Test.Cores.Internal.Signals
 
 data Device
@@ -30,10 +30,10 @@ simpleRepeats divHalf wait mVal sVal mode latch duration dev =
     Master -> checkWith ssMasterOut sVal
     Slave  -> checkWith ssSlaveOut  mVal
  where
-  sampleSPI = sampleSimple masterLawfulSignal slaveLawfulSignal
+  sampleSpi = sampleSimple masterLawfulSignal slaveLawfulSignal
 
   checkWith outs val =
-    let spis = sampleSPI divHalf wait mVal sVal mode latch duration
+    let spis = sampleSpi divHalf wait mVal sVal mode latch duration
      in all (== val) . catMaybes $ outs spis
 
 -- | Test that sending muliple words repeats those words in a cycle
@@ -47,10 +47,10 @@ cyclingRepeats divHalf wait mVals sVals mode latch duration dev =
     Master -> checkWith ssMasterOut sVals
     Slave  -> checkWith ssSlaveOut  mVals
  where
-  sampleSPI = sampleCycling masterLawfulSignal slaveLawfulSignal
+  sampleSpi = sampleCycling masterLawfulSignal slaveLawfulSignal
 
   checkWith outs vals =
-    let spis = sampleSPI divHalf wait mVals sVals mode latch duration
+    let spis = sampleSpi divHalf wait mVals sVals mode latch duration
      in NE.isPrefixOf (catMaybes $ outs spis) (NE.cycle vals)
 
 -- | Test that acknowledgement signals and done signals are interleaved.
@@ -66,13 +66,13 @@ ackDoneInterleaved divHalf wait mVal sVal mode latch duration dev =
     Master -> checkWith ssMasterOut ssMasterAck
     Slave  -> checkWith ssSlaveOut  ssSlaveAck
  where
-  sampleSPI = sampleSimple masterLawfulSignal slaveLawfulSignal
+  sampleSpi = sampleSimple masterLawfulSignal slaveLawfulSignal
 
   interleave []     ys = ys
   interleave (x:xs) ys = x : interleave ys xs
 
   checkWith outs acks =
-    let spis   = sampleSPI divHalf wait mVal sVal mode latch duration
+    let spis   = sampleSpi divHalf wait mVal sVal mode latch duration
         outIxs = List.findIndices isJust $ outs spis
         ackIxs = List.elemIndices True $ acks spis
      in interleave ackIxs outIxs == List.sort (ackIxs <> outIxs)

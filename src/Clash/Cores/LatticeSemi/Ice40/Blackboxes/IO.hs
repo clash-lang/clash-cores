@@ -11,7 +11,7 @@
 
 {-# OPTIONS_HADDOCK hide #-}
 
-module Clash.Cores.LatticeSemi.ICE40.Blackboxes.IO (sbioTF) where
+module Clash.Cores.LatticeSemi.Ice40.Blackboxes.IO (sbioTF) where
 
 import           Prelude
 
@@ -109,4 +109,4 @@ sbioTemplate bbCtx
     , Assignment result Cont resultTuple
     ]
 
-sbioTemplate bbCtx = error ("iCE40.sbio, bad bbCtx: " <> show bbCtx)
+sbioTemplate bbCtx = error ("Ice40.sbio, bad bbCtx: " <> show bbCtx)

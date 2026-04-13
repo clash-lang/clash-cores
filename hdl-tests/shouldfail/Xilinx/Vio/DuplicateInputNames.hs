@@ -1,7 +1,7 @@
 module DuplicateInputNames where
 
 import Clash.Prelude
-import Clash.Cores.Xilinx.VIO
+import Clash.Cores.Xilinx.Vio
 
 type Dom = XilinxSystem
 

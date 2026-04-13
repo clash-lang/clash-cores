@@ -19,7 +19,7 @@ import qualified Data.List.NonEmpty as NE
 
 import qualified Clash.Explicit.Prelude as E (moore, mooreB)
 import           Clash.Prelude
--- import           Clash.Cores.SPI
+-- import           Clash.Cores.Spi
 
 
 type GenMaster n =

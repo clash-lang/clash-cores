@@ -20,14 +20,12 @@ executable cores-hdl-tests
     -Wall -Wcompat
     -fexpose-all-unfoldings
     -fno-worker-wrapper
+    -threaded
 
   default-extensions:
     DeriveDataTypeable
     OverloadedStrings
     ViewPatterns
-
-  ghc-options:
-
 
   build-tool-depends:
     clash-ghc:clash

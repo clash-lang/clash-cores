@@ -13,7 +13,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Clash.Cores.UART
+module Clash.Cores.Uart
   ( BaudGenerator
   , ValidBaud
   , baudGenerator
@@ -193,7 +193,7 @@ uartTxT UartTxTransmitting{..} mD = (nextState, (lsb uartTxWord, ack))
 -- | The UART transmitter
 --
 -- This version requires the baud generator to be passed in. Create one
--- using `Clash.Cores.UART.baudGenerator`.
+-- using `Clash.Cores.Uart.baudGenerator`.
 uartTxNoBaudGen
   :: HiddenClockResetEnable dom
   => BaudGenerator dom
@@ -297,7 +297,7 @@ uartRxT _ _ = (UartRxIdle, Nothing)
 -- | The UART receiver
 --
 -- This version requires the baud generator to be passed in. Create one
--- using `Clash.Cores.UART.baudGenerator`.
+-- using `Clash.Cores.Uart.baudGenerator`.
 uartRxNoBaudGen
   :: HiddenClockResetEnable dom
   => BaudGenerator dom
@@ -333,7 +333,7 @@ uartRx baud rx = uartRxNoBaudGen (baudGenerator baud) rx
 -- | The UART module; consists of both a UART transmitter and a UART receiver
 --
 -- This version requires the baud generator to be passed in. Create one
--- using `Clash.Cores.UART.baudGenerator`.
+-- using `Clash.Cores.Uart.baudGenerator`.
 uartNoBaudGen
   :: HiddenClockResetEnable dom
   => BaudGenerator dom

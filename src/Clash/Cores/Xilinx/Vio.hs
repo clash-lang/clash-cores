@@ -39,9 +39,9 @@ JTAG clock speed:
 -- See [Note: eta port names for trueDualPortBlockRam]
 {-# OPTIONS_GHC -fno-do-lambda-eta-expansion #-}
 
-module Clash.Cores.Xilinx.VIO
+module Clash.Cores.Xilinx.Vio
   ( vioProbe
-  , VIO(..)
+  , Vio(..)
   ) where
 
 import Clash.Explicit.Prelude
@@ -50,17 +50,17 @@ import Clash.Annotations.Primitive (Primitive (InlineYamlPrimitive))
 import Data.String.Interpolate (__i)
 import GHC.Magic (lazy)
 
-import Clash.Cores.Xilinx.VIO.Internal.BlackBoxes
+import Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
 
-class VIO (dom :: Domain) a res | a -> res where
+class Vio (dom :: Domain) a res | a -> res where
   vioX :: a
 
 -- results are virtual outputs
-instance VIO dom (Signal dom o) o where
+instance Vio dom (Signal dom o) o where
   vioX = pure undefined
 
 -- arguments are virtual inputs
-instance VIO dom a o => VIO dom (Signal dom i -> a) o where
+instance Vio dom a o => Vio dom (Signal dom i -> a) o where
   vioX !_i = vioX @dom @a @o
 
 -- | VIO Probes are available in Clash via the polyvariadic function
@@ -102,7 +102,7 @@ instance VIO dom a o => VIO dom (Signal dom i -> a) o where
 -- in this case to enforce the VIO to be rendered in HDL.
 vioProbe ::
   forall dom a o n m.
-  (KnownDomain dom, VIO dom a o) =>
+  (KnownDomain dom, Vio dom a o) =>
   Vec n String ->
   Vec m String ->
   o ->
@@ -118,7 +118,7 @@ vioProbe inputNames outputNames initialOutputProbeValues clk =
 -- | Primitive for 'vioProbe'.
 vioProbe# ::
   forall dom a o n m.
-  (KnownDomain dom, VIO dom a o) =>
+  (KnownDomain dom, Vio dom a o) =>
   Vec n String ->
   Vec m String ->
   o ->
