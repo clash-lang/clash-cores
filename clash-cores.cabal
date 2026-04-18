@@ -161,6 +161,12 @@ library
 
   if !flag(clash-18)
     exposed-modules:
+      Clash.Cores.LatticeSemi.ECP5.Blackboxes.Pll
+      Clash.Cores.LatticeSemi.ECP5.Internal.Pll
+      Clash.Cores.LatticeSemi.ECP5.Pll
+      Clash.Cores.LatticeSemi.ICE40.Blackboxes.Pll
+      Clash.Cores.LatticeSemi.ICE40.Internal.Pll
+      Clash.Cores.LatticeSemi.ICE40.Pll
       Clash.Cores.Sgmii
       Clash.Cores.Sgmii.AutoNeg
       Clash.Cores.Sgmii.BitSlip
@@ -219,7 +225,11 @@ test-suite unit-tests
     Test.Cores.Xilinx.Ethernet.Gmii
 
   if !flag(clash-18)
+    build-depends:
+      process
     other-modules:
+      Test.Cores.LatticeSemi.ECP5.Pll
+      Test.Cores.LatticeSemi.ICE40.Pll
       Test.Cores.Sgmii.AutoNeg
       Test.Cores.Sgmii.BitSlip
       Test.Cores.Sgmii.RateAdapt
