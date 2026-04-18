@@ -9,6 +9,7 @@ import System.Directory
 import System.Environment
 import System.FilePath
 import System.FilePath.Glob
+import GHC.Stack (HasCallStack)
 import qualified Language.Haskell.TH as TH
 
 import Clash.Annotations.TH
@@ -22,16 +23,19 @@ top = 0
 {-# OPAQUE top #-}
 makeTopEntity 'top
 
-oneCounter :: IlaConfig 1 -> Clock Dom -> Signal Dom ()
-oneCounter config clk = setName @"one_counter_ila" $ ila @Dom config clk counter
+oneCounter :: Clock Dom -> Signal Dom ()
+oneCounter clk = setName @"one_counter_ila" $ ila @Dom clk (probe "foo" counter)
  where
   counter :: Signal Dom (Unsigned 64)
   counter = register clk noReset enableGen 0 (counter + 1)
 
-threeCounters :: IlaConfig 3 -> Clock Dom -> Signal Dom ()
+threeCounters :: IlaConfig -> Clock Dom -> Signal Dom ()
 threeCounters config clk =
   setName @"three_counters_ila" $
-    ila @Dom config clk counter0 counter1 counter2
+    ilaWith @Dom config clk
+      (probe "foo"   counter0)
+      (probe "bar"   counter1)
+      (probe "ipsum" counter2)
  where
   counter0 :: Signal Dom (Unsigned 64)
   counter0 = register clk noReset enableGen 0 (counter0 + 1)
@@ -43,49 +47,59 @@ threeCounters config clk =
   counter2 = register clk noReset enableGen 0 (counter2 + 3)
 
 testWithDefaultsOne :: Clock Dom -> Signal Dom ()
-testWithDefaultsOne = oneCounter (ilaConfig ("foo" :> Nil))
+testWithDefaultsOne = oneCounter
 {-# ANN testWithDefaultsOne (TestBench 'top) #-}
 {-# ANN testWithDefaultsOne (defSyn "testWithDefaultsOne") #-}
 
 testWithDefaultsThree :: Clock Dom -> Signal Dom ()
-testWithDefaultsThree = threeCounters (ilaConfig ("foo" :> "bar" :> "ipsum" :> Nil))
+testWithDefaultsThree = threeCounters ilaConfig
 {-# ANN testWithDefaultsThree (TestBench 'top) #-}
 {-# ANN testWithDefaultsThree (defSyn "testWithDefaultsThree") #-}
 
 testWithLefts :: Clock Dom -> Signal Dom ()
-testWithLefts = threeCounters $
-  (ilaConfig ("foo" :> "bar" :> "ipsum" :> Nil))
-    { comparators = Left 3
-    , probeTypes = Left Data
-    , depth = D2048
-    , captureControl = False
-    , stages = 5
-    }
+testWithLefts = threeCountersPerProbe
+  (ilaConfig { depth = D2048, captureControl = False, stages = 5 })
+  (probeConfig { comparators = 3, probeType = Data })
+  (probeConfig { comparators = 3, probeType = Data })
+  (probeConfig { comparators = 3, probeType = Data })
 {-# ANN testWithLefts (TestBench 'top) #-}
 {-# ANN testWithLefts (defSyn "testWithLefts") #-}
 
+threeCountersPerProbe ::
+  IlaConfig ->
+  ProbeConfig -> ProbeConfig -> ProbeConfig ->
+  Clock Dom -> Signal Dom ()
+threeCountersPerProbe config pc0 pc1 pc2 clk =
+  setName @"three_counters_ila" $
+    ilaWith @Dom config clk
+      (probeWith "foo"   pc0 counter0)
+      (probeWith "bar"   pc1 counter1)
+      (probeWith "ipsum" pc2 counter2)
+ where
+  counter0 :: Signal Dom (Unsigned 64)
+  counter0 = register clk noReset enableGen 0 (counter0 + 1)
+
+  counter1 :: Signal Dom (Unsigned 64)
+  counter1 = register clk noReset enableGen 0 (counter1 + 2)
+
+  counter2 :: Signal Dom (Unsigned 64)
+  counter2 = register clk noReset enableGen 0 (counter2 + 3)
+
 testWithRights :: Clock Dom -> Signal Dom ()
-testWithRights = threeCounters $
-  (ilaConfig ("foo" :> "bar" :> "ipsum" :> Nil))
-    { comparators = Right (4 :> 5 :> 6 :> Nil)
-    , probeTypes = Right (DataAndTrigger :> Data :> Trigger :> Nil)
-    , depth = D1024
-    , captureControl = True
-    , stages = 3
-    }
+testWithRights = threeCountersPerProbe
+  (ilaConfig { depth = D1024, captureControl = True, stages = 3 })
+  (probeConfig { comparators = 4, probeType = DataAndTrigger })
+  (probeConfig { comparators = 5, probeType = Data })
+  (probeConfig { comparators = 6, probeType = Trigger })
 {-# ANN testWithRights (TestBench 'top) #-}
 {-# ANN testWithRights (defSyn "testWithRights") #-}
 
 testWithRightsSameCu :: Clock Dom -> Signal Dom ()
-testWithRightsSameCu = threeCounters $
-  (ilaConfig ("foo" :> "bar" :> "ipsum" :> Nil))
-    { comparators = Right (4 :> 4 :> 4 :> Nil)
-    , probeTypes = Right (Trigger :> Data :> DataAndTrigger :> Nil)
-    , depth = D4096
-    , captureControl = True
-    , stages = 1
-    , advancedTriggers = True
-    }
+testWithRightsSameCu = threeCountersPerProbe
+  (ilaConfig { depth = D4096, captureControl = True, stages = 1, advancedTriggers = True })
+  (probeConfig { comparators = 4, probeType = Trigger })
+  (probeConfig { comparators = 4, probeType = Data })
+  (probeConfig { comparators = 4, probeType = DataAndTrigger })
 {-# ANN testWithRightsSameCu (TestBench 'top) #-}
 {-# ANN testWithRightsSameCu (defSyn "testWithRightsSameCu") #-}
 
@@ -98,7 +112,7 @@ mainVHDL = do
 
   -- HDL content check:
   let hdlDir = dir </> show 'testWithDefaultsOne
-  [path] <- glob (hdlDir </> "Ila_testWithDefaultsOne_ila.vhdl")
+  [path] <- glob (hdlDir </> "Ila_testWithDefaultsOne_ila*.vhdl")
   contents <- readFile path
   assertIn contents "attribute KEEP of foo : signal is \"true\";" -- signal name
   assertIn contents "one_counter_ila : testWithDefaultsOne_ila"   -- instantiation label
@@ -117,7 +131,7 @@ getTcl nm = do
   let tclPath = topDir </> tclFileName
   readFile tclPath
 
-assertIn :: String -> String -> IO ()
+assertIn :: HasCallStack => String -> String -> IO ()
 assertIn haystack needle
   | needle `isInfixOf` haystack = return ()
   | otherwise = error $ mconcat [ "Expected:\n\n  ", needle

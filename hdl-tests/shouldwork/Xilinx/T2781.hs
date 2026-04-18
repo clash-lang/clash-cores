@@ -3,7 +3,7 @@ module T2781
   ) where
 
 import Clash.Explicit.Prelude
-import Clash.Cores.Xilinx.Ila (IlaConfig(..), Depth(..), ila, ilaConfig)
+import Clash.Cores.Xilinx.Ila (ila, triggerProbe)
 
 fullMeshHwTestDummy ::
   Clock System ->
@@ -17,10 +17,9 @@ fullMeshHwTestDummy sysClk =
   )
  where
   fincFdecIla :: Signal System ()
-  fincFdecIla = ila
-    (ilaConfig ("trigger_0" :> Nil))
+  fincFdecIla = ila @System
     sysClk
-    (pure True :: Signal System Bool)
+    (triggerProbe "trigger_0" (pure True :: Signal System Bool))
 
 -- | Top entity for this test. See module documentation for more information.
 fullMeshSwCcTest ::
