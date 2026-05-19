@@ -30,12 +30,6 @@ flag unit-tests
   default: True
   manual: True
 
-flag haddock
-  description:
-    Work-around haddock bug on GHC 8.6.*
-  default: False
-  manual: True
-
 flag clash-18
   description:
     Disable cores that require a Clash version later than 1.8
@@ -72,15 +66,9 @@ common basic-config
 
   ghc-options:
     -Wall -Wcompat
-
-  if flag(haddock)
-    ghc-options:
-      -fdefer-type-errors
-  else
-    ghc-options:
-      -fplugin GHC.TypeLits.Extra.Solver
-      -fplugin GHC.TypeLits.Normalise
-      -fplugin GHC.TypeLits.KnownNat.Solver
+    -fplugin=GHC.TypeLits.Extra.Solver
+    -fplugin=GHC.TypeLits.Normalise
+    -fplugin=GHC.TypeLits.KnownNat.Solver
 
   build-depends:
     base                      >= 4.18  && < 5,
