@@ -112,7 +112,7 @@
 
         # A devShell for each supported version
         #
-        # These can be invoked using `nix develop .#ghc9101-minimal`
+        # These can be invoked using `nix develop .#ghc9124-minimal`
         #
         # Please do note that if you work with Nix, you need to remove ALL the `cabal*.project` files at
         # the root of the directory! Cabal prioritizes local source overrides over Nix, which causes
