@@ -16,7 +16,7 @@ import Clash.Cores.Etherbone.WishboneMaster
 import qualified Clash.Prelude as C
 import Data.Maybe
 import Protocols
-import Protocols.Wishbone
+import Protocols.Experimental.Wishbone
 import Prelude
 import Clash.Cores.Etherbone.Base
 

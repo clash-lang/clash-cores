@@ -2,12 +2,8 @@
   description = "A flake for the clash-cores";
   inputs = {
     clash-compiler.url = "github:clash-lang/clash-compiler";
-    clash-protocols = {
-      url = "github:clash-lang/clash-protocols";
-      inputs.clash-compiler.follows = "clash-compiler";
-    };
   };
-  outputs = { self, flake-utils, clash-compiler, clash-protocols, ... }:
+  outputs = { self, flake-utils, clash-compiler, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         # The 'default' version of ghc to use
@@ -40,12 +36,28 @@
                 {};
 
             overlay = final: prev: {
+              circuit-notation = final.callHackageDirect {
+                pkg = "circuit-notation";
+                ver = "0.2.0.0";
+                sha256 = "sha256-tdM3spbXjQvcnBrmVS0i0tLqoHJ/pnniSOy3eTEZKuw=";
+              } {};
+              clash-protocols-base = final.callHackageDirect {
+                pkg = "clash-protocols-base";
+                ver = "0.1.1";
+                sha256 = "sha256-MDAUHNPg8B5lFVfSktdrqTHbjobSUxZzBFsAQzRvBbg=";
+              } {};
+              clash-protocols = final.callHackageDirect {
+                pkg = "clash-protocols";
+                ver = "0.1.1";
+                sha256 = "sha256-UctvjAdvxBxn8nTcelhTBLH7XZuTlVG9OoqJW7awlDo=";
+              } {};
+
               # Append the package set with clash-cores
               clash-cores = (prev.developPackage {
                 root = ./.;
                 overrides = _: _: final;
               }).overrideAttrs override-attrs;
-            } // clash-protocols.overlays.${system}.${compiler-version} final prev;
+            };
           in
             { name = compiler-version; value = overlay; }
           ) supported-versions);

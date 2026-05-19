@@ -22,8 +22,9 @@ import Protocols
 import qualified Protocols.Df as Df
 import Prelude
 import Protocols.PacketStream
+import Protocols.Experimental.PacketStream ()
 import Clash.Cores.Etherbone.Base
-import Protocols.Hedgehog hiding (Test)
+import Protocols.Experimental.Hedgehog hiding (Test)
 import Test.Cores.Etherbone.Internal
 import Clash.Cores.Etherbone.RecordBuilder (hdrRx2Tx, ebTxMeta, recordBuilderC)
 

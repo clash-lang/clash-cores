@@ -13,7 +13,7 @@ import Clash.Prelude
 import Protocols
 import qualified Protocols.Df as Df
 import Protocols.PacketStream
-import Protocols.Wishbone
+import Protocols.Experimental.Wishbone
 
 
 recordHandlerC :: forall dom dataWidth addrWidth configRegs .

@@ -7,6 +7,7 @@
   Black box implementation for primitives in "Clash.Cores.Xilinx.Ila".
 -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -136,7 +137,11 @@ data IlaConfig n = IlaConfig
 deriveTermLiteral ''ProbeType
 deriveTermLiteral ''Depth
 instance KnownNat n => TermLiteral (IlaConfig n) where
+#if MIN_VERSION_clash_lib(1,11,0)
+  termToData# = $(deriveTermToData ''IlaConfig)
+#else
   termToData = $(deriveTermToData ''IlaConfig)
+#endif
 
 probeTypesVec :: KnownNat n => IlaConfig n -> Vec n ProbeType
 probeTypesVec = either C.repeat id . probeTypes

@@ -7,7 +7,7 @@ import Clash.Cores.Etherbone.Base
 import Clash.Prelude
 import Data.Maybe
 import Protocols
-import Protocols.Wishbone
+import Protocols.Experimental.Wishbone
 
 import qualified Protocols.Df as Df
 
