@@ -2,8 +2,12 @@
   description = "A flake for the clash-cores";
   inputs = {
     clash-compiler.url = "github:clash-lang/clash-compiler";
+    clash-protocols-src = {
+      url = "github:clash-lang/clash-protocols";
+      flake = false;
+    };
   };
-  outputs = { self, flake-utils, clash-compiler, ... }:
+  outputs = { self, flake-utils, clash-compiler, clash-protocols-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         # The 'default' version of ghc to use
@@ -35,22 +39,45 @@
               else
                 {};
 
+            # clash-protocols ships each sub-package's CHANGELOG.md as a symlink
+            # to the repo-root CHANGELOG.md (../CHANGELOG.md). Nix copies the
+            # package directory without that out-of-root target, so the symlink
+            # dangles in the build sandbox. Cabal >=3.12 (ghc9101+) merely warns
+            # about the unmatched 'extra-doc-files' wildcard, but the Cabal 3.10
+            # shipped with ghc96*/ghc98* treats it as a fatal error. Replace the
+            # dangling symlink with the real file for those.
+            protocols-changelog = "${clash-protocols-src}/CHANGELOG.md";
+            # True for ghc96* / ghc98*, which ship Cabal 3.10.
+            uses-cabal-3-10 =
+              clash-compiler.inputs.nixpkgs.lib.hasPrefix "ghc96" compiler-version
+              || clash-compiler.inputs.nixpkgs.lib.hasPrefix "ghc98" compiler-version;
+            fixup-changelog = drv:
+              if uses-cabal-3-10 then
+                drv.overrideAttrs (pAttr: {
+                  postPatch = pAttr.postPatch or "" + ''
+                    rm -f CHANGELOG.md
+                    cp ${protocols-changelog} CHANGELOG.md
+                  '';
+                })
+              else
+                drv;
+
             overlay = final: prev: {
               circuit-notation = final.callHackageDirect {
                 pkg = "circuit-notation";
                 ver = "0.2.0.0";
                 sha256 = "sha256-tdM3spbXjQvcnBrmVS0i0tLqoHJ/pnniSOy3eTEZKuw=";
               } {};
-              clash-protocols-base = final.callHackageDirect {
-                pkg = "clash-protocols-base";
-                ver = "0.1.1";
-                sha256 = "sha256-MDAUHNPg8B5lFVfSktdrqTHbjobSUxZzBFsAQzRvBbg=";
-              } {};
-              clash-protocols = final.callHackageDirect {
-                pkg = "clash-protocols";
-                ver = "0.1.1";
-                sha256 = "sha256-UctvjAdvxBxn8nTcelhTBLH7XZuTlVG9OoqJW7awlDo=";
-              } {};
+              clash-protocols-base = fixup-changelog (prev.developPackage {
+                root = "${clash-protocols-src}/clash-protocols-base";
+                overrides = _: _: final;
+              });
+              clash-protocols = fixup-changelog ((prev.developPackage {
+                root = "${clash-protocols-src}/clash-protocols";
+                overrides = _: _: final;
+                # See https://github.com/clash-lang/clash-protocols/issues/131
+                modifier = drv: drv.overrideAttrs (_: { doCheck = false; });
+              }));
 
               # Append the package set with clash-cores
               clash-cores = (prev.developPackage {

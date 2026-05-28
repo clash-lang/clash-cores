@@ -24,6 +24,22 @@
         "type": "github"
       }
     },
+    "clash-protocols-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1779961529,
+        "narHash": "sha256-w9niQCQUa9QaWXb48yymdEyYYqWNBqir52W4YJVwdtA=",
+        "owner": "clash-lang",
+        "repo": "clash-protocols",
+        "rev": "e03dbd8917cb7c93911810824e54e4423a0ae08b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "clash-lang",
+        "repo": "clash-protocols",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -158,6 +174,7 @@
     "root": {
       "inputs": {
         "clash-compiler": "clash-compiler",
+        "clash-protocols-src": "clash-protocols-src",
         "flake-utils": "flake-utils_2"
       }
     },
