@@ -1,4 +1,4 @@
-resolver: lts-24.36
+resolver: nightly-2026-05-19
 
 ghc-options:
   "$locals": -Wall -Wcompat
@@ -7,30 +7,19 @@ packages:
   - .
   - hdl-tests
 
-flags:
-  clash-cores:
-    clash-18: true
-
 extra-deps:
-  - clash-prelude-1.8.5
-  - clash-lib-1.8.5
-  - clash-ghc-1.8.5
-  - clash-prelude-hedgehog-1.8.5
+  - clash-prelude-1.10.0
+  - clash-lib-1.10.0
+  - clash-ghc-1.10.0
+  - clash-prelude-hedgehog-1.10.0
   - # clash-testsuite
     git: https://github.com/clash-lang/clash-compiler.git
-    commit: '15be98b2f602b9ed23b53d7c77bd1f06ceaa9419' # 1.8 branch @ Sun Apr 12, TODO: replace with v1.8.6
+    commit: '2371b8708bd4474e6ac0e5988fd7e68b17bf1f69' # v1.10.0
     subdirs:
       - tests
-  - git: https://github.com/cchalmers/circuit-notation.git
-    commit: '564769c52aa05b90f81bbc898b7af7087d96613d'
-  - git: https://github.com/clash-lang/clash-protocols.git
-    commit: '9b12c63dabaaa5a8228286bf9406b58c44a48359'
-    subdirs:
-      - clash-protocols-base
-      - clash-protocols
-  - hedgehog-1.4@sha256:9860ab34ab3951d9515c71b777d8c9c47610aae7339933e17d26ad9a4afa5618,4754
+  - clash-protocols-0.1.1@sha256:150aa4e9afce30d8af1f330b9f05952db26254b99e31a6fd686fa789979b1a9f,6231
   - tasty-flaky-0.1.3.1@sha256:9d74c3f776ed69b32db010f5bd5c85b68d03f2d71e8ebb570d894343418ec083,1937
-
-allow-newer: true
-allow-newer-deps:
-  - clash-protocols
+  - circuit-notation-0.2.0.0@sha256:a9385711f2fc8eb602b556b4ef3b9b2f3f26ad42eacc6f854555b3c8d6188cc6,1583
+  - clash-protocols-base-0.1.1@sha256:b47a046b2dde007f20017bdeeda96919418053578594bbba21791eafec22ad00,2448
+  - hedgehog-1.5@sha256:c904dc9d8ae7b47a58771a0fbfb7a77882059a2b77c9c0c722dc16de504d0bd4,4817
+  - lifted-async-0.10.2.7@sha256:848cc230afdd5657eafb97f950e58d0a8fcb5e65c801618c32f8c726ad8f9e69,2857

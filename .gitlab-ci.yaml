@@ -22,6 +22,6 @@ branches:
   parallel:
     matrix:
       - CLASH_BRANCH: release
-        CLASH_DOCKER_TAG: 20251229
+        CLASH_DOCKER_TAG: 20260417
       - CLASH_BRANCH: master
-        CLASH_DOCKER_TAG: 20251229
+        CLASH_DOCKER_TAG: 20260417

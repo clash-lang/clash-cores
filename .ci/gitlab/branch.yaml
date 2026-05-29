@@ -32,7 +32,7 @@ tests-release:
     CLASH_DOCKER_TAG: "$CLASH_DOCKER_TAG"
   parallel:
     matrix:
-      - GHC_VERSION: ["9.8.4"]
+      - GHC_VERSION: ["9.8.4", "9.12.4"]
 
 # Test GHC versions on master that our release version does
 # not support. In case there is no such GHC, set "matrix" to [] .
@@ -52,7 +52,7 @@ tests-master:
 
 stack-build:
   extends: .common-local
-  image: fpco/stack-build:lts-23.6
+  image: fpco/stack-build:lts-24.41
   needs: []
   stage: test
   rules:

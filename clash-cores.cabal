@@ -1,7 +1,7 @@
 cabal-version:       2.2
 
 name:                clash-cores
-version:             1.9.0
+version:             0.1.0
 synopsis:            A collection of IP cores for Clash
 description:         A collection of IP cores for Clash
 bug-reports:         https://github.com/clash-lang/clash-cores/issues
@@ -28,12 +28,6 @@ flag unit-tests
   description:
     You can disable testing with unit tests using `-f-unit-tests`.
   default: True
-  manual: True
-
-flag haddock
-  description:
-    Work-around haddock bug on GHC 8.6.*
-  default: False
   manual: True
 
 flag clash-18
@@ -72,18 +66,14 @@ common basic-config
 
   ghc-options:
     -Wall -Wcompat
-
-  if flag(haddock)
-    ghc-options:
-      -fdefer-type-errors
-  else
-    ghc-options:
-      -fplugin GHC.TypeLits.Extra.Solver
-      -fplugin GHC.TypeLits.Normalise
-      -fplugin GHC.TypeLits.KnownNat.Solver
+    -fplugin=GHC.TypeLits.Extra.Solver
+    -fplugin=GHC.TypeLits.Normalise
+    -fplugin=GHC.TypeLits.KnownNat.Solver
 
   build-depends:
     base                      >= 4.18  && < 5,
+    clash-lib               >= 1.10 && < 1.12,
+    clash-prelude           >= 1.10 && < 1.12,
     clash-protocols,
     constraints               >= 0.9   && < 1.0,
     containers                >=0.5    && <0.9,
@@ -95,16 +85,7 @@ common basic-config
     lens,
     QuickCheck,
     string-interpolate        ^>= 0.3,
-    template-haskell          >= 2.12.0.0 && < 2.23,
-
-  if flag(clash-18)
-    build-depends:
-      clash-lib               >= 1.8.1,
-      clash-prelude           >= 1.8.1,
-  else
-    build-depends:
-      clash-lib               >= 1.9.0,
-      clash-prelude           >= 1.9.0,
+    template-haskell          >= 2.12.0.0 && < 2.25,
 
 library
   import: basic-config
@@ -112,14 +93,14 @@ library
 
   exposed-modules:
     Clash.Cores.Crc
-    Clash.Cores.Crc.Internal
     Clash.Cores.Crc.Catalog
+    Clash.Cores.Crc.Internal
     Clash.Cores.Etherbone
     Clash.Cores.Etherbone.Base
+    Clash.Cores.Etherbone.ConfigMaster
     Clash.Cores.Etherbone.RecordBuilder
     Clash.Cores.Etherbone.RecordProcessor
     Clash.Cores.Etherbone.WishboneMaster
-    Clash.Cores.Etherbone.ConfigMaster
     Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO
     Clash.Cores.LatticeSemi.Ecp5.IO
     Clash.Cores.LatticeSemi.Ice40.Blackboxes.IO
@@ -127,6 +108,16 @@ library
     Clash.Cores.LineCoding.Lc8b10b
     Clash.Cores.LineCoding.Lc8b10b.Decoder
     Clash.Cores.LineCoding.Lc8b10b.Encoder
+    Clash.Cores.Sgmii
+    Clash.Cores.Sgmii.AutoNeg
+    Clash.Cores.Sgmii.BitSlip
+    Clash.Cores.Sgmii.Common
+    Clash.Cores.Sgmii.PcsReceive
+    Clash.Cores.Sgmii.PcsTransmit
+    Clash.Cores.Sgmii.PcsTransmit.CodeGroup
+    Clash.Cores.Sgmii.PcsTransmit.OrderedSet
+    Clash.Cores.Sgmii.RateAdapt
+    Clash.Cores.Sgmii.Sync
     Clash.Cores.Spi
     Clash.Cores.Uart
     Clash.Cores.Xilinx.BlockRam
@@ -136,11 +127,11 @@ library
     Clash.Cores.Xilinx.DcFifo.Internal.BlackBoxes
     Clash.Cores.Xilinx.DcFifo.Internal.Instances
     Clash.Cores.Xilinx.DcFifo.Internal.Types
+    Clash.Cores.Xilinx.Ethernet.Gmii
+    Clash.Cores.Xilinx.Ethernet.Gmii.Internal
     Clash.Cores.Xilinx.Floating
     Clash.Cores.Xilinx.Floating.Explicit
     Clash.Cores.Xilinx.Floating.Internal
-    Clash.Cores.Xilinx.Ethernet.Gmii
-    Clash.Cores.Xilinx.Ethernet.Gmii.Internal
     Clash.Cores.Xilinx.Ibufds
     Clash.Cores.Xilinx.Ila
     Clash.Cores.Xilinx.Ila.Internal
@@ -158,19 +149,6 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
-
-  if !flag(clash-18)
-    exposed-modules:
-      Clash.Cores.Sgmii
-      Clash.Cores.Sgmii.AutoNeg
-      Clash.Cores.Sgmii.BitSlip
-      Clash.Cores.Sgmii.Common
-      Clash.Cores.Sgmii.PcsReceive
-      Clash.Cores.Sgmii.PcsTransmit
-      Clash.Cores.Sgmii.PcsTransmit.CodeGroup
-      Clash.Cores.Sgmii.PcsTransmit.OrderedSet
-      Clash.Cores.Sgmii.RateAdapt
-      Clash.Cores.Sgmii.Sync
 
   other-modules:
     Clash.Core.TermLiteral.Compat
@@ -204,12 +182,17 @@ test-suite unit-tests
     Test.Cores.Crc
     Test.Cores.Etherbone
     Test.Cores.Etherbone.Internal
-    Test.Cores.Etherbone.WishboneMaster
     Test.Cores.Etherbone.RecordBuilder
     Test.Cores.Etherbone.RecordProcessor
+    Test.Cores.Etherbone.WishboneMaster
     Test.Cores.Internal.SampleSpi
-    Test.Cores.LineCoding.Lc8b10b
     Test.Cores.Internal.Signals
+    Test.Cores.LineCoding.Lc8b10b
+    Test.Cores.Sgmii.AutoNeg
+    Test.Cores.Sgmii.BitSlip
+    Test.Cores.Sgmii.RateAdapt
+    Test.Cores.Sgmii.Sgmii
+    Test.Cores.Sgmii.Sync
     Test.Cores.Spi
     Test.Cores.Spi.MultiSlave
     Test.Cores.Uart
@@ -217,14 +200,6 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
-
-  if !flag(clash-18)
-    other-modules:
-      Test.Cores.Sgmii.AutoNeg
-      Test.Cores.Sgmii.BitSlip
-      Test.Cores.Sgmii.RateAdapt
-      Test.Cores.Sgmii.Sgmii
-      Test.Cores.Sgmii.Sync
 
   build-depends:
     clash-cores,

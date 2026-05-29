@@ -97,7 +97,7 @@ import qualified Clash.Netlist.Id as Id
 import qualified Clash.Primitives.DSL as DSL
 import qualified Clash.Util.Interpolate as I
 
-import Clash.Core.TermLiteral.Compat (termToDataError)
+import qualified Clash.Core.TermLiteral.Compat as Compat
 
 -- | VHDL generic or Verilog parameter. Contents should be able to render to an
 -- HDL constant.
@@ -195,14 +195,19 @@ collectDataArgs (collectArgs -> (f, args))
 
 -- | Interprets any of 'Param', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort',
 -- 'ResetPort', or 'Port' into a single data type 'PrimPortOrParam'.
+#if MIN_VERSION_clash_lib(1,11,0)
+#define TERM_TO_DATA termToData#
+#else
+#define TERM_TO_DATA termToData
+#endif
 instance TermLiteral (PrimPortOrParam ()) where
-  termToData (collectDataArgs -> Just (constrName, args))
+  TERM_TO_DATA (collectDataArgs -> Just (constrName, args))
     | constrName == show 'Param
     , [Right (LitTy (SymTy nm)), Right ty, Left arg] <- args
     = do
       integerParam <-
         if isIntegerTy ty
-        then Just <$> termToData arg
+        then Just <$> Compat.termToData arg
         else pure Nothing
 
       pure (MkPrimParam (PrimParam
@@ -261,7 +266,7 @@ instance TermLiteral (PrimPortOrParam ()) where
         , polarity = getPolarity nm pol
         }))
 
-  termToData t = Left t
+  TERM_TO_DATA t = Left t
 
 -- | Get the 'ResetPolarity' from a type. This is used to automatically insert
 -- a @not@ if the reset polarity does not match the reset polarity of the domain.
@@ -320,7 +325,7 @@ data InstConfig = InstConfig
 deriveTermLiteral ''InstConfig
 
 instance KnownNat n => TermLiteral (XilinxWizard n) where
-  termToData = $(deriveTermToData ''XilinxWizard)
+  TERM_TO_DATA = $(deriveTermToData ''XilinxWizard)
 
 -- | Empty config, with mandatory 'compName' set.
 instConfig :: String -> InstConfig
@@ -522,7 +527,7 @@ instWithXilinxWizard# !_ !_ = instX
 argsToPrimPortOrParams :: [Term] -> Either String [PrimPortOrParam ()]
 argsToPrimPortOrParams [] = pure []
 argsToPrimPortOrParams (t:ts) = do
-  arg <- termToDataError t
+  arg <- Compat.termToDataError t
   args <- argsToPrimPortOrParams ts
   pure (arg:args)
 
@@ -584,13 +589,13 @@ withSomeSNat n f = case someNatVal n of
 instWithXilinxWizardBBF :: HasCallStack => BlackBoxFunction
 instWithXilinxWizardBBF isD primName args resTys
   | _instConstraint
-  : (either error id . termToDataError -> n)
+  : (either error id . Compat.termToDataError -> n)
   : wizardAsTerm
   : _config
   : _userArgs <- lefts args
   = withSomeSNat n $ \(SNat :: SNat n)-> do
       let
-        !(wizard :: XilinxWizard n)= either error id $ termToDataError wizardAsTerm
+        !(wizard :: XilinxWizard n)= either error id $ Compat.termToDataError wizardAsTerm
 
         -- 'instWithXilinxWizard' takes two extra arguments: a @KnownNat n@
         -- constraint, and a 'XilinxWizard'. These arguments should be dropped
@@ -619,7 +624,7 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
  where
   go :: Term -> [Term] -> Either String (InstConfig, [PrimPortOrParam ()], [PrimPort ()])
   go config0 userArgs = do
-    config1 <- termToDataError config0
+    config1 <- Compat.termToDataError config0
     argPorts <- argsToPrimPortOrParams userArgs
     resPorts <- tyToPrimPort resTy
     pure (config1, argPorts, resPorts)

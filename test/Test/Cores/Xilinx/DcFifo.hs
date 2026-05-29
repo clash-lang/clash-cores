@@ -18,7 +18,7 @@ import Clash.Explicit.Prelude
 import Clash.Cores.Xilinx.DcFifo
 import Clash.Hedgehog.Sized.BitVector (genDefinedBitVector)
 import Clash.Netlist.Util (orNothing)
-import Protocols.Hedgehog (defExpectOptions, idWithModel)
+import Protocols.Experimental.Hedgehog (defExpectOptions, idWithModel)
 
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range

@@ -2,12 +2,12 @@
   description = "A flake for the clash-cores";
   inputs = {
     clash-compiler.url = "github:clash-lang/clash-compiler";
-    clash-protocols = {
+    clash-protocols-src = {
       url = "github:clash-lang/clash-protocols";
-      inputs.clash-compiler.follows = "clash-compiler";
+      flake = false;
     };
   };
-  outputs = { self, flake-utils, clash-compiler, clash-protocols, ... }:
+  outputs = { self, flake-utils, clash-compiler, clash-protocols-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         # The 'default' version of ghc to use
@@ -39,13 +39,52 @@
               else
                 {};
 
+            # clash-protocols ships each sub-package's CHANGELOG.md as a symlink
+            # to the repo-root CHANGELOG.md (../CHANGELOG.md). Nix copies the
+            # package directory without that out-of-root target, so the symlink
+            # dangles in the build sandbox. Cabal >=3.12 (ghc9101+) merely warns
+            # about the unmatched 'extra-doc-files' wildcard, but the Cabal 3.10
+            # shipped with ghc96*/ghc98* treats it as a fatal error. Replace the
+            # dangling symlink with the real file for those.
+            protocols-changelog = "${clash-protocols-src}/CHANGELOG.md";
+            # True for ghc96* / ghc98*, which ship Cabal 3.10.
+            uses-cabal-3-10 =
+              clash-compiler.inputs.nixpkgs.lib.hasPrefix "ghc96" compiler-version
+              || clash-compiler.inputs.nixpkgs.lib.hasPrefix "ghc98" compiler-version;
+            fixup-changelog = drv:
+              if uses-cabal-3-10 then
+                drv.overrideAttrs (pAttr: {
+                  postPatch = pAttr.postPatch or "" + ''
+                    rm -f CHANGELOG.md
+                    cp ${protocols-changelog} CHANGELOG.md
+                  '';
+                })
+              else
+                drv;
+
             overlay = final: prev: {
+              circuit-notation = final.callHackageDirect {
+                pkg = "circuit-notation";
+                ver = "0.2.0.0";
+                sha256 = "sha256-tdM3spbXjQvcnBrmVS0i0tLqoHJ/pnniSOy3eTEZKuw=";
+              } {};
+              clash-protocols-base = fixup-changelog (prev.developPackage {
+                root = "${clash-protocols-src}/clash-protocols-base";
+                overrides = _: _: final;
+              });
+              clash-protocols = fixup-changelog ((prev.developPackage {
+                root = "${clash-protocols-src}/clash-protocols";
+                overrides = _: _: final;
+                # See https://github.com/clash-lang/clash-protocols/issues/131
+                modifier = drv: drv.overrideAttrs (_: { doCheck = false; });
+              }));
+
               # Append the package set with clash-cores
               clash-cores = (prev.developPackage {
                 root = ./.;
                 overrides = _: _: final;
               }).overrideAttrs override-attrs;
-            } // clash-protocols.overlays.${system}.${compiler-version} final prev;
+            };
           in
             { name = compiler-version; value = overlay; }
           ) supported-versions);
@@ -100,7 +139,7 @@
 
         # A devShell for each supported version
         #
-        # These can be invoked using `nix develop .#ghc9101-minimal`
+        # These can be invoked using `nix develop .#ghc9124-minimal`
         #
         # Please do note that if you work with Nix, you need to remove ALL the `cabal*.project` files at
         # the root of the directory! Cabal prioritizes local source overrides over Nix, which causes
