@@ -137,4 +137,5 @@ ila# !_conf !_clk = ilaX @dom @a
              name: #{primName}
              templateFunction: #{tfName}
              workInfo: Always
+             ignoredArguments: #{show ilaIgnoredArguments}
          |]) #-}

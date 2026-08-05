@@ -193,6 +193,25 @@ usedArguments = ilaConfig : clock : inputProbes
                -- when forcing this argument to NF we limit it to a modest
                -- 8096 input ports.
 
+-- | Arguments not used by 'ilaBBF' or any of its template functions: the
+-- constraints of 'Clash.Cores.Xilinx.Ila.ila#'. Advertised in the primitive
+-- definition of @ila#@, such that Clash replaces them by @removedArg@ during
+-- normalization instead of normalizing the (non-representable) dictionaries.
+--
+-- Note that 'ila#' is polyvariadic, hence we cannot enumerate the /used/
+-- arguments here: we do not know how many input probes a specific instantiation
+-- has.
+ilaIgnoredArguments :: [Int]
+ilaIgnoredArguments = [knownDomain, ilaConstraint, oneLtNConstraint]
+ where
+  (    knownDomain
+    :< ilaConstraint
+    :< oneLtNConstraint
+    :< _ilaConfig
+    :< _clock
+    :< _inputProbes
+    ) = (0...)
+
 ilaTF :: (HasCallStack, KnownNat n) => IlaConfig n -> TemplateFunction
 ilaTF config = TemplateFunction usedArguments (const True) (ilaBBTF config)
 

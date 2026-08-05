@@ -16,7 +16,10 @@
 
 {-# OPTIONS_HADDOCK hide #-}
 
-module Clash.Cores.Xilinx.Vio.Internal.BlackBoxes (vioProbeBBF) where
+module Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
+  ( vioProbeBBF
+  , vioProbeIgnoredArguments
+  ) where
 
 import Prelude
 
@@ -98,6 +101,27 @@ usedArguments = (inputNames : outputNames : initOutValues : clock : inputProbes)
                       -- unlimited number of arguments. To prevent evaluation loops
                       -- when forcing this argument to NF we limit it to a modest
                       -- 8096 input ports.
+
+-- | Arguments not used by 'vioProbeBBF' or any of its template functions: the
+-- constraints of 'Clash.Cores.Xilinx.Vio.vioProbe#'. Advertised in the
+-- primitive definition of @vioProbe#@, such that Clash replaces them by
+-- @removedArg@ during normalization instead of normalizing the
+-- (non-representable) dictionaries.
+--
+-- Note that @vioProbe#@ is polyvariadic, hence we cannot enumerate the /used/
+-- arguments here: we do not know how many input probes a specific instantiation
+-- has.
+vioProbeIgnoredArguments :: [Int]
+vioProbeIgnoredArguments = [knownDomain, vioConstraint]
+ where
+  (    knownDomain
+    :< vioConstraint
+    :< _inputNames
+    :< _outputNames
+    :< _initOutValues
+    :< _clock
+    :< _inputProbes
+    ) = ((0::Int)...)
 
 vioProbeTF :: HasCallStack => TemplateFunction
 vioProbeTF =

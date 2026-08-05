@@ -200,10 +200,15 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
+    Test.Primitives
+    Test.Primitives.TH
 
   build-depends:
+    bytestring,
     clash-cores,
     clash-prelude-hedgehog,
+    directory,
+    filepath,
     hedgehog,
     infinite-list,
     tasty                   >= 1.2 && < 1.6,

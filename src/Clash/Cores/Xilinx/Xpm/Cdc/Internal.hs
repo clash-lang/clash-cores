@@ -479,6 +479,16 @@ instance Inst a => Inst (Param s const -> a) where
 inst :: forall a. Inst a => InstConfig -> a
 inst !_ = instX
 {-# OPAQUE inst #-}
+-- Note that we cannot refer to a Haskell definition listing the ignored
+-- arguments here (as 'Clash.Cores.Xilinx.DcFifo.dcFifo' does), because GHC's
+-- stage restriction dictates annotations may only use imported definitions.
+--
+-- Argument 0 is the @Inst a@ constraint. It is unused: 'instBBF' skips it and
+-- so does 'instBBTF'. Declaring it as such makes Clash replace it by
+-- @removedArg@ during normalization, instead of normalizing the
+-- (non-representable) dictionary. All other arguments - the 'InstConfig' and
+-- the ports/params - are used. Note that 'inst' is polyvariadic, so we cannot
+-- enumerate the used arguments.
 {-# ANN inst (
   let
     primName = show 'inst
@@ -489,6 +499,7 @@ inst !_ = instX
         name: #{primName}
         templateFunction: #{tfName}
         workInfo: Always
+        ignoredArguments: [0]
     |]) #-}
 
 -- | Like 'inst', but also generates TCL files invoking a Xilinx Wizard.
@@ -511,6 +522,10 @@ instWithXilinxWizard# ::
   a
 instWithXilinxWizard# !_ !_ = instX
 {-# OPAQUE instWithXilinxWizard# #-}
+-- Like 'inst', argument 0 (the @Inst a@ constraint) is unused. Note that
+-- argument 1 - the @KnownNat n@ constraint - /is/ used:
+-- 'instWithXilinxWizardBBF' reads @n@ from its dictionary in order to parse the
+-- 'XilinxWizard' argument. Ignoring it would break TCL generation.
 {-# ANN instWithXilinxWizard# (
   let
     primName = show 'instWithXilinxWizard#
@@ -521,6 +536,7 @@ instWithXilinxWizard# !_ !_ = instX
         name: #{primName}
         templateFunction: #{tfName}
         workInfo: Always
+        ignoredArguments: [0]
     |]) #-}
 
 -- | Interpret arguments as 'PrimPortOrParam's

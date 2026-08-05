@@ -30,6 +30,7 @@ import qualified Test.Cores.Xilinx.BlockRam
 import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
 import qualified Test.Cores.Xilinx.Ethernet.Gmii
+import qualified Test.Primitives
 
 tests :: TestTree
 tests = testGroup "Unittests" $
@@ -43,6 +44,7 @@ tests = testGroup "Unittests" $
   , Test.Cores.Xilinx.DcFifo.tests
   , Test.Cores.Xilinx.DnaPortE2.tests
   , Test.Cores.Xilinx.Ethernet.Gmii.tests
+  , Test.Primitives.tests
   ] ++ tests_modern
 
 tests_modern :: [TestTree]

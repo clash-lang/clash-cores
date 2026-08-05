@@ -139,4 +139,5 @@ vioProbe# !_inputNames !_outputNames !_initialOutputProbeValues clk =
              name: #{primName}
              templateFunction: #{tfName}
              workInfo: Always
+             ignoredArguments: #{show vioProbeIgnoredArguments}
          |]) #-}

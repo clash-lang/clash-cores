@@ -268,6 +268,7 @@ dcFifo DcConfig{..} wClk wRst rClk rRst writeData rEnable =
             name: #{primName}
             templateFunction: #{tfName}
             workInfo: Always
+            usedArguments: #{show dcFifoUsedArguments}
         |]) #-}
 
 -- | Xilinx dual clock FIFO specialized for Df

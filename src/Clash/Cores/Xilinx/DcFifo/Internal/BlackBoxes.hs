@@ -89,26 +89,33 @@ dcFifoBBF _isD _primName args _resTys
 
 dcFifoBBF _ _ args _ = error ("dcFifoBBF, bad args: " <> show args)
 
+-- | Arguments used by 'dcFifoTF'. Also advertised in the primitive definition
+-- of 'Clash.Cores.Xilinx.DcFifo.dcFifo', such that Clash does not try to
+-- normalize the (non-synthesizable) unused arguments.
+dcFifoUsedArguments :: [Int]
+dcFifoUsedArguments =
+  -- ( KnownDomain write        -- 0
+  -- , KnownDomain read         -- 1
+  -- , NFDataX a                -- 2
+  -- , KnownNat depth           -- 3
+  -- , 4 <= depth               -- 4
+  -- , depth <= 17              -- 5
+  -- , HasCallStack             -- 6
+  -- ) =>
+  -- DcConfig (SNat depth) ->   -- 7 Note: argument passed to 'dcFifoTF'
+  -- Clock write ->             -- 8
+  -- Reset write ->             -- 9
+  -- Clock read ->              -- 10
+  -- Reset read ->              -- 11
+  -- Signal write (Maybe a) ->  -- 12
+  -- Signal read Bool ->        -- 13
+  [0, 1, 7, 8, 9, 10, 11, 12, 13]
+
 -- | Instantiate IP generated with 'dcFifoTclTF'
 dcFifoTF :: HasCallStack => DcConfig n -> TemplateFunction
 dcFifoTF config =
   TemplateFunction
-    -- ( KnownDomain write        -- 0
-    -- , KnownDomain read         -- 1
-    -- , NFDataX a                -- 2
-    -- , KnownNat depth           -- 3
-    -- , 4 <= depth               -- 4
-    -- , depth <= 17              -- 5
-    -- , HasCallStack             -- 6
-    -- ) =>
-    -- DcConfig (SNat depth) ->   -- 7 Note: argument passed to this function
-    -- Clock write ->             -- 8
-    -- Reset write ->             -- 9
-    -- Clock read ->              -- 10
-    -- Reset read ->              -- 11
-    -- Signal write (Maybe a) ->  -- 12
-    -- Signal read Bool ->        -- 13
-    [0, 1, 7, 8, 9, 10, 11, 12, 13]
+    dcFifoUsedArguments
     (const True)
     (dcFifoBBTF config)
  where
