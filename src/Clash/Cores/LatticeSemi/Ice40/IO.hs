@@ -24,6 +24,9 @@ module Clash.Cores.LatticeSemi.Ice40.IO
 import           Data.Functor                 ((<&>))
 import           GHC.Stack                    (HasCallStack())
 
+import           Clash.Annotations.BitRepresentation
+  (ConstrRepr(..), DataReprAnn(..), liftQ)
+import           Clash.Annotations.BitRepresentation.Deriving (deriveBitPack)
 import           Clash.Annotations.Primitive  (Primitive(..), HDL(..), hasBlackBox)
 import           Clash.Prelude
 
@@ -32,14 +35,6 @@ import           Data.String.Interpolate      (__i)
 toMaybe :: Bool -> a -> Maybe a
 toMaybe True a = Just a
 toMaybe False _a = Nothing
-
--- | Create configuration bitvector based on pin function mnemonics. See
--- documentation on "PinInputConfig" and "PinOutputConfig" for more information.
-spiConfig
-  :: PinInputConfig
-  -> PinOutputConfig
-  -> BitVector 6
-spiConfig pic poc = pack poc ++# pack pic
 
 -- | Input pinType  mnemonics as documented in the first table of LITL p88. Note
 -- that @PIN_INPUT_DDR@ is missing. Use 'PIN_INPUT_REGISTERED' instead.
@@ -93,43 +88,35 @@ data PinOutputConfig
   -- inverted, the enable/tristate control is registered.
   deriving (Show)
 
-instance BitPack PinOutputConfig where
-  type BitSize PinOutputConfig = 4
-  pack =
-    \case
-      PIN_NO_OUTPUT -> 0b0000
-      PIN_OUTPUT -> 0b0110
-      PIN_OUTPUT_TRISTATE -> 0b1010
-      PIN_OUTPUT_ENABLE_REGISTERED -> 0b1110
-      PIN_OUTPUT_REGISTERED -> 0b0101
-      PIN_OUTPUT_REGISTERED_ENABLE -> 0b1001
-      PIN_OUTPUT_REGISTERED_ENABLE_REGISTERED -> 0b1101
-      PIN_OUTPUT_DDR -> 0b0100
-      PIN_OUTPUT_DDR_ENABLE -> 0b1000
-      PIN_OUTPUT_DDR_ENABLE_REGISTERED -> 0b1100
-      PIN_OUTPUT_REGISTERED_INVERTED -> 0b0111
-      PIN_OUTPUT_REGISTERED_ENABLE_INVERTED -> 0b1011
-      PIN_OUTPUT_REGISTERED_ENABLE_REGISTERED_INVERTED -> 0b1111
+{-# ANN module (DataReprAnn
+                  $(liftQ [t|PinOutputConfig|])
+                  4
+                  [ ConstrRepr 'PIN_NO_OUTPUT 0b1111 0b0000 []
+                  , ConstrRepr 'PIN_OUTPUT 0b1111 0b0110 []
+                  , ConstrRepr 'PIN_OUTPUT_TRISTATE 0b1111 0b1010 []
+                  , ConstrRepr 'PIN_OUTPUT_ENABLE_REGISTERED 0b1111 0b1110 []
+                  , ConstrRepr 'PIN_OUTPUT_REGISTERED 0b1111 0b0101 []
+                  , ConstrRepr 'PIN_OUTPUT_REGISTERED_ENABLE 0b1111 0b1001 []
+                  , ConstrRepr 'PIN_OUTPUT_REGISTERED_ENABLE_REGISTERED 0b1111 0b1101 []
 
-  unpack =
-    \case
-      0b0000 -> PIN_NO_OUTPUT
-      0b0110 -> PIN_OUTPUT
-      0b1010 -> PIN_OUTPUT_TRISTATE
-      0b1110 -> PIN_OUTPUT_ENABLE_REGISTERED
-      0b0101 -> PIN_OUTPUT_REGISTERED
-      0b1001 -> PIN_OUTPUT_REGISTERED_ENABLE
-      0b1101 -> PIN_OUTPUT_REGISTERED_ENABLE_REGISTERED
+                  , ConstrRepr 'PIN_OUTPUT_DDR 0b1111 0b0100 []
+                  , ConstrRepr 'PIN_OUTPUT_DDR_ENABLE 0b1111 0b1000 []
+                  , ConstrRepr 'PIN_OUTPUT_DDR_ENABLE_REGISTERED 0b1111 0b1100 []
 
-      0b0100 -> PIN_OUTPUT_DDR
-      0b1000 -> PIN_OUTPUT_DDR_ENABLE
-      0b1100 -> PIN_OUTPUT_DDR_ENABLE_REGISTERED
+                  , ConstrRepr 'PIN_OUTPUT_REGISTERED_INVERTED 0b1111 0b0111 []
+                  , ConstrRepr 'PIN_OUTPUT_REGISTERED_ENABLE_INVERTED 0b1111 0b1011 []
+                  , ConstrRepr 'PIN_OUTPUT_REGISTERED_ENABLE_REGISTERED_INVERTED 0b1111 0b1111 []
+                  ]) #-}
 
-      0b0111 -> PIN_OUTPUT_REGISTERED_INVERTED
-      0b1011 -> PIN_OUTPUT_REGISTERED_ENABLE_INVERTED
-      0b1111 -> PIN_OUTPUT_REGISTERED_ENABLE_REGISTERED_INVERTED
+deriveBitPack [t|PinOutputConfig|]
 
-      b -> errorX $ "Unrecognized bit pattern in PinOutputConfig.unpack: " <> show b
+-- | Create configuration bitvector based on pin function mnemonics. See
+-- documentation on "PinInputConfig" and "PinOutputConfig" for more information.
+spiConfig
+  :: PinInputConfig
+  -> PinOutputConfig
+  -> BitVector 6
+spiConfig pic poc = pack poc ++# pack pic
 
 data OutputEnable
   = EnableLow
