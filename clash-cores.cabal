@@ -177,6 +177,9 @@ library
     Clash.Sized.Vector.Extra
     Data.Maybe.Extra
     Data.Text.Extra
+    -- Allows us to build with clash-protocols 0.1.1, but we should remove this
+    -- module in favor of primitives in `clash-protocols` once they are released.
+    Protocols.PacketStream.Extra
 
   ghc-options:
     -fexpose-all-unfoldings

@@ -35,7 +35,7 @@ prop_preamble_stripper :: Property
 prop_preamble_stripper =
   idWithModelSingleDomain
     @System
-    defExpectOptions{eoStopAfterEmpty = 1000}
+    defExpectOptions{eoStopAfterEmpty = Just 1000}
     (genPackets 1 10 genPkt)
     (exposeClockResetEnable preambleStripperModel)
     (exposeClockResetEnable preambleStripperC)

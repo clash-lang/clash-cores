@@ -22,7 +22,6 @@ import Clash.Signal.Extra (timer)
 import Data.Maybe (isJust)
 
 import Protocols (Ack (..), Circuit (..), Df)
-import qualified Protocols.Df as Df
 
 -- | State of 'arpTableT'.
 data ArpTableState depth
@@ -148,7 +147,7 @@ arpTableC SNat SNat = Circuit (hideReset ckt)
     insertionWithHash :: Signal dom (Maybe (ArpEntry, Unsigned depth))
     insertionWithHash =
       fmap (\entry -> (entry, resize $ bitCoerce (_arpIP entry)))
-        <$> (Df.dataToMaybe <$> insertReq)
+        <$> insertReq
 
     readAddr :: Signal dom (Unsigned depth)
     writeCmd :: Signal dom (Maybe (Unsigned depth, (ArpEntry, Index (maxAgeSeconds + 1))))
