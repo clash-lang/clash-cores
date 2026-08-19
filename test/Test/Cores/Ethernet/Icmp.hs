@@ -16,7 +16,8 @@ import qualified Data.List as L
 import Hedgehog (Property)
 import qualified Hedgehog.Range as Range
 
-import Protocols.Hedgehog
+import Protocols.Experimental.Hedgehog
+import Protocols.Experimental.PacketStream ()
 import Protocols.PacketStream (PacketStreamM2S(_meta))
 import Protocols.PacketStream.Hedgehog
 

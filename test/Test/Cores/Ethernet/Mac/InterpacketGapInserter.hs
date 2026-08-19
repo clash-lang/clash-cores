@@ -14,7 +14,8 @@ import Hedgehog
 import qualified Hedgehog.Range as Range
 
 import Protocols
-import Protocols.Hedgehog
+import Protocols.Experimental.Hedgehog
+import Protocols.Experimental.PacketStream ()
 import Protocols.PacketStream
 import Protocols.PacketStream.Hedgehog
 
