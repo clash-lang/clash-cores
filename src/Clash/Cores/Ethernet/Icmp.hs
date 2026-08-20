@@ -8,10 +8,15 @@ Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 Provides a circuit that responds to ICMP echo requests.
 -}
 module Clash.Cores.Ethernet.Icmp (
+  -- * Data types
   IcmpHeader (..),
   IcmpHeaderLite (..),
+
+  -- * Header conversions
   toIcmpLite,
   fromIcmpLite,
+
+  -- * Echo responder
   icmpEchoResponderC,
 ) where
 
@@ -25,17 +30,25 @@ import Protocols.PacketStream
 import Clash.Cores.Ethernet.IP.IPv4Types (IPv4Address (..), IPv4HeaderLite (..))
 import Clash.Cores.Ethernet.InternetChecksum (onesComplementAdd)
 
--- | Full ICMP header.
+{- |
+Full ICMP header, as defined in
+[IETF RFC 792](https://datatracker.ietf.org/doc/html/rfc792).
+-}
 data IcmpHeader = IcmpHeader
   { _type :: BitVector 8
+  -- ^ ICMP type, e.g. @8@ for an echo request and @0@ for an echo reply
   , _code :: BitVector 8
+  -- ^ ICMP subtype. Always @0@ for echo requests and replies
   , _checksum :: BitVector 16
+  -- ^ Checksum over the ICMP header and payload
   }
   deriving (Show, ShowX, Eq, Generic, BitPack, NFDataX)
 
 -- | Small ICMP header, which only contains the checksum.
 newtype IcmpHeaderLite = IcmpHeaderLite
-  {_checksumL :: BitVector 16}
+  { _checksumL :: BitVector 16
+  -- ^ Checksum over the ICMP header and payload
+  }
   deriving (Show, ShowX, Eq, Generic, BitPack, NFDataX)
 
 -- | Create an ICMP echo reply header from an ICMP lite header.
@@ -65,7 +78,7 @@ icmpTransmitterC ::
 icmpTransmitterC = packetizerC fst (fromIcmpLite . snd)
 
 {- |
-Parses the first 4 bytes of the stream into an `IcmpHeader`, and verifies
+Parses the first 4 bytes of the stream into an t'IcmpHeader', and verifies
 whether the packet is an ICMP echo request (type 8 and code 0). Drops all
 other packets. Only the checksum is forwarded in the metadata.
 -}
@@ -88,24 +101,25 @@ packets. Assumes that all incoming packets are destined for us.
 
 This circuit only changes the ICMP type of the input packet: from @8@
 (Echo Request) to @0@ (Echo Reply). That means we can adjust the input checksum
-instead of having to compute it from scratch. For example, if the checksum of
-the input packet is @0xABCD@:
+instead of having to compute it from scratch, as specified by
+[IETF RFC 1624](https://datatracker.ietf.org/doc/html/rfc1624):
 
+=== __doctests setup__
 >>> import Clash.Prelude
 >>> import Clash.Cores.Ethernet.InternetChecksum (onesComplementAdd)
 
-We adjust the checksum as specified by
-[IETF RFC 1624](https://datatracker.ietf.org/doc/html/rfc1624):
-
+=== Examples
 >>> :{
 adjustChecksum :: BitVector 16 -> BitVector 16
 adjustChecksum c = complement $ onesComplementAdd (complement c) 0xF7FF
 :}
 
+So, an input packet with checksum @0xABCD@ gets the following reply checksum:
+
 >>> adjustChecksum 0xABCD
 0b1011_0011_1100_1101
 
-This method is unfortuntately not foolproof. If all input bytes are @0x00@
+This method is unfortunately not foolproof. If all input bytes are @0x00@
 except the type and checksum, the ICMP packet will have the checksum @0xF7FF@
 and we will adjust it to @0x0000@:
 

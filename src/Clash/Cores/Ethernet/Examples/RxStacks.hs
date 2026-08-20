@@ -13,6 +13,7 @@ output data width bigger than zero.
 Example usage:
 
 >>> :set -XViewPatterns
+>>> :set -XMultiParamTypeClasses
 >>> import Clash.Cores.Crc (HardwareCrc, deriveHardwareCrc)
 >>> import Clash.Cores.Crc.Catalog (Crc32_ethernet(..))
 >>> import Clash.Cores.Ethernet.Mac
@@ -32,8 +33,7 @@ dummyRxPhy ::
 dummyRxPhy = undefined
 :}
 
-For example, the Lattice ECP5 Colorlight 5A-75B board uses an RGMII PHY,
-found at `Clash.Cores.Ethernet.Rgmii.unsafeRgmiiRxC`.
+For example, the Lattice ECP5 Colorlight 5A-75B board uses an RGMII PHY.
 
 `macRxStack` is the most common Ethernet MAC RX stack that will be sufficient
 for most people. That is, it assumes that you want to process the received
@@ -61,7 +61,7 @@ myRxStack ethRxClk ethRxRst ethRxEn ourMacS =
     |> macRxStack @4 ethRxClk ethRxRst ethRxEn ourMacS
 :}
 
-While this pre-defined stack is very simple to use, it might not be want you
+While this pre-defined stack is very simple to use, it might not be what you
 want. Maybe you want to use a vendor-specific async fifo, or maybe you want
 some components that are currently operating in the internal domain @dom@ to
 operate in the Ethernet RX domain @domEthRx@ (or vice versa). Timing
@@ -78,7 +78,7 @@ work in the Ethernet RX clock domain.
 
 In any case, it is easy to create a custom stack. All you have to do is import
 all the necessary components and connect them with the `|>` operator, creating
-one big `Circuit`. For example:
+one big t'Circuit'. For example:
 
 >>> :{
 $(deriveHardwareCrc Crc32_ethernet d8 d8)
@@ -202,7 +202,17 @@ macRxStack ethRxClk ethRxRst ethRxEn ourMacS =
 
   isForMyMac myMac (_macDst -> to) = to == myMac || to == broadcastMac
 
--- | Processes received IP packets
+{- |
+Receives IPv4 packets over Ethernet. Drops frames which do not carry IPv4,
+packets with an invalid header, and packets destined for neither our IPv4
+address nor our subnet broadcast address. The header of the remaining packets
+is stripped from the stream and put in the metadata.
+
+For this stack to work, the output @dataWidth@ __MUST__ satisfy the following
+formula:
+
+@dataWidth * DomainPeriod dom <= DomainPeriod domEthRx@
+-}
 ipRxStack ::
   forall (dataWidth :: Nat) (dom :: Domain) (domEthRx :: Domain).
   (HiddenClockResetEnable dom) =>

@@ -103,37 +103,66 @@ instance Bits IPv4SubnetMask where
   bit = bitCoerce @(BitVector 32) . bit
   popCount = popCount . bitCoerce @IPv4SubnetMask @(BitVector 32)
 
--- | (Almost) full IPv4 header. Does not contain the options field.
+{- |
+(Almost) full IPv4 header, as defined in
+[IETF RFC 791](https://datatracker.ietf.org/doc/html/rfc791). Does not contain
+the options field, because we only support @IHL = 5@.
+-}
 data IPv4Header = IPv4Header
   { _ipv4Version :: BitVector 4
+  -- ^ IP version. Always @4@ for IPv4
   , _ipv4Ihl :: Unsigned 4
+  -- ^ Internet Header Length, in 32-bit words. We only support @5@,
+  --   i.e. a header without options
   , _ipv4Dscp :: BitVector 6
+  -- ^ Differentiated Services Code Point
   , _ipv4Ecn :: BitVector 2
+  -- ^ Explicit Congestion Notification
   , _ipv4Length :: Unsigned 16
+  -- ^ Total length of header + payload, in bytes
   , _ipv4Id :: BitVector 16
+  -- ^ Identification, used to group fragments of a single datagram
   , _ipv4FlagReserved :: Bool
+  -- ^ Reserved flag. Must be @False@
   , _ipv4FlagDF :: Bool
+  -- ^ Don't Fragment
   , _ipv4FlagMF :: Bool
+  -- ^ More Fragments. Fragmentation is not supported, so we abort packets
+  --   which have this flag set
   , _ipv4FragmentOffset :: BitVector 13
+  -- ^ Offset of this fragment in the datagram, in 8-byte blocks
   , _ipv4Ttl :: Unsigned 8
+  -- ^ Time To Live
   , _ipv4Protocol :: Unsigned 8
+  -- ^ Protocol of the payload, e.g. @0x01@ for ICMP and @0x11@ for UDP
   , _ipv4Checksum :: BitVector 16
+  -- ^ Internet checksum, computed over the header only
   , _ipv4Source :: IPv4Address
+  -- ^ Source IPv4 address
   , _ipv4Destination :: IPv4Address
-  }
-  deriving (BitPack, Eq, Generic, NFData, NFDataX, Show, ShowX)
-
--- | Partial IPv4 header.
-data IPv4HeaderLite = IPv4HeaderLite
-  { _ipv4lSource :: IPv4Address
-  , _ipv4lDestination :: IPv4Address
-  , _ipv4lProtocol :: Unsigned 8
-  , _ipv4lPayloadLength :: Unsigned 16
+  -- ^ Destination IPv4 address
   }
   deriving (BitPack, Eq, Generic, NFData, NFDataX, Show, ShowX)
 
 {- |
-Convert a full 'IPv4Header' to a partial 'IPv4HeaderLite'. The payload length
+Partial IPv4 header which only contains the fields that most applications
+care about. Convert to and from t'IPv4Header' with 'fromLite' and 'toLite'.
+-}
+data IPv4HeaderLite = IPv4HeaderLite
+  { _ipv4lSource :: IPv4Address
+  -- ^ Source IPv4 address
+  , _ipv4lDestination :: IPv4Address
+  -- ^ Destination IPv4 address
+  , _ipv4lProtocol :: Unsigned 8
+  -- ^ Protocol of the payload, e.g. @0x01@ for ICMP and @0x11@ for UDP
+  , _ipv4lPayloadLength :: Unsigned 16
+  -- ^ Length of the payload, in bytes. That is, the total length in
+  --   t'IPv4Header' minus the 20 header bytes
+  }
+  deriving (BitPack, Eq, Generic, NFData, NFDataX, Show, ShowX)
+
+{- |
+Convert a full t'IPv4Header' to a partial t'IPv4HeaderLite'. The payload length
 is derived from the total length in the IPv4 header minus 20, because we only
 support @IHL = 5@.
 -}
@@ -147,7 +176,7 @@ toLite header =
     }
 
 {- |
-Convert a partial 'IPv4HeaderLite' to a full 'IPv4Header', in the following
+Convert a partial t'IPv4HeaderLite' to a full t'IPv4Header', in the following
 way:
 
 - TTL is set to @64@;

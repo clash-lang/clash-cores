@@ -20,7 +20,7 @@ import Protocols.PacketStream (PacketStream, depacketizerC, packetizerC)
 import Clash.Cores.Ethernet.Mac.EthernetTypes (EthernetHeader)
 
 {- |
-Prepends the `EthernetHeader` in the metadata to the packet stream,
+Prepends the t'EthernetHeader' in the metadata to the packet stream,
 for each packet.
 
 Inherits latency and throughput from `packetizerC`.
@@ -37,7 +37,7 @@ macPacketizerC = packetizerC (const ()) id
 
 {- |
 Parses the first 14 bytes of each packet in the incoming packet stream into an
-`EthernetHeader`, puts that in the metadata of the packet and strips those
+t'EthernetHeader', puts that in the metadata of the packet and strips those
 bytes from the stream.
 
 Inherits latency and throughput from `depacketizerC`.

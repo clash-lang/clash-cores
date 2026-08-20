@@ -89,7 +89,7 @@ data ArpPacket = ArpPacket
   , _ptype :: BitVector 16
   -- ^ Protocol type. @0x0800@ for IPv4
   , _hlen :: BitVector 8
-  -- ^ Length of the hardware adresses. @0x06@ for Ethernet
+  -- ^ Length of the hardware addresses. @0x06@ for Ethernet
   , _plen :: BitVector 8
   -- ^ Length of the protocol (internet) addresses. @0x04@ for IPv4
   , _oper :: BitVector 16
@@ -170,7 +170,7 @@ Returns @True@ if @HTYPE = 1@ (Ethernet), @PTYPE = 0x0800@ (IPv4) and the
 incoming packet is either:
 
 - A request or reply directed to us;
-- A gratitious reply or request.
+- A gratuitous reply or request.
 
 __NB__: @HLEN@ and @PLEN@ are not validated, as
 [IETF RFC 826](https://datatracker.ietf.org/doc/html/rfc826) specifies this

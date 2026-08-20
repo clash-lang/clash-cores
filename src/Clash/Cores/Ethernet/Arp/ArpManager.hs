@@ -138,8 +138,8 @@ arpManagerC SNat = fromSignals ckt
         (lookupIn, arpRespIn, ackIn, timer (SNat @(10 ^ 9)))
 
 {- |
-Transmits ARP packets upon request by creating a full 'ArpPacket' from the
-input 'ArpLite' and packetizing that into a new packet stream. Uses
+Transmits ARP packets upon request by creating a full t'ArpPacket' from the
+input t'ArpLite' and packetizing that into a new packet stream. Uses
 'packetizeFromDfC' internally to achieve this, and therefore inherits all of
 its properties related to latency and throughput.
 

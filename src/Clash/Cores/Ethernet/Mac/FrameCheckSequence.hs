@@ -125,7 +125,7 @@ fcsInserterT st@(FcsInsert{..}) (_, _, bwdIn) = (nextStOut, (Just dataOut, False
   nextStOut = if _ready bwdIn then nextSt else st
 
 {- |
-Computes the Ethernet CRC ('Crc32_ethernet') over each packet in the stream
+Computes the Ethernet CRC (t'Crc32_ethernet') over each packet in the stream
 and appends this CRC to the corresponding packet in the output stream.
 
 __NB__: does not support zero-byte packets. Feeding a zero-byte packet to this
@@ -216,7 +216,7 @@ fcsValidator (fwdIn, bwdIn) = (PacketStreamS2M <$> ready, fwdOut)
       (valid, fwdIn, bwdIn)
 
 {- |
-Computes the Ethernet CRC ('Crc32_ethernet') over each packet in the stream
+Computes the Ethernet CRC (t'Crc32_ethernet') over each packet in the stream
 and asserts '_abort' on the last transfer of the packet if the computed CRC
 did not match the last 4 bytes of the stream.
 

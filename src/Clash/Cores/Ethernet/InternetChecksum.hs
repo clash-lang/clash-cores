@@ -44,7 +44,7 @@ according to [IETF RFC 1071](https://datatracker.ietf.org/doc/html/rfc1071).
 
 The checksum is delayed by one clock cycle.
 Keep in mind that if the reset input is @True@, the checksum is
-reset to @0@ the next cycle so the the input data is thrown away.
+reset to @0@ the next cycle, so the input data is thrown away.
 -}
 internetChecksum ::
   forall (dom :: Domain).

@@ -11,6 +11,7 @@ data width bigger than zero.
 
 Example usage:
 
+>>> :set -XMultiParamTypeClasses
 >>> import Clash.Cores.Crc (HardwareCrc, deriveHardwareCrc)
 >>> import Clash.Cores.Crc.Catalog (Crc32_ethernet(..))
 >>> import Clash.Cores.Ethernet.Mac
@@ -30,8 +31,9 @@ dummyTxPhy ::
 dummyTxPhy = undefined
 :}
 
-For example, the Lattice ECP5 Colorlight 5A-75B board uses an RGMII PHY,
-found at 'Clash.Cores.Ethernet.Rgmii.rgmiiTxC'.
+@clash-cores@ does not ship such a PHY adapter, so you have to write one for
+the PHY on your board. For example, the Lattice ECP5 Colorlight 5A-75B board
+uses an RGMII PHY.
 
 'macTxStack' is the most common Ethernet MAC TX stack that will be sufficient
 for most people. That is, it inserts an interpacket gap of 12 bytes, pads the
@@ -59,7 +61,7 @@ myTxStack ethTxClk ethTxRst ethTxEn =
     |> exposeClockResetEnable dummyTxPhy ethTxClk ethTxRst ethTxEn
 :}
 
-While this pre-defined stack is very simple to use, it might not be want you
+While this pre-defined stack is very simple to use, it might not be what you
 want. Maybe you want to use a vendor-specific async fifo, or maybe you want
 some components that are currently operating in the internal domain @dom@ to
 operate in the Ethernet TX domain @domEthTx@ (or vice versa). Timing
@@ -76,7 +78,7 @@ the Ethernet TX clock domain.
 
 In any case, it is easy to create a custom stack. All you have to do is import
 all the necessary components and connect them with the '|>' operator, creating
-one big 'Circuit'. For example:
+one big t'Circuit'. For example:
 
 >>> :{
 $(deriveHardwareCrc Crc32_ethernet d8 d8)
@@ -127,12 +129,12 @@ __MUST__ satisfy the following formula:
 
 Processing is done in the following way:
 
-1. The payload stream together with an 'EthernetHeader' in the metadata arrives
+1. The payload stream together with a t'EthernetHeader' in the metadata arrives
 at 'macPacketizerC', which prepends this header to the stream. This header
 contains the source and destination MAC addresses, and the EtherType of the
 payload.
 
-5. `asyncFifoC` is used to cross clock domains, because the clock domain of
+2. 'asyncFifoC' is used to cross clock domains, because the clock domain of
 the Ethernet TX PHY is usually different from the clock domain that is used
 internally.
 
@@ -140,8 +142,8 @@ internally.
 to improve timing.
 
 4. 'downConverterC' downsizes the stream from @dataWidth@ bytes to @1@ byte
-wide. This makes the coming upcoming components more resource-efficient, and
-it is possible because we now operate in a faster domain.
+wide. This makes the upcoming components more resource-efficient, and it is
+possible because we now operate in a faster domain.
 
 5. 'paddingInserterC' pads the Ethernet frame to 60 bytes with null bytes if
 necessary. Just 60 bytes, because the FCS is not inserted yet. Inserting that
@@ -157,7 +159,8 @@ appends it to the stream.
 to the front of the stream by 'preambleInserterC', that is, 7 bytes of
 alternating ones and zeroes followed by the start frame delimiter.
 
-9. Lastly, an interpacket gap of 12 bytes is inserted.
+9. Lastly, 'interpacketGapInserterC' asserts backpressure for 12 clock cycles
+after each packet, creating the mandatory interpacket gap of 12 bytes.
 -}
 macTxStack ::
   forall
@@ -195,7 +198,22 @@ macTxStack ethTxClk ethTxRst ethTxEn =
       |> preambleInserterC
       |> interpacketGapInserterC d12
 
--- | Sends IP packets to a known MAC address
+{- |
+Transmits IPv4 packets over Ethernet. Prepends an IPv4 header, including a
+valid header checksum, to each packet in the stream and transmits the result
+as an Ethernet frame.
+
+For this stack to work, the input @dataWidth@ __MUST__ satisfy the following
+formula:
+
+@DomainPeriod dom <= DomainPeriod domEthTx * dataWidth@
+
+__NB__: this stack does not perform ARP resolution. The destination MAC address
+is hardcoded to @00:00:00:ff:ff:ff@, so it is only useful when the peer is known
+up front. Use @toEthernetStreamC@ from "Clash.Cores.Ethernet.IPv4" together with
+@arpC@ from "Clash.Cores.Ethernet.Arp" if you need the destination MAC address
+to be resolved from the destination IPv4 address.
+-}
 ipTxStack ::
   forall
     (dataWidth :: Nat)
@@ -218,7 +236,7 @@ ipTxStack ::
 ipTxStack ethTxClk ethTxRst ethTxEn ourMacS =
   ipLitePacketizerC
     |> constToEthernetC
-      0x8000
+      0x0800
       (MacAddress $ 0x00 :> 0x00 :> 0x00 :> 0xff :> 0xff :> 0xff :> Nil)
       ourMacS
     |> macTxStack ethTxClk ethTxRst ethTxEn

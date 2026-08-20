@@ -32,11 +32,16 @@ preamble :: Preamble
 preamble = replicate d7 0x55 :< 0xD5
 
 {- |
-Prepends the Ethernet preamble and SFD to each packet in the packet stream.
-The bytes are ordered least significant bit first:
+Prepends the Ethernet preamble and SFD to each packet in the packet stream,
+that is, the following 8 bytes:
 
->>> import Clash.Prelude
->>> preamble = 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0xD5 :> Nil
+@
+0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0x55 :> 0xD5 :> Nil
+@
+
+Each byte is ordered least significant bit first, so the preamble is
+transmitted on the wire as 56 alternating ones and zeroes, followed by the
+start frame delimiter.
 
 Inherits latency and throughput from `packetizerC`.
 -}

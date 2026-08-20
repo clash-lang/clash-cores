@@ -33,7 +33,7 @@ import Data.Type.Equality
 Prepends a full IPv4 header to each packet in the stream. Before prepending
 the header, the header checksum is computed and set.
 
-Fields that are not in the partial `IPv4HeaderLite` are given specific values,
+Fields that are not in the partial t'IPv4HeaderLite' are given specific values,
 see `fromLite`.
 -}
 ipLitePacketizerC ::
@@ -113,7 +113,7 @@ setChecksumC = Circuit $ \(fwdInS, bwdInS) ->
     (bwdOutS, fwdOutS)
 
 {- |
-Parses the first 20 bytes of each packet in the stream into an `IPv4Header`
+Parses the first 20 bytes of each packet in the stream into an t'IPv4Header'
 and puts it in the metadata. The header checksum is verified. Fragmentation
 and options are not supported.
 
