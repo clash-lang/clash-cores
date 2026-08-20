@@ -249,7 +249,7 @@ fcsValidatorC = case sameNat d1 (SNat @dataWidth) of
 
 {- |
 Removes the last 4 bytes of each packet in the stream, the width of the
-Ethernet FCS field. This is just a specialized version of 'dropTailC'.
+Ethernet FCS field. This is just a specialized version of @dropTailC@.
 
 __NB__: does not validate the FCS field. Use 'fcsValidatorC' for that.
 -}
