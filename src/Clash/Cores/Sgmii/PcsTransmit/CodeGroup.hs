@@ -1,10 +1,10 @@
 {- |
-  Copyright   :  (C) 2024-2025, QBayLogic B.V.
-  License     :  BSD2 (see the file LICENSE)
-  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+Copyright   :  (C) 2024-2026, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-  Code group process of the PCS transmit block, as defined in IEEE 802.3
-  Figure 36-6
+Code group process of the PCS transmit block, as defined in IEEE 802.3
+Figure 36-6
 -}
 module Clash.Cores.Sgmii.PcsTransmit.CodeGroup
   ( CodeGroupState (..)
@@ -23,34 +23,32 @@ import Data.Maybe (fromMaybe)
 --   these states does not act upon the 125 MHz @cg_timer@ timer
 data CodeGroupState
   = SpecialGo
-      { _rd :: Bool
-      , _cg :: CodeGroup
+      { _sym :: Symbol8b10b
       , _txConfReg :: ConfReg
       , _txEven :: Even
       , _txOSet :: OrderedSet
       }
-  | DataGo
-      {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg, _txEven :: Even}
-  | IdleDisparityWrong {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg}
-  | IdleDisparityOk {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg}
-  | IdleIB {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg, _i :: Index 2}
-  | ConfCA {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg, _i :: Index 2}
-  | ConfCB {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg, _i :: Index 2}
-  | ConfCC {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg, _i :: Index 2}
-  | ConfCD {_rd :: Bool, _cg :: CodeGroup, _txConfReg :: ConfReg, _i :: Index 2}
+  | DataGo {_sym :: Symbol8b10b, _txConfReg :: ConfReg, _txEven :: Even}
+  | IdleDisparityWrong {_sym :: Symbol8b10b, _txConfReg :: ConfReg}
+  | IdleDisparityOk {_sym :: Symbol8b10b, _txConfReg :: ConfReg}
+  | IdleIB {_sym :: Symbol8b10b, _txConfReg :: ConfReg, _i :: Index 2}
+  | ConfCA {_sym :: Symbol8b10b, _txConfReg :: ConfReg, _i :: Index 2}
+  | ConfCB {_sym :: Symbol8b10b, _txConfReg :: ConfReg, _i :: Index 2}
+  | ConfCC {_sym :: Symbol8b10b, _txConfReg :: ConfReg, _i :: Index 2}
+  | ConfCD {_sym :: Symbol8b10b, _txConfReg :: ConfReg, _i :: Index 2}
   deriving (Generic, NFDataX, Show)
 
 -- | State transitions from @GENERATE_CODE_GROUP@ from Figure 36-6, which need
 --   to be set in all parent states of @GENERATE_CODE_GROUP@ as this state
 --   itself is not implemented as it does not transmit a code group
 generateCg ::
-  OrderedSet -> Bool -> CodeGroup -> ConfReg -> Even -> CodeGroupState
-generateCg txOSet rd cg txConfReg txEven
-  | txOSet == OSetD = DataGo rd cg txConfReg txEven
-  | txOSet == OSetI && rd = IdleDisparityWrong rd cg txConfReg
-  | txOSet == OSetI && not rd = IdleDisparityOk rd cg txConfReg
-  | txOSet == OSetC = ConfCA rd cg txConfReg 0
-  | otherwise = SpecialGo rd cg txConfReg txEven txOSet
+  OrderedSet -> Bool -> Symbol8b10b -> ConfReg -> Even -> CodeGroupState
+generateCg txOSet rd sym txConfReg txEven
+  | txOSet == OSetD = DataGo sym txConfReg txEven
+  | txOSet == OSetI && rd = IdleDisparityWrong sym txConfReg
+  | txOSet == OSetI && not rd = IdleDisparityOk sym txConfReg
+  | txOSet == OSetC = ConfCA sym txConfReg 0
+  | otherwise = SpecialGo sym txConfReg txEven txOSet
 
 -- | State transition function for the states as defined in IEEE 802.3 Clause
 --   36, specifically Figure 36-6. This function receives an ordered set from
@@ -61,12 +59,12 @@ codeGroupT ::
   CodeGroupState ->
   -- | Input data word from the ordered set, new input value and the config
   --   register
-  (OrderedSet, BitVector 8, Maybe ConfReg) ->
+  (OrderedSet, Bool, BitVector 8, Maybe ConfReg) ->
   -- | The new state
   CodeGroupState
-codeGroupT s (txOSet, dw, txConfReg) = nextState
+codeGroupT s (txOSet, rd, dw, txConfReg) = nextState
  where
-  (dw', nextState) = case s of
+  (sym, nextState) = case s of
     SpecialGo{} ->
       ( case _txOSet s of
           OSetS -> cwS
@@ -76,24 +74,23 @@ codeGroupT s (txOSet, dw, txConfReg) = nextState
       , generateCg' (nextEven (_txEven s))
       )
     DataGo{} -> (Dw dw, generateCg' (nextEven (_txEven s)))
-    IdleDisparityWrong{} -> (cwK28_5, IdleIB rd cg txConfReg' 0)
-    IdleDisparityOk{} -> (cwK28_5, IdleIB rd cg txConfReg' 1)
+    IdleDisparityWrong{} -> (cwK28_5, IdleIB sym txConfReg' 0)
+    IdleDisparityOk{} -> (cwK28_5, IdleIB sym txConfReg' 1)
     IdleIB{} -> (if _i s == 0 then dwD05_6 else dwD16_2, generateCg' Odd)
-    ConfCA{} -> (cwK28_5, ConfCB rd cg txConfReg' (_i s))
+    ConfCA{} -> (cwK28_5, ConfCB sym txConfReg' (_i s))
     ConfCB{} ->
-      (if _i s == 0 then dwD21_5 else dwD02_2, ConfCC rd cg txConfReg' (_i s))
-    ConfCC{} -> (Dw (resize txConfReg'), ConfCD rd cg txConfReg' (_i s))
+      (if _i s == 0 then dwD21_5 else dwD02_2, ConfCC sym txConfReg' (_i s))
+    ConfCC{} -> (Dw (resize txConfReg'), ConfCD sym txConfReg' (_i s))
     ConfCD{} ->
       ( Dw (resize $ rotateR (_txConfReg s) 8)
       , if _i s == 0 && txOSet == OSetC
-          then ConfCA rd cg txConfReg' 1
+          then ConfCA sym txConfReg' 1
           else generateCg' Odd
       )
 
-  generateCg' = generateCg txOSet rd cg txConfReg'
+  generateCg' = generateCg txOSet rd sym txConfReg'
   txConfReg' = fromMaybe (_txConfReg s) txConfReg
-  (rd, cg) = encode8b10b (_rd s) dw'
-
+-- (rd, cg) = encode8b10b (_rd s) dw'
 {-# OPAQUE codeGroupT #-}
 
 -- | Output transition function for the states as defined in IEEE 802.3 Clause
@@ -103,13 +100,12 @@ codeGroupO ::
   -- | Current state
   CodeGroupState ->
   -- | New output values
-  (CodeGroupState, CodeGroup, Even, Bool, Bool)
+  (CodeGroupState, Symbol8b10b, Even, Bool, Bool)
 codeGroupO s = case s of
-  SpecialGo{} -> (s, _cg s, nextEven (_txEven s), True, True)
-  DataGo{} -> (s, _cg s, nextEven (_txEven s), True, True)
-  IdleIB{} -> (s, _cg s, Odd, True, False)
-  ConfCB{} -> (s, _cg s, Odd, False, False)
-  ConfCD{} -> (s, _cg s, Odd, True, False)
-  _ -> (s, _cg s, Even, False, False)
-
+  SpecialGo{} -> (s, _sym s, nextEven (_txEven s), True, True)
+  DataGo{} -> (s, _sym s, nextEven (_txEven s), True, True)
+  IdleIB{} -> (s, _sym s, Odd, True, False)
+  ConfCB{} -> (s, _sym s, Odd, False, False)
+  ConfCD{} -> (s, _sym s, Odd, True, False)
+  _ -> (s, _sym s, Even, False, False)
 {-# OPAQUE codeGroupO #-}
