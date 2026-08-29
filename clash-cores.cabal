@@ -105,6 +105,12 @@ library
     Clash.Cores.LatticeSemi.Ecp5.IO
     Clash.Cores.LatticeSemi.Ice40.Blackboxes.IO
     Clash.Cores.LatticeSemi.Ice40.IO
+    Clash.Cores.LineCoding.Lc3b4b
+    Clash.Cores.LineCoding.Lc3b4b.Decoder
+    Clash.Cores.LineCoding.Lc3b4b.Encoder
+    Clash.Cores.LineCoding.Lc5b6b
+    Clash.Cores.LineCoding.Lc5b6b.Decoder
+    Clash.Cores.LineCoding.Lc5b6b.Encoder
     Clash.Cores.LineCoding.Lc8b10b
     Clash.Cores.LineCoding.Lc8b10b.Decoder
     Clash.Cores.LineCoding.Lc8b10b.Encoder
@@ -187,6 +193,8 @@ test-suite unit-tests
     Test.Cores.Etherbone.WishboneMaster
     Test.Cores.Internal.SampleSpi
     Test.Cores.Internal.Signals
+    Test.Cores.LineCoding.Lc3b4b
+    Test.Cores.LineCoding.Lc5b6b
     Test.Cores.LineCoding.Lc8b10b
     Test.Cores.Sgmii.AutoNeg
     Test.Cores.Sgmii.BitSlip
