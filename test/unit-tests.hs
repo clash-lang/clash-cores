@@ -15,6 +15,8 @@ import Test.Tasty
 
 import qualified Test.Cores.Crc
 import qualified Test.Cores.Etherbone
+import qualified Test.Cores.LineCoding.Lc3b4b
+import qualified Test.Cores.LineCoding.Lc5b6b
 import qualified Test.Cores.LineCoding.Lc8b10b
 #if MIN_VERSION_clash_prelude(1,9,0)
 import qualified Test.Cores.Sgmii.AutoNeg
@@ -35,6 +37,8 @@ tests :: TestTree
 tests = testGroup "Unittests" $
   [ Test.Cores.Crc.tests
   , Test.Cores.Etherbone.tests
+  , Test.Cores.LineCoding.Lc3b4b.tests
+  , Test.Cores.LineCoding.Lc5b6b.tests
   , Test.Cores.LineCoding.Lc8b10b.tests
   , Test.Cores.Spi.tests
   , Test.Cores.Spi.MultiSlave.tests
