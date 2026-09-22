@@ -14,7 +14,8 @@ set vio [lindex [get_hw_vios -of_objects $dev] 0]
 if {[info exists env(SET)]} {
   foreach assignment $env(SET) {
     lassign [split $assignment =] name value
-    set probe [get_hw_probes $name -of_objects $vio]
+    set probe [get_hw_probes -of_objects $vio -filter "NAME =~ */$name"]
+    set_property OUTPUT_VALUE_RADIX UNSIGNED $probe
     set_property OUTPUT_VALUE $value $probe
     commit_hw_vio $probe
     puts "SET $name = $value"
@@ -23,6 +24,8 @@ if {[info exists env(SET)]} {
 refresh_hw_vio $vio
 foreach probe [lsort [get_hw_probes -of_objects $vio]] {
   set name [get_property NAME $probe]
+  catch {set_property INPUT_VALUE_RADIX UNSIGNED $probe}
+  catch {set_property OUTPUT_VALUE_RADIX UNSIGNED $probe}
   if {[get_property TYPE $probe] eq "vio_input"} {
     puts [format "%-24s %s" $name [get_property INPUT_VALUE $probe]]
   } else {

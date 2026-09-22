@@ -54,17 +54,19 @@ txGearbox ::
   Signal Serdes312 CodeGroupPair ->
   -- | Whether the FIFO may be read
   Signal Serdes312 Bool ->
-  -- | Read request and nibble
-  (Signal Serdes312 Bool, Signal Serdes312 (BitVector 4))
+  -- | Read request, nibble, and whether a pair was needed but none could be
+  --   read (zeros are sent instead)
+  (Signal Serdes312 Bool, Signal Serdes312 (BitVector 4), Signal Serdes312 Bool)
 txGearbox clk rst fifoData canRead =
   mealyB clk rst enableGen go (0 :: Index 5, 0 :: BitVector 20, False) (fifoData, canRead)
  where
   -- The third state component records whether a read was issued in the
   -- previous cycle, so that the FIFO output is only used when it is valid.
   go (n, acc, pending) ((w0, w1), readable) =
-    ((satSucc SatWrap n, acc', rdEn), (rdEn, truncateB acc))
+    ((satSucc SatWrap n, acc', rdEn), (rdEn, truncateB acc, starved))
    where
     rdEn = n == 3 && readable
+    starved = n == maxBound && not pending
     acc'
       | n == maxBound && pending = (resize w1 `shiftL` 10) .|. resize w0
       | n == maxBound = 0
@@ -151,8 +153,10 @@ txCrossing ::
   Clock Serdes312 ->
   Reset Serdes312 ->
   Signal Pcs125 (BitVector 10) ->
-  (Signal Serdes312 (BitVector 4), Signal Pcs125 FifoErrors)
-txCrossing wClk wRst rClk rRst cg = (nibble, errors)
+  -- | Nibbles, sticky FIFO errors, and the number of pairs that could not be
+  --   read in time (sent as zeros)
+  (Signal Serdes312 (BitVector 4), Signal Pcs125 FifoErrors, Signal Pcs125 (Unsigned 16))
+txCrossing wClk wRst rClk rRst cg = (nibble, errors, starvedCount)
  where
   -- Pair up consecutive code groups
   pairs = mealy wClk wRst enableGen pairUp (False, 0 :: BitVector 10) cg
@@ -162,5 +166,9 @@ txCrossing wClk wRst rClk rRst cg = (nibble, errors)
   FifoOut{isOverflow, isEmpty, isUnderflow, fifoData} =
     dcFifo fifoConfig wClk wRst rClk rRst pairs rdEn
   running = startAfterFill rClk rRst (not <$> isEmpty)
-  (rdEn, nibble) = txGearbox rClk rRst fifoData (running .&&. (not <$> isEmpty))
+  (rdEn, nibble, starved) = txGearbox rClk rRst fifoData (running .&&. (not <$> isEmpty))
   errors = stickyErrors wClk wRst (unsafeSynchronizer rClk wClk isUnderflow) isOverflow
+  -- counted in the SERDES domain (after start-up), shown in the code group domain
+  starvedR = register rClk rRst enableGen (0 :: Unsigned 16) $
+    (\c s r -> if s && r then satSucc SatBound c else c) <$> starvedR <*> starved <*> running
+  starvedCount = register wClk wRst enableGen 0 (unsafeSynchronizer rClk wClk starvedR)

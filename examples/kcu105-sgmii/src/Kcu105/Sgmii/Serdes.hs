@@ -73,10 +73,10 @@ txPath ::
   Signal Pcs125 Bool ->
   -- | Code groups
   Signal Pcs125 (BitVector 10) ->
-  (Signal Line1250 Bit, Signal Line1250 Bit, Signal Pcs125 FifoErrors)
-txPath clkSer clkDiv rstDiv clkPcs rstPcs rev cg = (txP, txN, errors)
+  (Signal Line1250 Bit, Signal Line1250 Bit, Signal Pcs125 FifoErrors, Signal Pcs125 (Unsigned 16))
+txPath clkSer clkDiv rstDiv clkPcs rstPcs rev cg = (txP, txN, errors, starved)
  where
-  (nibble, errors) = txCrossing clkPcs rstPcs clkDiv rstDiv cg
+  (nibble, errors, starved) = txCrossing clkPcs rstPcs clkDiv rstDiv cg
   revDiv = quasiStatic clkPcs clkDiv rstDiv False rev
   nibble' = mux revDiv (reverseNibble <$> nibble) nibble
   line = oserdese3 clkSer clkDiv rstDiv nibble'

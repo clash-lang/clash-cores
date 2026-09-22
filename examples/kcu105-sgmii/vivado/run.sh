@@ -5,6 +5,8 @@
 #   run.sh build     synthesise, implement and write the bitstream and probes file
 #   run.sh program   program the board through hw_server
 #   run.sh vio       read the VIO probes; SET="vio_ctrl_tap=12 vio_ctrl_rx_reverse=1" sets outputs first
+#   run.sh ila       capture received frames with the ILA into _build/vivado/ila.csv
+#   run.sh sweep     sweep the receive delay tap and print alignment/sync per tap (STEP, DWELL, RX_REVERSE, TX_REVERSE)
 #
 # Environment: VIVADO (installation, default Vivado Enterprise 2022.1),
 # PART (default xcku040-ffva1156-2-e; xcku035-ffva1156-2-e needs no license),
@@ -51,8 +53,14 @@ case "${1:-}" in
   vio)
     LTX=$out/topEntity.ltx vivado_batch vio
     ;;
+  sweep)
+    LTX=$out/topEntity.ltx vivado_batch sweep
+    ;;
+  ila)
+    LTX=$out/topEntity.ltx CSV=$out/ila.csv vivado_batch ila
+    ;;
   *)
-    echo "usage: $0 hdl|build|program|vio" >&2
+    echo "usage: $0 hdl|build|program|vio|sweep|ila" >&2
     exit 2
     ;;
 esac

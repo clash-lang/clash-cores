@@ -17,6 +17,7 @@ import Data.Maybe (catMaybes)
 import Kcu105.Sgmii.Domains
 import Kcu105.Sgmii.Gearbox
 import Kcu105.Sgmii.Primitives
+import Kcu105.Sgmii.TestFrame (longFrameBytes, testFrameBytes)
 import Kcu105.Sgmii.Top
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -33,7 +34,31 @@ tests =
     , testCase "gearboxes round-trip" gearboxRoundTrip
     , testCase "clock crossings round-trip" crossingRoundTrip
     , testCase "design synchronises to its own transmit line" loopbackSync
+    , testCase "generated frames come back intact through the loop" loopbackFrames
     ]
+
+-- | With the generator enabled and the line looped back, the frames the PCS
+--   receives are exactly the short and the long test frame
+loopbackFrames :: Assertion
+loopbackFrames = do
+  let
+    clk125 = clockGen @Ext125
+    rst125 = resetGen @Ext125
+    diffClk625 = clockToDiffClock (clockGen @Phy625)
+    -- enable the generator once the link is up (after 2500 cycles)
+    control = fromList (P.replicate 2500 defaultControl P.++ P.repeat defaultControl{ctrlGenerate = True})
+    demo = sgmiiDemo clk125 rst125 diffClk625 (demoTxP demo) (demoTxN demo) control
+    n = 2500 + 4 * 65536 + 2000
+    samples = sampleN n (bundle (demoRxDv demo, demoRxDw demo))
+    frames = received samples
+    expected = [P.map fromInteger testFrameBytes, P.map fromInteger longFrameBytes] :: [[BitVector 8]]
+  assertBool ("expected at least 3 frames, got " P.++ show (P.length frames)) (P.length frames >= 3)
+  assertEqual "received frames" (P.take (P.length frames) (P.cycle expected)) frames
+ where
+  received :: [(Bool, BitVector 8)] -> [[BitVector 8]]
+  received xs = case P.dropWhile (not . fst) xs of
+    [] -> []
+    ys -> let (f, rest) = P.span fst ys in P.map snd f : received rest
 
 -- | Code groups sent through the transmit crossing, the receive gearbox and
 --   the receive crossing come out as a contiguous stretch of the input
@@ -45,7 +70,7 @@ crossingRoundTrip = do
     clkDiv = clockGen @Serdes312
     rstDiv = resetGen @Serdes312
     inp = fromList (P.map fromIntegral [1 :: Int ..]) :: Signal Pcs125 (BitVector 10)
-    (nibbles, txErrors) = txCrossing clkPcs rstPcs clkDiv rstDiv inp
+    (nibbles, txErrors, _starved) = txCrossing clkPcs rstPcs clkDiv rstDiv inp
     (out, rxErrors) = rxCrossing clkDiv rstDiv clkPcs rstPcs (rxGearbox clkDiv rstDiv nibbles)
     observed = P.drop 200 (sampleN 400 out)
     first = P.fromIntegral (P.sum (P.take 1 observed)) :: Int
@@ -88,7 +113,7 @@ gearboxRoundTrip = do
     -- A FIFO model: the output advances to the next pair the cycle after a read
     fifoData = mealy clk rst enableGen fifoStep (0 :: Int) rdEn
     fifoStep n rd = (if rd then n + 1 else n, pairs P.!! min n (P.length pairs - 1))
-    (rdEn, nibbles) = txGearbox clk rst fifoData (pure True)
+    (rdEn, nibbles, _) = txGearbox clk rst fifoData (pure True)
     out = catMaybes (sampleN 400 (rxGearbox clk rst nibbles))
     expected = P.take 40 (P.drop 5 pairs)
   assertBool ("pairs not found: " P.++ show (P.take 8 out)) (isInfixOfList out expected)

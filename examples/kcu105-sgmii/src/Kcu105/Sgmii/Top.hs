@@ -21,6 +21,7 @@ import Clash.Explicit.Prelude
 import Clash.Signal.Internal (DiffClock (..))
 import Clash.Xilinx.ClockGen (clockWizardDifferential)
 import Kcu105.Sgmii.Domains
+import Kcu105.Sgmii.FrameGen (frameGenerator)
 import Kcu105.Sgmii.Gearbox (FifoErrors)
 import Kcu105.Sgmii.Primitives (bufgceDiv2)
 import Kcu105.Sgmii.Serdes
@@ -35,12 +36,16 @@ data Control = Control
   -- ^ Reverse the bit order of the serializer input
   , ctrlPcsReset :: Bool
   -- ^ Hold the PCS in reset
+  , ctrlGenerate :: Bool
+  -- ^ Send the test frames periodically instead of echoing received frames
   }
   deriving (Generic, NFDataX, BitPack, Eq, Show)
 
--- | Default controls
+-- | Default controls. The delay tap sits in the middle of a sampling window
+--   found by sweeping the tap on the KCU105: sync fails around taps 40-70,
+--   208-235 and 384-415 (one bit period is about 176 taps).
 defaultControl :: Control
-defaultControl = Control 0 False False False
+defaultControl = Control 136 False False False False
 
 -- | Observations, shown by the VIO in hardware
 data Observe = Observe
@@ -55,7 +60,13 @@ data Observe = Observe
   , obsTxFifo :: FifoErrors
   , obsFrames :: Unsigned 32
   , obsRxErrors :: Unsigned 32
+  -- ^ Cycles with @RX_ER@ asserted. This includes carrier extension after
+  --   every frame (@RX_ER@ with @RXD = 0x0F@), which is not an error.
   , obsBytes :: Unsigned 32
+  , obsTxFrames :: Unsigned 32
+  -- ^ Frames handed to the transmitter
+  , obsTxStarved :: Unsigned 16
+  -- ^ Code group pairs the transmit gearbox could not read in time
   }
   deriving (Generic, NFDataX, BitPack, Eq, Show)
 
@@ -72,6 +83,8 @@ data Demo = Demo
   , demoRxEr :: Signal Pcs125 Bool
   , demoTxCg :: Signal Pcs125 (BitVector 10)
   , demoBsCg :: Signal Pcs125 (BitVector 10)
+  , demoTxEn :: Signal Pcs125 Bool
+  , demoTxDw :: Signal Pcs125 (BitVector 8)
   }
 
 -- | The design without the top-level annotation, so that it can be simulated
@@ -102,6 +115,8 @@ sgmiiDemo clk125 rst125 diffClk625@(DiffClock clk625 _) rxP rxN control =
     , demoRxEr = rxEr
     , demoTxCg = txCg
     , demoBsCg = bsCg
+    , demoTxEn = txEn
+    , demoTxDw = txDw
     }
  where
   -- The MMCM is reset by the board reset. The synchroniser is a wire in
@@ -135,16 +150,19 @@ sgmiiDemo clk125 rst125 diffClk625@(DiffClock clk625 _) rxP rxN control =
   (status, rxDv, rxEr, rxDw, bsCg, txCg) =
     sgmii (\_ _ a b c -> (a, b, c)) clkPcs clkPcs rstPcs rstPcs txEn txEr txDw rxCg
 
-  -- Echo received frames
-  txEn = reg False rxDv
-  txEr = reg False rxEr
-  txDw = reg 0 rxDw
+  -- Echo received frames, or send the test frames
+  generate = ctrlGenerate <$> control
+  (genEn, genDw) = frameGenerator clkPcs rstPcs generate
+  txEn = reg False (mux generate genEn rxDv)
+  txEr = reg False (mux generate (pure False) rxEr)
+  txDw = reg 0 (mux generate genDw rxDw)
 
-  (txP, txN, txFifo) =
+  (txP, txN, txFifo, txStarved) =
     txPath clkSer clkDiv rstDiv clkPcs rstPcs (ctrlTxReverse <$> control) txCg
 
   locked = not <$> unsafeToActiveHigh rstMmcm
   frames = counter (rxDv .&&. (not <$> reg False rxDv))
+  txFrames = counter (txEn .&&. (not <$> reg False txEn))
   rxErrors = counter rxEr
   bytes = counter rxDv
   counter :: Signal Pcs125 Bool -> Signal Pcs125 (Unsigned 32)
@@ -164,6 +182,8 @@ sgmiiDemo clk125 rst125 diffClk625@(DiffClock clk625 _) rxP rxN control =
       <*> frames
       <*> rxErrors
       <*> bytes
+      <*> txFrames
+      <*> txStarved
 
   isOk Ok = True
   isOk Fail = False
@@ -188,8 +208,21 @@ topEntity diffClk125 cpuReset diffClk625 rxP rxN = hwSeqX ilaSig (demoTxP, demoT
   clk125 = ibufdsClock diffClk125
   rst125 = resetSynchronizer clk125 cpuReset
 
-  Demo{demoTxP, demoTxN, demoClkPcs = clkPcs, demoObserve, demoStatus, demoRxCg, demoRxDw, demoRxDv, demoRxEr} =
-    sgmiiDemo clk125 rst125 diffClk625 rxP rxN control
+  Demo
+    { demoTxP
+    , demoTxN
+    , demoClkPcs = clkPcs
+    , demoObserve
+    , demoStatus
+    , demoRxCg
+    , demoRxDw
+    , demoRxDv
+    , demoRxEr
+    , demoTxCg
+    , demoTxEn
+    , demoTxDw
+    } =
+      sgmiiDemo clk125 rst125 diffClk625 rxP rxN control
 
   control :: Signal Pcs125 Control
   control =
@@ -207,9 +240,17 @@ topEntity diffClk125 cpuReset diffClk625 rxP rxN = hwSeqX ilaSig (demoTxP, demoT
             :> "vio_frames"
             :> "vio_rx_errors"
             :> "vio_bytes"
+            :> "vio_tx_frames"
+            :> "vio_tx_starved"
             :> Nil
         )
-        ("vio_ctrl_tap" :> "vio_ctrl_rx_reverse" :> "vio_ctrl_tx_reverse" :> "vio_ctrl_pcs_reset" :> Nil)
+        ( "vio_ctrl_tap"
+            :> "vio_ctrl_rx_reverse"
+            :> "vio_ctrl_tx_reverse"
+            :> "vio_ctrl_pcs_reset"
+            :> "vio_ctrl_generate"
+            :> Nil
+        )
         defaultControl
         clkPcs
         demoObserve
@@ -231,6 +272,9 @@ topEntity diffClk125 cpuReset diffClk625 rxP rxN = hwSeqX ilaSig (demoTxP, demoT
                   :> "ila_sync_ok"
                   :> "ila_bs_ok"
                   :> "ila_xmit"
+                  :> "ila_tx_en"
+                  :> "ila_tx_dw"
+                  :> "ila_tx_cg"
                   :> Nil
               )
           )
@@ -238,7 +282,7 @@ topEntity diffClk125 cpuReset diffClk625 rxP rxN = hwSeqX ilaSig (demoTxP, demoT
             }
         )
         clkPcs
-        demoRxDv
+        (demoRxDv .||. demoTxEn)
         (pure True :: Signal Pcs125 Bool)
         demoRxCg
         demoRxDw
@@ -247,6 +291,9 @@ topEntity diffClk125 cpuReset diffClk625 rxP rxN = hwSeqX ilaSig (demoTxP, demoT
         syncOk
         bsOk
         (pack . _cXmit <$> demoStatus)
+        demoTxEn
+        demoTxDw
+        demoTxCg
 
   -- LEDs: locked, comma alignment, sync, link up, frame activity, receive
   -- FIFO error, transmit FIFO error, heartbeat of the board clock

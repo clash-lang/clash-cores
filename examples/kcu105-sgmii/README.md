@@ -61,9 +61,16 @@ a dry run without a license use `PART=xcku035-ffva1156-2-e LICENSE=`.
    `vio_link_speed` shows the negotiated speed (2 = 1000 Mb/s). LEDs 1..3
    show alignment, sync and link. If the PHY does not accept our transmit
    stream, try `vio_ctrl_tx_reverse`.
-5. Send frames from the host (`ping 10.0.0.2`, `arping`); every frame is
-   echoed back. `vio_frames` counts received frames; watch the echoes with
-   `tcpdump -i <dongle> -e` (needs the `pcap` group or root). LED 4 toggles
-   with received frames, LEDs 5 and 6 flag FIFO errors.
-6. The ILA `ilaSgmii` captures the received code groups, decoded bytes and
+5. Send frames from the host with `host/echo_test.sh eth0 50`: it sends
+   broadcast UDP datagrams and reports how many frames the dongle received
+   back (the kernel drops echoed frames carrying its own MAC but counts them).
+   `vio_frames` counts received frames; `vio_rx_errors` counts cycles with
+   `RX_ER`, which includes the carrier extension after every frame. With
+   `tcpdump -i eth0 -e` (needs the `pcap` group or root) the echoes are
+   visible one by one. LED 4 toggles with received frames, LEDs 5 and 6 flag
+   FIFO errors.
+6. `vivado/run.sh sweep` sweeps the delay tap and prints alignment and sync
+   per tap; `vivado/run.sh ila` captures the next received frame into
+   `_build/vivado/ila.csv` (the GMII data includes the preamble).
+7. The ILA `ilaSgmii` captures the received code groups, decoded bytes and
    status bits; open the probes file in the Vivado hardware manager.

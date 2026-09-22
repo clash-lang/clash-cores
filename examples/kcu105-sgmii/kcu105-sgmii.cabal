@@ -56,9 +56,11 @@ library
   hs-source-dirs: src
   exposed-modules:
     Kcu105.Sgmii.Domains
+    Kcu105.Sgmii.FrameGen
     Kcu105.Sgmii.Gearbox
     Kcu105.Sgmii.Primitives
     Kcu105.Sgmii.Serdes
+    Kcu105.Sgmii.TestFrame
     Kcu105.Sgmii.Top
 
 executable clash
