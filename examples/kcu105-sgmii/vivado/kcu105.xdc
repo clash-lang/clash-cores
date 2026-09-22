@@ -32,20 +32,19 @@ set_false_path -from [get_ports CPU_RESET]
 # The serial lines are handled by the SERDES primitives; there is no fabric timing path
 set_false_path -from [get_ports {SGMII_RX_p SGMII_RX_n}]
 set_false_path -to [get_ports {SGMII_TX_p SGMII_TX_n}]
-# Clocks of the design: the clock wizard IP drives the SERDES bit clock
-# (clk_out1) and the code group clock (clk_out2); a BUFGCE_DIV divides the bit
-# clock into the SERDES parallel clock. The XDC is read unmanaged, so Tcl is
-# allowed here.
+# Clocks of the design: the clock wizard IP drives a 625 MHz clock (clk_out1)
+# and the code group clock (clk_out2). Two BUFGCE_DIVs derive the SERDES bit
+# clock (divide by one) and the SERDES parallel clock (divide by two) from
+# clk_out1. The XDC is read unmanaged, so Tcl is allowed here.
 set wizPins [get_pins -of_objects [get_cells -hierarchical -filter {REF_NAME =~ topEntity_clk_wiz_*_clk_wiz}]]
-set bitClkNet [get_nets -of_objects [filter $wizPins {REF_PIN_NAME == clk_out1}]]
 set pcsClk [get_clocks -of_objects [filter $wizPins {REF_PIN_NAME == clk_out2}]]
-set divPin [get_pins -of_objects [get_cells -hierarchical -filter {REF_NAME == BUFGCE_DIV}] -filter {REF_PIN_NAME == O}]
-set divClkNet [get_nets -of_objects $divPin]
-set divClk [get_clocks -of_objects $divPin]
+set divPins [get_pins -of_objects [get_cells -hierarchical -filter {REF_NAME == BUFGCE_DIV}] -filter {REF_PIN_NAME == O}]
+set serdesClks [get_clocks -of_objects $divPins]
+if {[llength $divPins] != 2} { error "expected two BUFGCE_DIV cells, found [llength $divPins]" }
 
-# The SERDES parallel clock and the code group clock only meet in dual-clock
-# FIFOs and quasi-static status values
-set_clock_groups -asynchronous -group $divClk -group $pcsClk
-# Match the routing delay of the SERDES bit clock and its divided clock, as the
+# The SERDES clocks and the code group clock only meet in dual-clock FIFOs and
+# quasi-static status values
+set_clock_groups -asynchronous -group $serdesClks -group $pcsClk
+# Match the routing delay of the SERDES bit clock and parallel clock, as the
 # Xilinx LVDS SGMII design does
-set_property CLOCK_DELAY_GROUP serdes_clocks [list $bitClkNet $divClkNet]
+set_property CLOCK_DELAY_GROUP serdes_clocks [get_nets -of_objects $divPins]

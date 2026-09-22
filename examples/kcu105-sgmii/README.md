@@ -9,8 +9,10 @@ particular its 8b/10b coder, against real hardware.
 ## Design
 
 * `Kcu105.Sgmii.Domains`: the clock domains. The PHY supplies the 625 MHz
-  SGMII clock; an MMCM derives the 625 MHz SERDES bit clock, the 312.5 MHz
-  SERDES parallel clock and the 125 MHz code group clock from it. The board's
+  SGMII clock; an MMCM derives a 625 MHz clock and the 125 MHz code group
+  clock from it, and two `BUFGCE_DIV`s on the 625 MHz output provide the
+  SERDES bit clock (divide by one) and the 312.5 MHz SERDES parallel clock
+  (divide by two), so that both have the same routing delay. The board's
   125 MHz oscillator is only used for the LEDs and the reset. `Line1250` is a
   simulation-only domain with one bit per cycle for the serial line.
 * `Kcu105.Sgmii.Primitives`: `IBUFDS`, `OBUFDS`, `ISERDESE3` and `OSERDESE3`

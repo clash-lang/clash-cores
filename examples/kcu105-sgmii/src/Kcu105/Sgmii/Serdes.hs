@@ -54,7 +54,10 @@ rxPath clkSer clkDiv rstDiv clkPcs rstPcs tapReq rev rxP rxN = (cg, tapOut, erro
   tapPrev = register clkDiv rstDiv enableGen 0 tapReqDiv
   load = tapReqDiv ./=. tapPrev
   (delayed, tapCur) = idelaye3 clkDiv rstDiv tapReqDiv load line
-  nibble = iserdese3 clkSer clkDiv rstDiv delayed
+  -- The deserializer derives its own divided clock from the bit clock, so its
+  -- outputs come late in the parallel clock cycle: register them before any
+  -- logic
+  nibble = register clkDiv rstDiv enableGen 0 (iserdese3 clkSer clkDiv rstDiv delayed)
   revDiv = quasiStatic clkPcs clkDiv rstDiv False rev
   nibble' = mux revDiv (reverseNibble <$> nibble) nibble
   pairs = rxGearbox clkDiv rstDiv nibble'

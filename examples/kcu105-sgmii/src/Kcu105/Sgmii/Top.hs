@@ -23,7 +23,7 @@ import Clash.Xilinx.ClockGen (clockWizardDifferential)
 import Kcu105.Sgmii.Domains
 import Kcu105.Sgmii.FrameGen (frameGenerator)
 import Kcu105.Sgmii.Gearbox (FifoErrors)
-import Kcu105.Sgmii.Primitives (bufgceDiv2)
+import Kcu105.Sgmii.Primitives (bufgceDiv1, bufgceDiv2)
 import Kcu105.Sgmii.Serdes
 
 -- | Controls, driven by the VIO in hardware
@@ -130,9 +130,12 @@ sgmiiDemo clk125 rst125 diffClk625@(DiffClock clk625 _) rxP rxN control =
       diffClk625
       rstPhy
 
-  -- The SERDES parallel clock is divided from the bit clock so that the two
-  -- stay aligned. Its reset follows the MMCM reset of the code group domain
-  -- through a synchroniser; that crossing is constrained as asynchronous.
+  -- Both SERDES clocks are derived from the MMCM's 625 MHz output through a
+  -- BUFGCE_DIV (divide by one and by two), so that they stay aligned at the
+  -- SERDES primitives. The parallel clock's reset follows the MMCM reset of the
+  -- code group domain through a synchroniser; that crossing is constrained as
+  -- asynchronous.
+  clkSerBuf = bufgceDiv1 clkSer
   clkDiv = bufgceDiv2 clkSer
   rstDiv =
     resetSynchronizer clkDiv
@@ -143,7 +146,7 @@ sgmiiDemo clk125 rst125 diffClk625@(DiffClock clk625 _) rxP rxN control =
   reg = register clkPcs rstPcs enableGen
 
   (rxCg, tapOut, rxFifo) =
-    rxPath clkSer clkDiv rstDiv clkPcs rstPcs (ctrlTap <$> control) (ctrlRxReverse <$> control) rxP rxN
+    rxPath clkSerBuf clkDiv rstDiv clkPcs rstPcs (ctrlTap <$> control) (ctrlRxReverse <$> control) rxP rxN
 
   -- Receive and transmit run on the same clock, so the clock domain crossing
   -- inside the SGMII core is the identity
@@ -158,7 +161,7 @@ sgmiiDemo clk125 rst125 diffClk625@(DiffClock clk625 _) rxP rxN control =
   txDw = reg 0 (mux generate genDw rxDw)
 
   (txP, txN, txFifo, txStarved) =
-    txPath clkSer clkDiv rstDiv clkPcs rstPcs (ctrlTxReverse <$> control) txCg
+    txPath clkSerBuf clkDiv rstDiv clkPcs rstPcs (ctrlTxReverse <$> control) txCg
 
   locked = not <$> unsafeToActiveHigh rstMmcm
   frames = counter (rxDv .&&. (not <$> reg False rxDv))

@@ -169,21 +169,36 @@ idelaye3 clk rst tap load din
       (Port @"LOAD" (boolToBit <$> load))
       (ResetPort @"RST" @'ActiveHigh rst)
 
--- | Global clock buffer with a divide-by-two, deriving the SERDES parallel
--- clock from the SERDES bit clock. Both clocks then come from the same net, which
--- keeps the parallel data of ISERDESE3 and OSERDESE3 aligned with the clock the
--- fabric uses (Xilinx's LVDS SGMII design does the same). Simulation: the clock
--- generator of the divided domain.
-bufgceDiv2 :: Clock Serdes625 -> Clock Serdes312
-bufgceDiv2 clk
+-- | Global clock buffer with a divider. The SERDES bit clock and the SERDES
+-- parallel clock are both derived from the MMCM output through one of these
+-- (divide by one and by two), so that they come from the same net and their
+-- edges stay aligned at 'iserdese3' and 'oserdese3'; Xilinx's LVDS SGMII design
+-- does the same. A BUFGCE_DIV cascaded behind the MMCM's own BUFG instead
+-- gives a skew between the two clocks that depends on the build (Vivado DRC
+-- REQP-1853). Simulation: the clock generator of the output domain.
+bufgceDiv ::
+  forall n dIn dOut.
+  (KnownDomain dIn, KnownDomain dOut) =>
+  SNat n ->
+  Clock dIn ->
+  Clock dOut
+bufgceDiv divisor clk
   | clashSimulation = clockGen
   | otherwise = unPort go
  where
-  go :: ClockPort "O" Serdes312
+  go :: ClockPort "O" dOut
   go =
     inst
       (unisim "BUFGCE_DIV")
-      (Param @"BUFGCE_DIVIDE" @Integer 2)
+      (Param @"BUFGCE_DIVIDE" @Integer (snatToInteger divisor))
       (ClockPort @"I" clk)
-      (Port @"CE" (pure 1 :: Signal Serdes625 Bit))
-      (Port @"CLR" (pure 0 :: Signal Serdes625 Bit))
+      (Port @"CE" (pure 1 :: Signal dIn Bit))
+      (Port @"CLR" (pure 0 :: Signal dIn Bit))
+
+-- | The SERDES bit clock, through a divide-by-one buffer
+bufgceDiv1 :: Clock Serdes625 -> Clock Serdes625
+bufgceDiv1 = bufgceDiv d1
+
+-- | The SERDES parallel clock, the bit clock divided by two
+bufgceDiv2 :: Clock Serdes625 -> Clock Serdes312
+bufgceDiv2 = bufgceDiv d2

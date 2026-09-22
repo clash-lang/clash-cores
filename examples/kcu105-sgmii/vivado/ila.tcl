@@ -1,9 +1,11 @@
 # Capture received frames with the ILA: trigger on the rising edge of rx_dv,
 # generate traffic on the host, upload the samples and write them as CSV.
-# Environment: LTX; optional IFACE (default eth0), CSV (default ila.csv), HW_SERVER.
+# Environment: LTX; optional IFACE (default eth0), CSV (default ila.csv),
+# TRIG (probe to trigger on, default ila_rx_dv), HW_SERVER.
 set url [expr {[info exists env(HW_SERVER)] ? $env(HW_SERVER) : "localhost:3121"}]
 set ifc [expr {[info exists env(IFACE)] ? $env(IFACE) : "eth0"}]
 set csv [expr {[info exists env(CSV)] ? $env(CSV) : "ila.csv"}]
+set trig [expr {[info exists env(TRIG)] ? $env(TRIG) : "ila_rx_dv"}]
 open_hw_manager
 connect_hw_server -url $url
 open_hw_target
@@ -13,7 +15,7 @@ set_property PROBES.FILE $env(LTX) $dev
 set_property FULL_PROBES.FILE $env(LTX) $dev
 refresh_hw_device $dev
 set ila [lindex [get_hw_ilas -of_objects $dev] 0]
-set dv [get_hw_probes -of_objects $ila -filter {NAME =~ */ila_rx_dv}]
+set dv [get_hw_probes -of_objects $ila -filter "NAME =~ */$trig"]
 set_property TRIGGER_COMPARE_VALUE eq1'bR $dv
 set_property CONTROL.TRIGGER_POSITION 64 $ila
 set_property CONTROL.DATA_DEPTH 2048 $ila
