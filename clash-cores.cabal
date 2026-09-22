@@ -113,8 +113,6 @@ library
     Clash.Cores.LineCoding.Lc5b6b.Decoder
     Clash.Cores.LineCoding.Lc5b6b.Encoder
     Clash.Cores.LineCoding.Lc8b10b
-    Clash.Cores.LineCoding.Lc8b10b.Decoder
-    Clash.Cores.LineCoding.Lc8b10b.Encoder
     Clash.Cores.Sgmii
     Clash.Cores.Sgmii.AutoNeg
     Clash.Cores.Sgmii.BitSlip
@@ -197,6 +195,9 @@ test-suite unit-tests
     Test.Cores.LineCoding.Lc3b4b
     Test.Cores.LineCoding.Lc5b6b
     Test.Cores.LineCoding.Lc8b10b
+    Test.Cores.LineCoding.Lc8b10b.Reference
+    Test.Cores.LineCoding.Lc8b10b.Reference.Decoder
+    Test.Cores.LineCoding.Lc8b10b.Reference.Encoder
     Test.Cores.Sgmii.AutoNeg
     Test.Cores.Sgmii.BitSlip
     Test.Cores.Sgmii.RateAdapt

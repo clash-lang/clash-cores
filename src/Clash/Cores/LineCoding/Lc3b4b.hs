@@ -73,3 +73,8 @@ decode3b4b ::
 decode3b4b cw rd cg =
   $(listToVecTH Dec.decoderLut) !! (pack cw ++# pack rd ++# cg)
 {-# OPAQUE decode3b4b #-}
+
+-- | The alternate form @D.x.A7@ of the data code group with value 7, for a
+--   running disparity
+alternate7 :: Bool -> BitVector 4
+alternate7 rd = if rd then snd Enc.alternate7 else fst Enc.alternate7

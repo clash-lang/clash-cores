@@ -4,9 +4,9 @@
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-  8b/10b encoding look-up table
+  Former 8b/10b encoding look-up table, kept as reference for the tests
 -}
-module Clash.Cores.LineCoding.Lc8b10b.Encoder where
+module Test.Cores.LineCoding.Lc8b10b.Reference.Encoder where
 
 import Clash.Prelude
 
