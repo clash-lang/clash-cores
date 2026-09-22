@@ -1,142 +1,85 @@
 {- |
-Copyright   :  (C) 2025, Jasper Vinkenvleugel <j.t.vinkenvleugel@mailbox.org>
+Copyright   :  (C) 2025, Jasper Vinkenvleugel <j.t.vinkenvleugel@mailbox.org>,
+                   2026, QBayLogic B.V.
 License     :  BSD2 (see the file LICENSE)
 Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-5b/6b encoding look-up table
+5b/6b encoding look-up tables
 -}
 module Clash.Cores.LineCoding.Lc5b6b.Encoder where
 
+import Clash.Cores.LineCoding.Internal (nextDisparity)
 import Clash.Prelude
+import qualified Data.List as L
 
+-- | A row of the 5b/6b encoding table: the 5-bit input value @x@, the code
+-- group to transmit when the running disparity is negative, and the code group to
+-- transmit when it is positive. Code groups are written as @abcdei@ with @a@, the
+-- first bit on the line, as the most significant bit.
+type Row = (BitVector 5, BitVector 6, BitVector 6)
+
+-- | Data code groups @D.x@ (IEEE 802.3 Table 36-1a)
+dataRows :: [Row]
+dataRows =
+  [ (0, 0b100111, 0b011000) -- D.00
+  , (1, 0b011101, 0b100010) -- D.01
+  , (2, 0b101101, 0b010010) -- D.02
+  , (3, 0b110001, 0b110001) -- D.03
+  , (4, 0b110101, 0b001010) -- D.04
+  , (5, 0b101001, 0b101001) -- D.05
+  , (6, 0b011001, 0b011001) -- D.06
+  , (7, 0b111000, 0b000111) -- D.07
+  , (8, 0b111001, 0b000110) -- D.08
+  , (9, 0b100101, 0b100101) -- D.09
+  , (10, 0b010101, 0b010101) -- D.10
+  , (11, 0b110100, 0b110100) -- D.11
+  , (12, 0b001101, 0b001101) -- D.12
+  , (13, 0b101100, 0b101100) -- D.13
+  , (14, 0b011100, 0b011100) -- D.14
+  , (15, 0b010111, 0b101000) -- D.15
+  , (16, 0b011011, 0b100100) -- D.16
+  , (17, 0b100011, 0b100011) -- D.17
+  , (18, 0b010011, 0b010011) -- D.18
+  , (19, 0b110010, 0b110010) -- D.19
+  , (20, 0b001011, 0b001011) -- D.20
+  , (21, 0b101010, 0b101010) -- D.21
+  , (22, 0b011010, 0b011010) -- D.22
+  , (23, 0b111010, 0b000101) -- D.23
+  , (24, 0b110011, 0b001100) -- D.24
+  , (25, 0b100110, 0b100110) -- D.25
+  , (26, 0b010110, 0b010110) -- D.26
+  , (27, 0b110110, 0b001001) -- D.27
+  , (28, 0b001110, 0b001110) -- D.28
+  , (29, 0b101110, 0b010001) -- D.29
+  , (30, 0b011110, 0b100001) -- D.30
+  , (31, 0b101011, 0b010100) -- D.31
+  ]
+
+-- | Control code groups @K.x@ (IEEE 802.3 Table 36-2). Only these five values
+-- have a control code group.
+controlRows :: [Row]
+controlRows =
+  [ (23, 0b111010, 0b000101) -- K.23
+  , (27, 0b110110, 0b001001) -- K.27
+  , (28, 0b001111, 0b110000) -- K.28
+  , (29, 0b101110, 0b010001) -- K.29
+  , (30, 0b011110, 0b100001) -- K.30
+  ]
+
+-- | Look-up table for 'Clash.Cores.LineCoding.Lc5b6b.encode5b6b', indexed by
+-- the concatenation of the control word flag, the running disparity and the 5-bit
+-- input value. An entry holds the running disparity after the code group and the
+-- code group itself, or is 'Nothing' for a control word that does not exist.
 encoderLut :: [Maybe (Bool, BitVector 6)]
 encoderLut =
-  [ Just (True, 0b100111) -- D.00
-  , Just (True, 0b011101) -- D.01
-  , Just (True, 0b101101) -- D.02
-  , Just (False, 0b110001) -- D.03
-  , Just (True, 0b110101) -- D.04
-  , Just (False, 0b101001) -- D.05
-  , Just (False, 0b011001) -- D.06
-  , Just (True, 0b111000) -- D.07
-  , Just (True, 0b111001) -- D.08
-  , Just (False, 0b100101) -- D.09
-  , Just (False, 0b010101) -- D.10
-  , Just (False, 0b110100) -- D.11
-  , Just (False, 0b001101) -- D.12
-  , Just (False, 0b101100) -- D.13
-  , Just (False, 0b011100) -- D.14
-  , Just (True, 0b010111) -- D.15
-  , Just (True, 0b011011) -- D.16
-  , Just (False, 0b100011) -- D.17
-  , Just (False, 0b010011) -- D.18
-  , Just (False, 0b110010) -- D.19
-  , Just (False, 0b001011) -- D.20
-  , Just (False, 0b101010) -- D.21
-  , Just (False, 0b011010) -- D.22
-  , Just (True, 0b111010) -- D.23
-  , Just (True, 0b110011) -- D.24
-  , Just (False, 0b100110) -- D.25
-  , Just (False, 0b010110) -- D.26
-  , Just (True, 0b110110) -- D.27
-  , Just (False, 0b001110) -- D.28
-  , Just (True, 0b101110) -- D.29
-  , Just (True, 0b011110) -- D.30
-  , Just (True, 0b101011) -- D.31
-  , Just (False, 0b011000) -- D.00
-  , Just (False, 0b100010) -- D.01
-  , Just (False, 0b010010) -- D.02
-  , Just (True, 0b110001) -- D.03
-  , Just (False, 0b001010) -- D.04
-  , Just (True, 0b101001) -- D.05
-  , Just (True, 0b011001) -- D.06
-  , Just (False, 0b000111) -- D.07
-  , Just (False, 0b000110) -- D.08
-  , Just (True, 0b100101) -- D.09
-  , Just (True, 0b010101) -- D.10
-  , Just (True, 0b110100) -- D.11
-  , Just (True, 0b001101) -- D.12
-  , Just (True, 0b101100) -- D.13
-  , Just (True, 0b011100) -- D.14
-  , Just (False, 0b101000) -- D.15
-  , Just (False, 0b100100) -- D.16
-  , Just (True, 0b100011) -- D.17
-  , Just (True, 0b010011) -- D.18
-  , Just (True, 0b110010) -- D.19
-  , Just (True, 0b001011) -- D.20
-  , Just (True, 0b101010) -- D.21
-  , Just (True, 0b011010) -- D.22
-  , Just (False, 0b000101) -- D.23
-  , Just (False, 0b001100) -- D.24
-  , Just (True, 0b100110) -- D.25
-  , Just (True, 0b010110) -- D.26
-  , Just (False, 0b001001) -- D.27
-  , Just (True, 0b001110) -- D.28
-  , Just (False, 0b010001) -- D.29
-  , Just (False, 0b100001) -- D.30
-  , Just (False, 0b010100) -- D.31
-  , Nothing -- K.00
-  , Nothing -- K.01
-  , Nothing -- K.02
-  , Nothing -- K.03
-  , Nothing -- K.04
-  , Nothing -- K.05
-  , Nothing -- K.06
-  , Nothing -- K.07
-  , Nothing -- K.08
-  , Nothing -- K.09
-  , Nothing -- K.10
-  , Nothing -- K.11
-  , Nothing -- K.12
-  , Nothing -- K.13
-  , Nothing -- K.14
-  , Nothing -- K.15
-  , Nothing -- K.16
-  , Nothing -- K.17
-  , Nothing -- K.18
-  , Nothing -- K.19
-  , Nothing -- K.20
-  , Nothing -- K.21
-  , Nothing -- K.22
-  , Just (True, 0b111010) -- K.23
-  , Nothing -- K.24
-  , Nothing -- K.25
-  , Nothing -- K.26
-  , Just (True, 0b110110) -- K.27
-  , Just (True, 0b001111) -- K.28
-  , Just (True, 0b101110) -- K.29
-  , Just (True, 0b011110) -- K.30
-  , Nothing -- K.31
-  , Nothing -- K.00
-  , Nothing -- K.01
-  , Nothing -- K.02
-  , Nothing -- K.03
-  , Nothing -- K.04
-  , Nothing -- K.05
-  , Nothing -- K.06
-  , Nothing -- K.07
-  , Nothing -- K.08
-  , Nothing -- K.09
-  , Nothing -- K.10
-  , Nothing -- K.11
-  , Nothing -- K.12
-  , Nothing -- K.13
-  , Nothing -- K.14
-  , Nothing -- K.15
-  , Nothing -- K.16
-  , Nothing -- K.17
-  , Nothing -- K.18
-  , Nothing -- K.19
-  , Nothing -- K.20
-  , Nothing -- K.21
-  , Nothing -- K.22
-  , Just (False, 0b000101) -- K.23
-  , Nothing -- K.24
-  , Nothing -- K.25
-  , Nothing -- K.26
-  , Just (False, 0b001001) -- K.27
-  , Just (False, 0b110000) -- K.28
-  , Just (False, 0b010001) -- K.29
-  , Just (False, 0b100001) -- K.30
-  , Nothing -- K.31
+  [ encode cw rd x
+  | cw <- [False, True]
+  , rd <- [False, True]
+  , x <- [minBound .. maxBound]
   ]
+ where
+  encode cw rd x = do
+    (_, codeN, codeP) <-
+      L.find (\(x', _, _) -> x' == x) (if cw then controlRows else dataRows)
+    let code = if rd then codeP else codeN
+    pure (nextDisparity rd code, code)
