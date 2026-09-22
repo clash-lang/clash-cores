@@ -4,7 +4,7 @@ import Clash.Cores.Sgmii.BitSlip
 import Clash.Cores.Sgmii.Common
 import Clash.Hedgehog.Sized.BitVector
 import qualified Clash.Prelude as C
-import Data.List (find)
+import Data.List (find, isInfixOf)
 import Data.Maybe (isJust, isNothing)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
@@ -88,6 +88,48 @@ prop_bitSlipInOutCorrect = H.property $ do
 
   g (BSOk _ 0, _, _) = True
   g _ = False
+
+-- | Bits of a code group in transmission order, bit 0 first
+codeGroupBits :: C.BitVector 10 -> [C.Bit]
+codeGroupBits cg = [cg C.! i | i <- [0 .. 9 :: Int]]
+
+-- | Chop a bit stream into 10-bit words, the first bit at bit 0
+toWords :: [C.Bit] -> [C.BitVector 10]
+toWords bits = case splitAt 10 bits of
+  (w, rest)
+    | length w == 10 ->
+        foldr (\(i, b) acc -> if b == 1 then C.setBit acc i else acc) 0 (zip [0 ..] w)
+          : toWords rest
+    | otherwise -> []
+
+-- | A stream of code groups that arrives shifted by any number of bits is
+--   realigned: after training, the output equals the original stream
+prop_bitSlipShifted :: H.Property
+prop_bitSlipShifted = H.property $ do
+  shift <- H.forAll (Gen.integral (Range.linear 0 9))
+  inp1 <-
+    H.forAll
+      ( Gen.list
+          (Range.singleton 60)
+          ( Gen.filter
+              (\a -> isValidCodeGroup a && checkBitSequence a)
+              genDefinedBitVector
+          )
+      )
+  let
+    stream = concatMap (\a -> [0b0101111100, a]) inp1
+    shifted = toWords (replicate shift 0 ++ concatMap codeGroupBits stream)
+    simOut =
+      map f $
+        C.sampleN (length shifted + 1) (bitSlipSim @C.System (C.fromList (0 : shifted)))
+    -- Training takes eight commas, one every other word; the output lags the
+    -- input by one word. Compare a stretch well inside the simulation.
+    settled = drop 20 simOut
+    expected = take (length stream - 40) (drop 30 stream)
+  H.annotateShow settled
+  H.assert $ expected `isInfixOf` settled
+ where
+  f (_, cg, _) = cg
 
 tests :: TestTree
 tests = $(testGroupGenerator)
