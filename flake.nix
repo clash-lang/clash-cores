@@ -84,6 +84,12 @@
                 root = ./.;
                 overrides = _: _: final;
               }).overrideAttrs override-attrs;
+
+              # KCU105 hardware test design for the SGMII core (examples/)
+              kcu105-sgmii = prev.developPackage {
+                root = ./examples/kcu105-sgmii;
+                overrides = _: _: final;
+              };
             };
           in
             { name = compiler-version; value = overlay; }
@@ -104,6 +110,7 @@
         minimal-shell = hs-pkgs: hs-pkgs.shellFor {
           packages = p: [
             p.clash-cores
+            p.kcu105-sgmii
           ];
 
           # https://discourse.nixos.org/t/non-interactive-bash-errors-from-flake-nix-mkshell/33310

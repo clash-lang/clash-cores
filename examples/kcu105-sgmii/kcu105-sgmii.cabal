@@ -1,0 +1,78 @@
+cabal-version:      2.4
+name:               kcu105-sgmii
+version:            0.1.0.0
+synopsis:           KCU105 hardware test design for the Clash SGMII core over LVDS
+description:
+  A minimal design for the Xilinx KCU105 that connects the pure-Clash SGMII
+  PCS in clash-cores to the on-board Marvell PHY through a synchronous LVDS
+  serializer/deserializer built from UltraScale SelectIO primitives. Received
+  frames are echoed back; status is observable through a VIO, an ILA and LEDs.
+license:            BSD-2-Clause
+author:             QBayLogic B.V.
+maintainer:         devops@qbaylogic.com
+build-type:         Simple
+
+common common
+  default-language: Haskell2010
+  default-extensions:
+    BinaryLiterals
+    DataKinds
+    DeriveAnyClass
+    DeriveGeneric
+    DerivingStrategies
+    FlexibleContexts
+    LambdaCase
+    MagicHash
+    NamedFieldPuns
+    NoImplicitPrelude
+    NoStarIsType
+    NumericUnderscores
+    ScopedTypeVariables
+    TemplateHaskell
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+  ghc-options:
+    -Wall -Wcompat
+    -fplugin=GHC.TypeLits.Extra.Solver
+    -fplugin=GHC.TypeLits.Normalise
+    -fplugin=GHC.TypeLits.KnownNat.Solver
+    -fconstraint-solver-iterations=10
+    -fexpose-all-unfoldings
+    -fno-worker-wrapper
+    -fno-unbox-small-strict-fields
+    -fno-unbox-strict-fields
+  build-depends:
+    base,
+    clash-cores,
+    clash-prelude,
+    ghc-typelits-extra,
+    ghc-typelits-knownnat,
+    ghc-typelits-natnormalise,
+
+library
+  import: common
+  hs-source-dirs: src
+  exposed-modules:
+    Kcu105.Sgmii.Domains
+    Kcu105.Sgmii.Gearbox
+    Kcu105.Sgmii.Primitives
+    Kcu105.Sgmii.Serdes
+    Kcu105.Sgmii.Top
+
+executable clash
+  import: common
+  main-is: Clash.hs
+  hs-source-dirs: exe
+  build-depends: clash-ghc
+
+test-suite sim
+  import: common
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  build-depends:
+    kcu105-sgmii,
+    tasty,
+    tasty-hunit,
