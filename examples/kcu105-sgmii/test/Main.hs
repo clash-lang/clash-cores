@@ -48,7 +48,8 @@ crossingRoundTrip = do
     (nibbles, txErrors) = txCrossing clkPcs rstPcs clkDiv rstDiv inp
     (out, rxErrors) = rxCrossing clkDiv rstDiv clkPcs rstPcs (rxGearbox clkDiv rstDiv nibbles)
     observed = P.drop 200 (sampleN 400 out)
-    expected = P.map fromIntegral [P.fromIntegral (P.head observed) .. P.fromIntegral (P.head observed) + 150 :: Int]
+    first = P.fromIntegral (P.sum (P.take 1 observed)) :: Int
+    expected = P.map fromIntegral [first .. first + 150]
     errors = (P.last (sampleN 400 txErrors), P.last (sampleN 400 rxErrors))
   assertEqual "no FIFO errors" (FifoErrors False False, FifoErrors False False) errors
   assertBool ("not contiguous: " P.++ show (P.take 24 observed)) (isInfixOfList observed expected)
@@ -117,11 +118,13 @@ loopbackSync = do
   let
     syncs = P.map obsSyncOk observes
     transitions = [i | (i, a, b) <- P.zip3 [0 :: Int ..] syncs (P.drop 1 syncs), a /= b]
-    firstLoss = P.head ([i | (i, True, False) <- P.zip3 [0 :: Int ..] syncs (P.drop 1 syncs), i > 3000] P.++ [3000])
+    firstLoss = case [i | (i, True, False) <- P.zip3 [0 :: Int ..] syncs (P.drop 1 syncs), i > 3000] of
+      i : _ -> i
+      [] -> 3000
     bsCgs = sampleN 4000 (demoBsCg demo)
-    window = P.take 24 (P.drop (firstLoss - 12) bsCgs)
+    around = P.take 24 (P.drop (firstLoss - 12) bsCgs)
     -- decode the window with both running disparities as a starting point
-    decoded rd0 = snd (L.mapAccumL (\rd cg -> let (rd', sym) = decode8b10b rd cg in (rd', sym)) rd0 window)
+    decoded rd0 = snd (L.mapAccumL (\rd cg -> let (rd', sym) = decode8b10b rd cg in (rd', sym)) rd0 around)
   let
     txDecoded = snd (L.mapAccumL (\rd cg -> let (rd', sym) = decode8b10b rd cg in (rd', (cg, sym))) False txCgs)
     txInvalid = [(i, cg, sym) | (i, (cg, sym)) <- P.zip [0 :: Int ..] txDecoded, not (isValidSymbol sym)]
@@ -141,7 +144,7 @@ loopbackSync = do
         P.++ "\naligned code groups around a late loss (cycle "
         P.++ show firstLoss
         P.++ "): "
-        P.++ show window
+        P.++ show around
         P.++ "\nraw received code groups there: "
         P.++ show (P.take 24 (P.drop (firstLoss - 12) rxCgs))
         P.++ "\ntransmitted code groups there: "

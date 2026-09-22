@@ -168,3 +168,22 @@ idelaye3 clk rst tap load din
       (Port @"INC" (pure 0 :: Signal Serdes312 Bit))
       (Port @"LOAD" (boolToBit <$> load))
       (ResetPort @"RST" @'ActiveHigh rst)
+
+-- | Global clock buffer with a divide-by-two, deriving the SERDES parallel
+-- clock from the SERDES bit clock. Both clocks then come from the same net, which
+-- keeps the parallel data of ISERDESE3 and OSERDESE3 aligned with the clock the
+-- fabric uses (Xilinx's LVDS SGMII design does the same). Simulation: the clock
+-- generator of the divided domain.
+bufgceDiv2 :: Clock Serdes625 -> Clock Serdes312
+bufgceDiv2 clk
+  | clashSimulation = clockGen
+  | otherwise = unPort go
+ where
+  go :: ClockPort "O" Serdes312
+  go =
+    inst
+      (unisim "BUFGCE_DIV")
+      (Param @"BUFGCE_DIVIDE" @Integer 2)
+      (ClockPort @"I" clk)
+      (Port @"CE" (pure 1 :: Signal Serdes625 Bit))
+      (Port @"CLR" (pure 0 :: Signal Serdes625 Bit))

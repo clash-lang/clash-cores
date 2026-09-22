@@ -22,6 +22,7 @@ import Clash.Signal.Internal (DiffClock (..))
 import Clash.Xilinx.ClockGen (clockWizardDifferential)
 import Kcu105.Sgmii.Domains
 import Kcu105.Sgmii.Gearbox (FifoErrors)
+import Kcu105.Sgmii.Primitives (bufgceDiv2)
 import Kcu105.Sgmii.Serdes
 
 -- | Controls, driven by the VIO in hardware
@@ -108,17 +109,19 @@ sgmiiDemo clk125 rst125 diffClk625@(DiffClock clk625 _) rxP rxN control =
   rstPhy :: Reset Phy625
   rstPhy = unsafeFromActiveHigh (unsafeSynchronizer clk125 clk625 (unsafeToActiveHigh rst125))
 
-  (clkSer, _rstSer, clkDiv, rstDiv, clkPcs, rstMmcm) =
+  (clkSer, _rstSer, clkPcs, rstMmcm) =
     clockWizardDifferential
-      @( Clock Serdes625
-       , Reset Serdes625
-       , Clock Serdes312
-       , Reset Serdes312
-       , Clock Pcs125
-       , Reset Pcs125
-       )
+      @(Clock Serdes625, Reset Serdes625, Clock Pcs125, Reset Pcs125)
       diffClk625
       rstPhy
+
+  -- The SERDES parallel clock is divided from the bit clock so that the two
+  -- stay aligned. Its reset follows the MMCM reset of the code group domain
+  -- through a synchroniser; that crossing is constrained as asynchronous.
+  clkDiv = bufgceDiv2 clkSer
+  rstDiv =
+    resetSynchronizer clkDiv
+      $ unsafeFromActiveHigh (unsafeSynchronizer clkPcs clkDiv (unsafeToActiveHigh rstMmcm))
 
   rstPcs = orReset rstMmcm (unsafeFromActiveHigh (ctrlPcsReset <$> control))
   reg :: (NFDataX a) => a -> Signal Pcs125 a -> Signal Pcs125 a

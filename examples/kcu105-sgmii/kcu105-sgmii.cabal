@@ -65,7 +65,11 @@ executable clash
   import: common
   main-is: Clash.hs
   hs-source-dirs: exe
-  build-depends: clash-ghc
+  -- The design library is a dependency so that the package environment cabal
+  -- writes for this executable exposes it to Clash
+  build-depends:
+    clash-ghc,
+    kcu105-sgmii,
 
 test-suite sim
   import: common
