@@ -103,7 +103,9 @@ Parses out the full UDP header from an IPv4 stream, but immediately drops the
 checksum without validating it. The first element of the output metadata is
 the source IPv4 address of incoming packets.
 
-Inherits latency and throughput from 'depacketizerC', where @headerBytes = 8@.
+Invalid lengths are dropped, truncated payloads are aborted, and bytes beyond
+the UDP length are removed. Adds one cycle to the latency of 'depacketizerC',
+where @headerBytes = 8@.
 -}
 udpDepacketizerC ::
   (HiddenClockResetEnable dom) =>
@@ -113,7 +115,10 @@ udpDepacketizerC ::
     (PacketStream dom dataWidth IPv4HeaderLite)
     (PacketStream dom dataWidth (IPv4Address, UdpHeaderLite))
 udpDepacketizerC =
-  depacketizerC (\udph ipv4lh -> (_ipv4lSource ipv4lh, toUdpLite udph))
+  depacketizerC (,)
+    |> filterMeta (\(udp, ip) -> _udpLength udp >= 8 && _udpLength udp <= _ipv4lPayloadLength ip)
+    |> stripPaddingC (\(udp, _) -> _udpLength udp - 8)
+    |> mapMeta (\(udp, ip) -> (_ipv4lSource ip, toUdpLite udp))
 
 {- |
 Serializes UDP headers to an IPv4 stream. The first element of the metadata
