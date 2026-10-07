@@ -94,6 +94,7 @@ testIPDepacketizer SNat =
         || _ipv4Version hdr /= 4
         || _ipv4FlagReserved hdr
         || _ipv4FlagMF hdr
+        || _ipv4FragmentOffset hdr /= 0
     packets = chunkByPacket $ depacketizerModel const fragments
     aborts = validateHeader . getMeta <$> packets
 

@@ -122,7 +122,7 @@ A packet is aborted when:
 - The checksum does not match;
 - The version field is not @4@;
 - The IHL field is not @5@ (options are given);
-- The MF (More Fragments) bit is set.
+- The MF (More Fragments) bit is set or the fragment offset is nonzero.
 -}
 ipDepacketizerC ::
   forall (dom :: Domain) (dataWidth :: Nat).
@@ -143,6 +143,7 @@ ipDepacketizerC = verifyChecksum |> depacketizerC const |> verifyIPHdr
           || (_ipv4Version header /= 4)
           || _ipv4FlagReserved header
           || _ipv4FlagMF header
+          || _ipv4FragmentOffset header /= 0
      in
       p{_abort = _abort p || abort}
 
