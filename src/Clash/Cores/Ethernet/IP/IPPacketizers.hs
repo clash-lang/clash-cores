@@ -98,7 +98,7 @@ setChecksumC = Circuit $ \(fwdInS, bwdInS) ->
 
     -- Calculating the checksum
     replaceBuffer = (s .==. pure Wait) .&&. isJust <$> fwdInS
-    ipHeader = bitCoerce . _meta . fromJustX <$> fwdInS
+    ipHeader = bitCoerce . (\h -> h{_ipv4Checksum = 0}) . _meta . fromJustX <$> fwdInS
     buffer :: Signal dom (Vec 10 (BitVector 16))
     counter :: Signal dom (Index 11)
     buffer =
