@@ -24,10 +24,12 @@ module Clash.Cores.Ethernet.Udp (
 ) where
 
 import Clash.Cores.Ethernet.IP.IPv4Types
+import Clash.Cores.Ethernet.InternetChecksum (onesComplementAdd)
 
 import Clash.Prelude
 
 import Control.DeepSeq (NFData)
+import Data.Maybe (fromMaybe, isJust)
 
 import Protocols
 import Protocols.PacketStream
@@ -44,7 +46,7 @@ data UdpHeader = UdpHeader
   , _udpLength :: Unsigned 16
   -- ^ Length of header + payload
   , _udpChecksum :: Unsigned 16
-  -- ^ UDP Checksum, we do not validate or generate it
+  -- ^ UDP checksum; zero indicates that no checksum was supplied
   }
   deriving (BitPack, Eq, Generic, NFData, NFDataX, Show, ShowX)
 
@@ -99,9 +101,10 @@ swapPorts hdr@UdpHeader{..} =
 {-# INLINE swapPorts #-}
 
 {- |
-Parses out the full UDP header from an IPv4 stream, but immediately drops the
-checksum without validating it. The first element of the output metadata is
-the source IPv4 address of incoming packets.
+Parses the UDP header from an IPv4 stream and validates nonzero checksums,
+including the IPv4 pseudo-header. Invalid checksums abort the packet. A zero
+checksum is accepted as permitted by UDP over IPv4. The first element of the
+output metadata is the source IPv4 address of incoming packets.
 
 Invalid lengths are dropped, truncated payloads are aborted, and bytes beyond
 the UDP length are removed. Adds one cycle to the latency of 'depacketizerC',
@@ -118,7 +121,46 @@ udpDepacketizerC =
   depacketizerC (,)
     |> filterMeta (\(udp, ip) -> _udpLength udp >= 8 && _udpLength udp <= _ipv4lPayloadLength ip)
     |> stripPaddingC (\(udp, _) -> _udpLength udp - 8)
+    |> verifyUdpChecksumC
     |> mapMeta (\(udp, ip) -> (_ipv4lSource ip, toUdpLite udp))
+
+-- | Check the header, pseudo-header and payload without buffering the packet.
+verifyUdpChecksumC ::
+  forall dom dataWidth.
+  (HiddenClockResetEnable dom, KnownNat dataWidth) =>
+  Circuit
+    (PacketStream dom dataWidth (UdpHeader, IPv4HeaderLite))
+    (PacketStream dom dataWidth (UdpHeader, IPv4HeaderLite))
+verifyUdpChecksumC = forceResetSanity |> fromSignals (mealyB go Nothing)
+ where
+  go st (Nothing, bwd) = (st, (bwd, Nothing))
+  go st (Just p, bwd) = (if _ready bwd then nextSt else st, (bwd, Just out))
+   where
+    (udp, ip) = _meta p
+    pseudoHeader :: Vec 6 (BitVector 16)
+    pseudoHeader =
+      bitCoerce
+        ( _ipv4lSource ip
+        , _ipv4lDestination ip
+        , 0 :: BitVector 8
+        , _ipv4lProtocol ip
+        , _udpLength udp
+        )
+    header :: Vec 4 (BitVector 16)
+    header = bitCoerce udp
+    (acc, oddByte) = fromMaybe (fold onesComplementAdd (pseudoHeader ++ header), False) st
+    -- Weight bytes by their position in a 16-bit network-order word. This
+    -- also handles odd data widths and an odd final payload byte.
+    word i b
+      | resize i >= fromMaybe maxBound (_last p) = 0
+      | even i /= oddByte = zeroExtend b `shiftL` 8
+      | otherwise = zeroExtend b
+    total = fold onesComplementAdd (acc :> imap word (_data p))
+    done = isJust (_last p)
+    nextSt
+      | done = Nothing
+      | otherwise = Just (total, oddByte /= odd (natToNum @dataWidth :: Int))
+    out = p{_abort = _abort p || (done && _udpChecksum udp /= 0 && total /= 0xFFFF)}
 
 {- |
 Serializes UDP headers to an IPv4 stream. The first element of the metadata
