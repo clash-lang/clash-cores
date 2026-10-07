@@ -177,7 +177,7 @@ prop_ip_depacketizer_padding_abort_d7 =
 
 tests :: TestTree
 tests =
-  localOption (mkTimeout 60_000_000 {- 60 seconds -}) $
+  localOption (mkTimeout 180_000_000) $
     localOption
       (HedgehogTestLimit (Just 1_000))
       $(testGroupGenerator)

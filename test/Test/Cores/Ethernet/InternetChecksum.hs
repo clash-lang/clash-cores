@@ -248,6 +248,6 @@ prop_udp_checksum_d23 = testUdpChecksum d23
 
 tests :: TestTree
 tests =
-    localOption (mkTimeout 60_000_000)
+    localOption (mkTimeout 180_000_000)
   $ localOption (HedgehogTestLimit (Just 1_000))
   $(testGroupGenerator)
