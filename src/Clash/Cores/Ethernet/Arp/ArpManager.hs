@@ -61,27 +61,15 @@ arpManagerT ::
 arpManagerT AwaitLookup{..} (Just lookupIPv4, arpResponseIn, Ack readyIn, _) =
   (nextSt, (arpResponseOut, Just lookupIPv4, arpRequestOut))
  where
-  (arpResponseOut, arpRequestOut, nextSt) = case arpResponseIn of
-    Nothing ->
-      ( Nothing
-      , if _awaitTransmission
-          then Just (ArpLite broadcastMac lookupIPv4 Request)
-          else Nothing
-      , if readyIn && _awaitTransmission
-          then AwaitArpReply maxBound
-          else AwaitLookup False
-      )
-    Just ArpEntryNotFound ->
+  (arpResponseOut, arpRequestOut, nextSt) = case (_awaitTransmission, arpResponseIn) of
+    (False, Nothing) -> (Nothing, Nothing, AwaitLookup False)
+    (False, Just (ArpEntryFound _)) -> (arpResponseIn, Nothing, AwaitLookup False)
+    _ ->
       ( Nothing
       , Just (ArpLite broadcastMac lookupIPv4 Request)
       , if readyIn
           then AwaitArpReply maxBound
           else AwaitLookup True
-      )
-    Just (ArpEntryFound _) ->
-      ( arpResponseIn
-      , Nothing
-      , AwaitLookup False
       )
 
 -- We don't care about incoming backpressure, because we do not send ARP requests in this state.
