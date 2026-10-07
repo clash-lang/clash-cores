@@ -135,7 +135,7 @@ ipDepacketizerC ::
     (PacketStream dom dataWidth EthernetHeader)
     (PacketStream dom dataWidth IPv4Header)
 ipDepacketizerC =
-  verifyChecksum |> depacketizerC const |> verifyIPHdr
+  verifyChecksum |> registerBoth |> depacketizerC const |> verifyIPHdr
     |> stripPaddingC (\h -> satSub SatBound (_ipv4Length h) 20)
  where
   verifyIPHdr = Circuit $ \(fwdIn, bwdIn) -> (bwdIn, (go <$>) <$> fwdIn)
