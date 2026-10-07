@@ -115,7 +115,8 @@ setChecksumC = Circuit $ \(fwdInS, bwdInS) ->
 {- |
 Parses the first 20 bytes of each packet in the stream into an t'IPv4Header'
 and puts it in the metadata. The header checksum is verified. Fragmentation
-and options are not supported.
+and options are not supported. Ethernet padding beyond the IPv4 total length
+is removed, preserving any aborts in the padding.
 
 A packet is aborted when:
 
@@ -123,6 +124,7 @@ A packet is aborted when:
 - The version field is not @4@;
 - The IHL field is not @5@ (options are given);
 - The MF (More Fragments) bit is set or the fragment offset is nonzero.
+- The total length is less than 20 bytes or exceeds the received packet.
 -}
 ipDepacketizerC ::
   forall (dom :: Domain) (dataWidth :: Nat).
@@ -132,7 +134,9 @@ ipDepacketizerC ::
   Circuit
     (PacketStream dom dataWidth EthernetHeader)
     (PacketStream dom dataWidth IPv4Header)
-ipDepacketizerC = verifyChecksum |> depacketizerC const |> verifyIPHdr
+ipDepacketizerC =
+  verifyChecksum |> depacketizerC const |> verifyIPHdr
+    |> stripPaddingC (\h -> satSub SatBound (_ipv4Length h) 20)
  where
   verifyIPHdr = Circuit $ \(fwdIn, bwdIn) -> (bwdIn, (go <$>) <$> fwdIn)
   go p =
@@ -144,6 +148,7 @@ ipDepacketizerC = verifyChecksum |> depacketizerC const |> verifyIPHdr
           || _ipv4FlagReserved header
           || _ipv4FlagMF header
           || _ipv4FragmentOffset header /= 0
+          || _ipv4Length header < 20
      in
       p{_abort = _abort p || abort}
 

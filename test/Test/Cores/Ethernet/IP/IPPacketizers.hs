@@ -6,12 +6,14 @@ module Test.Cores.Ethernet.IP.IPPacketizers (
 
 import Clash.Cores.Ethernet.IP.IPPacketizers
 import Clash.Cores.Ethernet.IP.IPv4Types
+import Clash.Cores.Ethernet.Mac.EthernetTypes (EthernetHeader)
 
 import Clash.Prelude
 
 import qualified Data.List as L
+import Data.Maybe (isJust)
 
-import Hedgehog (Property)
+import Hedgehog (Gen, Property)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
@@ -56,12 +58,7 @@ testIPDepacketizer ::
   SNat dataWidth ->
   Property
 testIPDepacketizer SNat =
-  idWithModelSingleDomain
-    @System
-    defExpectOptions{eoStopAfterEmpty = Just 400}
-    (genPackets 1 10 genPkt)
-    (exposeClockResetEnable model)
-    (exposeClockResetEnable (ipDepacketizerC @_ @dataWidth))
+  testIPDepacketizerWith (SNat @dataWidth) (genPackets 1 10 genPkt)
  where
   validPkt = genValidPacket defPacketOptions genEthernetHeader (Range.linear 0 10)
   genPkt =
@@ -81,9 +78,34 @@ testIPDepacketizer SNat =
           packetizerModel id (const hdr{_ipv4Checksum = 0xABCD}) <$> validPkt
       ]
 
+testIPDepacketizerWith ::
+  forall dataWidth.
+  (1 <= dataWidth) =>
+  SNat dataWidth ->
+  Gen [PacketStreamM2S dataWidth EthernetHeader] ->
+  Property
+testIPDepacketizerWith SNat gen =
+  idWithModelSingleDomain
+    @System
+    defExpectOptions{eoStopAfterEmpty = Just 400}
+    gen
+    (exposeClockResetEnable model)
+    (exposeClockResetEnable (ipDepacketizerC @_ @dataWidth))
+ where
   model fragments = L.concat $ L.zipWith setAbort packets aborts
    where
-    setAbort packet abort = (\f -> f{_abort = _abort f || abort}) <$> packet
+    setAbort [] _ = []
+    setAbort packet@(p:_) abort =
+      (\f -> f{_abort = _abort f || abort || (isJust (_last f) && endAbort)}) <$> trimmed
+     where
+      payload = downConvert packet
+      actual = L.length (L.filter ((/= Just 0) . _last) payload)
+      expected = fromIntegral (satSub SatBound (_ipv4Length (_meta p)) 20)
+      endAbort = L.any _abort packet || actual < expected
+      trimmed
+        | actual <= expected = packet
+        | otherwise = upConvert $
+            L.take expected payload L.++ [p{_data = singleton 0, _last = Just 0, _abort = endAbort}]
     getMeta [] =
       -- 'chunkBy' filters empty lists
       error "Unreachable code"
@@ -95,6 +117,7 @@ testIPDepacketizer SNat =
         || _ipv4FlagReserved hdr
         || _ipv4FlagMF hdr
         || _ipv4FragmentOffset hdr /= 0
+        || _ipv4Length hdr < 20
     packets = chunkByPacket $ depacketizerModel const fragments
     aborts = validateHeader . getMeta <$> packets
 
@@ -129,6 +152,28 @@ prop_ip_depacketizer_d20 = testIPDepacketizer d20
 -- | dataWidth > 20
 prop_ip_depacketizer_d23 :: Property
 prop_ip_depacketizer_d23 = testIPDepacketizer d23
+
+ipPacketWithEnding :: Unsigned 16 -> Int -> Bool -> [PacketStreamM2S 7 EthernetHeader]
+ipPacketWithEnding len payloadSize aborted =
+  (\f -> f{_abort = aborted && isJust (_last f)}) <$> packet
+ where
+  header = (unpack 0){_ipv4Version = 4, _ipv4Ihl = 5, _ipv4Length = len}
+  checksum = pureInternetChecksum (bitCoerce header :: Vec 10 (BitVector 16))
+  payload = fullPackets $ L.replicate payloadSize $
+    PacketStreamM2S (singleton 0) Nothing (unpack 0) False
+  packet = upConvert $ packetizerModel id (const header{_ipv4Checksum = checksum}) payload
+
+prop_ip_depacketizer_truncated_d7 :: Property
+prop_ip_depacketizer_truncated_d7 =
+  testIPDepacketizerWith d7 (pure $ ipPacketWithEnding 72 8 False)
+
+prop_ip_depacketizer_late_abort_d7 :: Property
+prop_ip_depacketizer_late_abort_d7 =
+  testIPDepacketizerWith d7 (pure $ ipPacketWithEnding 35 15 True)
+
+prop_ip_depacketizer_padding_abort_d7 :: Property
+prop_ip_depacketizer_padding_abort_d7 =
+  testIPDepacketizerWith d7 (pure $ ipPacketWithEnding 28 22 True)
 
 tests :: TestTree
 tests =
