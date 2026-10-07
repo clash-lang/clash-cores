@@ -90,7 +90,7 @@ setChecksumC = Circuit $ \(fwdInS, bwdInS) ->
     go c fwdIn bwdIn = (s'', (bwdIn, replaceChecksum c fwdIn))
      where
       s''
-        | isJust fwdIn && isJust (_last (fromJustX fwdIn)) = Wait
+        | isJust fwdIn && isJust (_last (fromJustX fwdIn)) && _ready bwdIn = Wait
         | otherwise = Forward c
 
     stall = (PacketStreamS2M False, Nothing)
