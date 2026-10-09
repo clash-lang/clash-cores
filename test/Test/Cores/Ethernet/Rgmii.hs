@@ -16,18 +16,6 @@ import Test.Tasty.HUnit
 createDomain vSystem{vName = "RgmiiDom", vPeriod = 8000}
 createDomain vSystem{vName = "RgmiiDdr", vPeriod = 4000}
 
-iddr ::
-  (NFDataX a, BitPack a) =>
-  Clock RgmiiDom -> Reset RgmiiDom -> Enable RgmiiDom ->
-  Signal RgmiiDdr a -> Signal RgmiiDom (a, a)
-iddr clk rst en = DDR.ddrIn clk rst en (unpack 0, unpack 0, unpack 0)
-
-oddr ::
-  (NFDataX a, BitPack a) =>
-  Clock RgmiiDom -> Reset RgmiiDom -> Enable RgmiiDom ->
-  Signal RgmiiDom (a, a) -> Signal RgmiiDdr a
-oddr clk rst en = DDR.ddrOut clk rst en (unpack 0)
-
 stream :: (NFDataX a) => [a] -> a -> Signal dom a
 stream xs idle = fromList (xs P.++ P.repeat idle)
 
@@ -44,7 +32,7 @@ receive :: Reset RgmiiDom -> [Maybe (BitVector 8, Bool)] -> [Maybe (PacketStream
 receive resetIn samples = sampleN_lazy 40 output
  where
   (_, output) = withClockResetEnable clockGen resetIn enableGen $
-    toSignals (unsafeRgmiiRxC id iddr) (channel samples, pure (PacketStreamS2M True))
+    toSignals (unsafeRgmiiRxC id DDR.ddrIn) (channel samples, pure (PacketStreamS2M True))
 
 transfer :: BitVector 8 -> Maybe (Index 2) -> Bool -> PacketStreamM2S 1 ()
 transfer byte lastByte err = PacketStreamM2S (singleton byte) lastByte () err
@@ -53,7 +41,8 @@ transmit :: [Maybe (PacketStreamM2S 1 ())] -> [Maybe (BitVector 8, Bool)]
 transmit samples = P.zipWith decode ctl dat
  where
   (_, output) = withClockResetEnable clockGen initialReset enableGen $
-    toSignals (rgmiiTxC id oddr) (stream (P.replicate 4 Nothing P.++ samples) Nothing, pure ())
+    toSignals (rgmiiTxC @RgmiiDom @RgmiiDdr id DDR.ddrOut)
+      (stream (P.replicate 4 Nothing P.++ samples) Nothing, pure ())
   ctl = pairs $ P.drop 1 $ sampleN_lazy 80 $ rgmiiCtl output
   dat = pairs $ P.drop 1 $ sampleN_lazy 80 $ rgmiiData output
   pairs (a : b : rest) = (a, b) : pairs rest

@@ -60,6 +60,7 @@ rgmiiReceiver ::
     Clock dom ->
     Reset dom ->
     Enable dom ->
+    (a, a, a) ->
     Signal domDDR a ->
     Signal dom (a, a)
   ) ->
@@ -68,7 +69,7 @@ rgmiiReceiver ::
 rgmiiReceiver RgmiiChannel{..} rst rxdelay iddr = bundle (ethRxErr, ethRxData)
  where
   (rxCtlFall, rxCtlRise) =
-    unbundle $ iddr rgmiiClk rst enableGen (rxdelay (bitToBool <$> rgmiiCtl))
+    unbundle $ iddr rgmiiClk rst enableGen (False, False, False) (rxdelay (bitToBool <$> rgmiiCtl))
 
   -- The RXCTL signal at the falling edge is the XOR of RXDV and RXERR
   -- meaning that RXERR is the XOR of it and RXDV.
@@ -79,7 +80,7 @@ rgmiiReceiver RgmiiChannel{..} rst rxdelay iddr = bundle (ethRxErr, ethRxData)
 
   -- LSB first! See RGMII interface documentation.
   (rxDataFall, rxDataRise) =
-    unbundle $ iddr rgmiiClk rst enableGen (rxdelay rgmiiData)
+    unbundle $ iddr rgmiiClk rst enableGen (0, 0, 0) (rxdelay rgmiiData)
   rxDataLow = E.register rgmiiClk rst enableGen 0 rxDataRise
 
   ethRxData :: Signal dom (Maybe (BitVector 8))
@@ -96,7 +97,7 @@ rgmiiTransmitter ::
   Clock dom ->
   Reset dom ->
   -- | TX delay function
-  (forall a. Signal domDDR a -> Signal domDDR a) ->
+  (Signal domDDR Bit -> Signal domDDR Bit) ->
   -- | ODDR with 'Clash.Explicit.DDR.ddrOut' ordering:
   -- (rising edge, following falling edge).
   ( forall a.
@@ -104,6 +105,7 @@ rgmiiTransmitter ::
     Clock dom ->
     Reset dom ->
     Enable dom ->
+    a ->
     Signal dom (a, a) ->
     Signal domDDR a
   ) ->
@@ -132,17 +134,17 @@ rgmiiTransmitter txClk rst txdelay oddr input err = channel
   -- meaning that TXERR is the XOR of it and TXEN.
   -- See RGMII interface documentation.
   txCtl :: Signal domDDR Bit
-  txCtl = oddr txClk rst enableGen $ bundle (txEn, liftA2 xor txEn txErr)
+  txCtl = oddr txClk rst enableGen 0 $ bundle (txEn, liftA2 xor txEn txErr)
 
   -- LSB first! See RGMII interface documentation.
   txData :: Signal domDDR (BitVector 4)
-  txData = oddr txClk rst enableGen $ bundle (ethTxData2, ethTxData1)
+  txData = oddr txClk rst enableGen 0 $ bundle (ethTxData2, ethTxData1)
 
   channel =
     RgmiiChannel
       { rgmiiClk =
           ddrForwardClock txClk rst enableGen Nothing Nothing
-            (\clk rst0 en -> txdelay . oddr clk rst0 en)
+            (\clk rst0 en -> txdelay . oddr clk rst0 en 0)
       , rgmiiCtl = txCtl
       , rgmiiData = txData
       }
@@ -169,6 +171,7 @@ unsafeRgmiiRxC ::
     Clock dom ->
     Reset dom ->
     Enable dom ->
+    (a, a, a) ->
     Signal domDDR a ->
     Signal dom (a, a)
   ) ->
@@ -206,13 +209,14 @@ rgmiiTxC ::
   (DomainPeriod dom ~ 2 * DomainPeriod domDDR) =>
   (DomainActiveEdge dom ~ 'Rising) =>
   -- | TX delay function
-  (forall a. Signal domDDR a -> Signal domDDR a) ->
+  (Signal domDDR Bit -> Signal domDDR Bit) ->
   -- | ODDR as described for 'rgmiiTransmitter'.
   ( forall a.
     (NFDataX a, BitPack a) =>
     Clock dom ->
     Reset dom ->
     Enable dom ->
+    a ->
     Signal dom (a, a) ->
     Signal domDDR a
   ) ->
