@@ -18,7 +18,7 @@ module Clash.Cores.Ethernet.Rgmii (
   RgmiiChannel (..),
   rgmiiReceiver,
   rgmiiTransmitter,
-  unsafeRgmiiRxC,
+  rgmiiRxC,
   rgmiiTxC,
 ) where
 
@@ -150,15 +150,12 @@ rgmiiTransmitter txClk rst txdelay oddr input err = channel
       }
 
 {- |
-Circuit that adapts an RX `RgmiiChannel` to a `PacketStream`. Forwards data from
-the RGMII receiver with one clock cycle latency so that we can properly mark the
-last transfer of a packet: if we received valid data from the RGMII receiver in
-the last clock cycle and the data in the current clock cycle is invalid, we set
-`_last`. If the RGMII receiver gives an error, we set `_abort`.
-
-__UNSAFE__: ignores backpressure, because the RGMII PHY is unable to handle that.
+RGMII receiver with one transfer of buffering. Ends each packet with an empty
+transfer. A stalled data transfer is held until accepted, followed by an empty
+transfer with '_abort' asserted. Discards incoming data until that terminator is
+accepted and a new packet starts.
 -}
-unsafeRgmiiRxC ::
+rgmiiRxC ::
   forall dom domDDR.
   (HiddenClockResetEnable dom) =>
   (DomainPeriod dom ~ 2 * DomainPeriod domDDR) =>
@@ -176,28 +173,29 @@ unsafeRgmiiRxC ::
     Signal dom (a, a)
   ) ->
   Circuit (RgmiiChannel dom domDDR) (PacketStream dom 1 ())
-unsafeRgmiiRxC rxDelay iddr = fromSignals ckt
+rgmiiRxC rxDelay iddr = fromSignals ckt
  where
-  ckt (fwdIn, _) = (pure (), fwdOut)
+  ckt (fwdIn, bwdIn) = (pure (), fwdOut)
    where
     (rxErr, rxData) = unbundle (rgmiiReceiver fwdIn hasReset rxDelay iddr)
-    lastRxErr = register False rxErr
-    lastRxData = register Nothing rxData
+    rxValid = isJust <$> rxData
+    rxStart = rxValid .&&. (not <$> register False rxValid)
+    ready = _ready <$> bwdIn
 
-    fwdOut = go <$> bundle (rxData, lastRxData, lastRxErr)
+    load = (not <$> valid) .||. ready
+    dataPending = valid .&&. (not <$> lastByte)
+    stalled = register False (not <$> load)
+    finish = dataPending .&&. (stalled .||. (not <$> rxValid))
 
-    go (currData, lastData, lastErr) =
-      ( \byte ->
-          PacketStreamM2S
-            { _data = singleton byte
-            , _last = case currData of
-                Nothing -> Just 1
-                Just _ -> Nothing
-            , _meta = ()
-            , _abort = lastErr
-            }
-      )
-        <$> lastData
+    valid = regEn False load (dataPending .||. rxStart)
+    lastByte = regEn False load finish
+    err = regEn False load (mux finish stalled rxErr)
+    byte = regEn (deepErrorX "rgmiiRxC: no data") load (fromJustX <$> rxData)
+    fwdOut = makeTransfer <$> valid <*> byte <*> lastByte <*> err
+
+    makeTransfer v b l e =
+      if v then Just (PacketStreamM2S (singleton b) (if l then Just 0 else Nothing) () e)
+      else Nothing
 
 {- |
 Circuit that adapts a `PacketStream` to a TX `RgmiiChannel`.
