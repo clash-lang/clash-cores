@@ -121,6 +121,7 @@ library
     Clash.Cores.Ethernet.Mac.MacPacketizers
     Clash.Cores.Ethernet.Mac.PaddingInserter
     Clash.Cores.Ethernet.Mac.Preamble
+    Clash.Cores.Ethernet.Rgmii
     Clash.Cores.Ethernet.Udp
     Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO
     Clash.Cores.LatticeSemi.Ecp5.IO
@@ -223,6 +224,7 @@ test-suite unit-tests
     Test.Cores.Ethernet.Mac.InterpacketGapInserter
     Test.Cores.Ethernet.Mac.PaddingInserter
     Test.Cores.Ethernet.Mac.Preamble
+    Test.Cores.Ethernet.Rgmii
     Test.Cores.Internal.SampleSpi
     Test.Cores.Internal.Signals
     Test.Cores.LineCoding.Lc8b10b
