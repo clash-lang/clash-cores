@@ -29,7 +29,7 @@ import Clash.Prelude
 import Protocols
 import Protocols.PacketStream
 
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 
 -- | Channel from/to the RGMII PHY
 data RgmiiChannel dom domDDR = RgmiiChannel
@@ -111,7 +111,7 @@ rgmiiTransmitter ::
   ) ->
   -- | Maybe the byte we have to send
   Signal dom (Maybe (BitVector 8)) ->
-  -- | Error signal indicating whether the current packet is corrupt
+  -- | Error signal indicating whether the current packet is corrupt. This is send to the Phy as transmit error bit.
   Signal dom Bool ->
   -- | TX channel to the RGMII PHY
   RgmiiChannel dom domDDR
@@ -200,6 +200,7 @@ rgmiiRxC rxDelay iddr = fromSignals ckt
 {- |
 Circuit that adapts a `PacketStream` to a TX `RgmiiChannel`.
 Has one clock cycle latency and accepts one transfer per cycle outside reset.
+Requires contiguous transfers within each packet and upstream interpacket gaps.
 -}
 rgmiiTxC ::
   forall dom domDDR.
@@ -219,14 +220,16 @@ rgmiiTxC ::
     Signal domDDR a
   ) ->
   Circuit (PacketStream dom 1 ()) (RgmiiChannel dom domDDR)
-rgmiiTxC txDelay oddr = stripTrailingEmptyC |> fromSignals ckt
+rgmiiTxC txDelay oddr = fromSignals ckt
  where
-  ckt (fwdIn, _) = (pure (PacketStreamS2M True), fwdOut)
+  ckt (fwdIn, _) = (PacketStreamS2M . not <$> unsafeToActiveHigh hasReset, fwdOut)
    where
     nonempty = (>>= keepData) <$> fwdIn
     keepData transfer
       | _last transfer == Just 0 = Nothing
       | otherwise = Just transfer
-    input = fmap (head . _data) <$> nonempty
-    err = maybe False _abort <$> nonempty
+    input = register Nothing (fmap (head . _data) <$> nonempty)
+    open = register False (maybe False (isNothing . _last) <$> nonempty)
+    emptyAbort = maybe False (\t -> _last t == Just 0 && _abort t) <$> fwdIn
+    err = register False (maybe False _abort <$> nonempty) .||. (open .&&. emptyAbort)
     fwdOut = rgmiiTransmitter hasClock hasReset txDelay oddr input err
