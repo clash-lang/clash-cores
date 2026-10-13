@@ -5,6 +5,7 @@ This repository contains a number of existing useful circuits written in Clash.
 
 These circuits include:
 - SPI core
+- I2C controller core
 - UART core
 - CRC core
 - Etherbone core

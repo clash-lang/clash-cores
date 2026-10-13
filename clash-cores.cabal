@@ -122,6 +122,13 @@ library
     Clash.Cores.Ethernet.Mac.PaddingInserter
     Clash.Cores.Ethernet.Mac.Preamble
     Clash.Cores.Ethernet.Udp
+    Clash.Cores.I2c
+    Clash.Cores.I2c.BitController
+    Clash.Cores.I2c.BitController.BusCtrl
+    Clash.Cores.I2c.BitController.StateMachine
+    Clash.Cores.I2c.ByteController
+    Clash.Cores.I2c.ByteController.ShiftRegister
+    Clash.Cores.I2c.Types
     Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO
     Clash.Cores.LatticeSemi.Ecp5.IO
     Clash.Cores.LatticeSemi.Ice40.Blackboxes.IO
@@ -223,6 +230,8 @@ test-suite unit-tests
     Test.Cores.Ethernet.Mac.InterpacketGapInserter
     Test.Cores.Ethernet.Mac.PaddingInserter
     Test.Cores.Ethernet.Mac.Preamble
+    Test.Cores.I2c
+    Test.Cores.I2c.Model
     Test.Cores.Internal.SampleSpi
     Test.Cores.Internal.Signals
     Test.Cores.LineCoding.Lc8b10b
