@@ -50,9 +50,6 @@ jobs:
           cabal-version: latest
           cabal-update: false
 
-      - name: Install HDL simulators
-        run: .ci/install_hdl_tools.sh
-
       - uses: tespkg/actions-cache/restore@e07e2d4953dc8c020d447363e5064e36d04f3cf9
         with:
           endpoint: '192.168.102.136'
@@ -98,11 +95,6 @@ jobs:
 
       - name: Unit tests
         run: bin/clash-cores:unit-tests -j$(.ci/effective_cpus.sh) --hide-successes
-
-      - name: HDL tests
-        run: |
-          source /opt/tools/Xilinx/Vivado/2022.1/settings64.sh
-          bin/cores-hdl-tests:cores-hdl-tests -j$(.ci/effective_cpus.sh) --hide-successes
 
   haddock:
     name: Haddock (Clash ${{ matrix.clash }})
@@ -311,6 +303,35 @@ jobs:
         run: |
           nix path-info .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full | cachix push clash-lang
 
+  hdl_tests:
+    name: HDL tests (${{ matrix.ghc-version }})
+    runs-on: self-hosted
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc-version: [ "ghc9124", "ghc9103", "ghc984", "ghc967" ]
+    # The HDL testsuite depends on clash-cores, which 'packages' pushes to the
+    # local cache.
+    needs: packages
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Authenticate cache
+        env:
+          ATTIC_AUTH_TOKEN: ${{ secrets.ATTIC_SECRET }}
+        run: .ci/attic-auth.sh
+
+      - name: Build HDL testsuite
+        run: |
+          nix build -L .#${{ matrix.ghc-version }}-hdl-tests
+          attic push public $(nix path-info .#${{ matrix.ghc-version }}-hdl-tests)
+
+      - name: Run HDL testsuite
+        run: |
+          source /opt/tools/Xilinx/Vivado/2022.1/settings64.sh
+          nix run .#${{ matrix.ghc-version }}-hdl-tests -- -j$(.ci/effective_cpus.sh) --hide-successes
+
   all:
     name: All jobs finished
     if: ${{ !cancelled() }}
@@ -320,6 +341,7 @@ jobs:
       stack,
       packages,
       devshells,
+      hdl_tests,
     ]
     runs-on: ubuntu-slim
     steps:

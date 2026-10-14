@@ -19,8 +19,14 @@
           inherit system;
         };
 
+        # Nixpkgs with clash-compiler's overlay for the given GHC version applied
+        clash-pkgs-for = compiler-version:
+          regular-pkgs.extend clash-compiler.overlays.${compiler-version};
+
         all-overlays = builtins.listToAttrs (builtins.map (compiler-version:
           let
+            pkgs = clash-pkgs-for compiler-version;
+
             # Remove the -fplugin and Setup.hs settings in the .cabal
             # For ghc9101+ these options don't matter, but for ghc964 and ghc982 this breaks installation
             # When entering the installPhase something (I'm not entirely sure what) goes wrong
@@ -84,6 +90,61 @@
                 root = ./.;
                 overrides = _: _: final;
               }).overrideAttrs override-attrs;
+
+              # The HDL testsuite, wrapped such that it uses the Clash and HDL
+              # tools from Nix. Run it from the root of the repository:
+              #
+              #   nix run .#ghc9124-hdl-tests -- --hide-successes
+              #
+              # Based on clash-testsuite in clash-compiler's nix/overlay.nix.
+              cores-hdl-tests =
+                let
+                  unmodified = prev.callCabal2nix "cores-hdl-tests" ./hdl-tests { };
+                in
+                unmodified.overrideAttrs (old: {
+                  buildInputs = (old.buildInputs or [ ]) ++ [
+                    pkgs.makeWrapper
+                  ];
+
+                  postInstall = (old.postInstall or "") + ''
+                    ghcBinDir=${dirOf "${old.passthru.env.NIX_GHC}"}
+                    ghcLibDir="${old.passthru.env.NIX_GHC_LIBDIR}"
+                    globalPackageDb="$ghcLibDir/package.conf.d"
+                    wrapperDir="$out/libexec/cores-hdl-tests-wrappers"
+
+                    mkdir -p "$wrapperDir"
+
+                    cat > "$wrapperDir/clash" <<EOF
+                    #!${pkgs.runtimeShell}
+                    exec ${final.clash-ghc}/bin/clash \
+                      -package-db "$globalPackageDb" \
+                      "\$@"
+                    EOF
+                    chmod +x "$wrapperDir/clash"
+
+                    wrapProgram $out/bin/cores-hdl-tests \
+                      --prefix PATH : "$ghcBinDir" \
+                      --prefix PATH : "$wrapperDir" \
+                      --set GHC_PACKAGE_PATH "$globalPackageDb:" \
+                      --set USE_GLOBAL_CLASH 1 \
+                      --prefix PATH : ${pkgs.lib.makeBinPath [
+                        pkgs.gcc
+                        # make and python3 are used in verilator invocations
+                        pkgs.gnumake
+                        pkgs.python3
+                        pkgs.ghdl-llvm
+                        pkgs.sby
+                        pkgs.verilator
+                        pkgs.iverilog
+                        pkgs.yosys
+                        pkgs.z3
+                      ]} \
+                      --set LIBRARY_PATH ${pkgs.lib.makeLibraryPath [
+                        pkgs.ghdl-llvm
+                        pkgs.zlib.static
+                      ]}
+                  '';
+                });
             };
           in
             { name = compiler-version; value = overlay; }
@@ -91,9 +152,7 @@
 
         all-hs-pkgs = builtins.mapAttrs (compiler-version: overlay:
           let
-            pkgs = (import clash-compiler.inputs.nixpkgs {
-              inherit system;
-            }).extend clash-compiler.overlays.${compiler-version};
+            pkgs = clash-pkgs-for compiler-version;
             clash-pkgs = pkgs."clashPackages-${compiler-version}";
 
             hs-pkgs = clash-pkgs.extend overlay;
@@ -131,6 +190,11 @@
           }) all-hs-pkgs;
 
         all-packages = builtins.mapAttrs (_: hs-pkgs: hs-pkgs.clash-cores) all-hs-pkgs;
+
+        # The HDL testsuite for each version, e.g. 'ghc9124-hdl-tests'
+        all-hdl-tests = clash-compiler.inputs.nixpkgs.lib.attrsets.mapAttrs'
+          (name: hs-pkgs: { name = "${name}-hdl-tests"; value = hs-pkgs.cores-hdl-tests; })
+          all-hs-pkgs;
       in
       {
         # Expose the overlay of each supported version which adds clash-cores
@@ -147,6 +211,6 @@
         devShells = all-shells // { default = all-shells."${default-version}-minimal"; };
 
         # Packages for each version of GHC, with a default package being set to the default-version's version
-        packages = all-packages // { default = all-packages.${default-version}; };
+        packages = all-packages // all-hdl-tests // { default = all-packages.${default-version}; };
       });
 }
