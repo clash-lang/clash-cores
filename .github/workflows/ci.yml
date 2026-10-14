@@ -1,25 +1,256 @@
 name: CI
 
-# Trigger the workflow on all pushes
-on:
-  push:
-    branches:
-      - main
+# We only run on pushes, not on pull requests: our self-hosted runners should
+# not run code from forks. Pushes to branches of this repository still show up
+# as checks on their pull requests.
+on: push
 
 concurrency:
-  group: ${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Don't cancel runs on 'main': they populate the caches other branches use.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # We test all GHC version we support, so there is no use to fail if Clash
+  # detects a known-to-be-broken compiler.
+  CLASH_IGNORE_BROKEN_GHCS: "True"
 
 jobs:
+  cabal:
+    name: Cabal (Clash ${{ matrix.clash }}, GHC ${{ matrix.ghc }})
+    runs-on: self-hosted
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { clash: release, ghc: 9.6.7 }
+          - { clash: release, ghc: 9.8.4 }
+          - { clash: release, ghc: 9.10.3 }
+          - { clash: release, ghc: 9.12.4 }
+          - { clash: master,  ghc: 9.6.7 }
+          - { clash: master,  ghc: 9.10.3 }
+    env:
+      CLASH_BRANCH: ${{ matrix.clash }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set Cabal directory
+        run: echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libtinfo-dev
+
+      - name: Install GHC
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: latest
+          cabal-update: false
+
+      - name: Install HDL simulators
+        run: .ci/install_hdl_tools.sh
+
+      - uses: tespkg/actions-cache/restore@e07e2d4953dc8c020d447363e5064e36d04f3cf9
+        with:
+          endpoint: '192.168.102.136'
+          port: 9000
+          insecure: true
+          accessKey: '${{ secrets.S3_ACCESS_KEY }}'
+          secretKey: '${{ secrets.S3_SECRET_KEY }}'
+          bucket: runner
+          region: local
+          use-fallback: true
+          retry: false
+          key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-cabal-${{ matrix.clash }}-${{ matrix.ghc }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
+          restore-keys: |
+            clash-cores-${{ runner.os }}-${{ github.ref_name }}-cabal-${{ matrix.clash }}-${{ matrix.ghc }}-
+            clash-cores-${{ runner.os }}-main-cabal-${{ matrix.clash }}-${{ matrix.ghc }}-
+          path: ~/.cabal/store
+
+      - name: Setup
+        run: .ci/setup.sh
+
+      - name: Build dependencies
+        run: cabal v2-build all --only-dependencies
+
+      - uses: tespkg/actions-cache/save@e07e2d4953dc8c020d447363e5064e36d04f3cf9
+        with:
+          endpoint: '192.168.102.136'
+          port: 9000
+          insecure: true
+          accessKey: '${{ secrets.S3_ACCESS_KEY }}'
+          secretKey: '${{ secrets.S3_SECRET_KEY }}'
+          bucket: runner
+          region: local
+          use-fallback: true
+          retry: false
+          key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-cabal-${{ matrix.clash }}-${{ matrix.ghc }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
+          path: ~/.cabal/store
+
+      - name: Build
+        run: .ci/build.sh
+
+      - name: Doctests
+        run: bin/clash-cores:doctests -j$(.ci/effective_cpus.sh)
+
+      - name: Unit tests
+        run: bin/clash-cores:unit-tests -j$(.ci/effective_cpus.sh) --hide-successes
+
+      - name: HDL tests
+        run: |
+          source /opt/tools/Xilinx/Vivado/2022.1/settings64.sh
+          bin/cores-hdl-tests:cores-hdl-tests -j$(.ci/effective_cpus.sh) --hide-successes
+
+  haddock:
+    name: Haddock (Clash ${{ matrix.clash }})
+    runs-on: self-hosted
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        clash: [ release, master ]
+    env:
+      CLASH_BRANCH: ${{ matrix.clash }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set Cabal directory
+        run: echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libtinfo-dev
+
+      - name: Install GHC
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: 9.6.7
+          cabal-version: latest
+          cabal-update: false
+
+      - uses: tespkg/actions-cache/restore@e07e2d4953dc8c020d447363e5064e36d04f3cf9
+        with:
+          endpoint: '192.168.102.136'
+          port: 9000
+          insecure: true
+          accessKey: '${{ secrets.S3_ACCESS_KEY }}'
+          secretKey: '${{ secrets.S3_SECRET_KEY }}'
+          bucket: runner
+          region: local
+          use-fallback: true
+          retry: false
+          key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-haddock-${{ matrix.clash }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
+          restore-keys: |
+            clash-cores-${{ runner.os }}-${{ github.ref_name }}-haddock-${{ matrix.clash }}-
+            clash-cores-${{ runner.os }}-main-haddock-${{ matrix.clash }}-
+          path: ~/.cabal/store
+
+      - name: Setup
+        run: .ci/setup.sh
+
+      - name: Build dependencies
+        run: cabal v2-build clash-cores -O0 --enable-documentation --only-dependencies
+
+      - uses: tespkg/actions-cache/save@e07e2d4953dc8c020d447363e5064e36d04f3cf9
+        with:
+          endpoint: '192.168.102.136'
+          port: 9000
+          insecure: true
+          accessKey: '${{ secrets.S3_ACCESS_KEY }}'
+          secretKey: '${{ secrets.S3_SECRET_KEY }}'
+          bucket: runner
+          region: local
+          use-fallback: true
+          retry: false
+          key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-haddock-${{ matrix.clash }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
+          path: ~/.cabal/store
+
+      - name: Build & check documentation
+        run: .ci/build_docs.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: haddock-clash-${{ matrix.clash }}
+          path: hadocs/
+          retention-days: 30
+
+  stack:
+    name: Stack
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libtinfo-dev
+
+      - name: Install Stack
+        uses: haskell-actions/setup@v2
+        with:
+          enable-stack: true
+          stack-no-global: true
+          stack-version: latest
+
+      - uses: tespkg/actions-cache/restore@e07e2d4953dc8c020d447363e5064e36d04f3cf9
+        with:
+          endpoint: '192.168.102.136'
+          port: 9000
+          insecure: true
+          accessKey: '${{ secrets.S3_ACCESS_KEY }}'
+          secretKey: '${{ secrets.S3_SECRET_KEY }}'
+          bucket: runner
+          region: local
+          use-fallback: true
+          retry: false
+          key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-stack-${{ hashFiles('stack.yaml', '**/*.cabal') }}
+          restore-keys: |
+            clash-cores-${{ runner.os }}-${{ github.ref_name }}-stack-
+            clash-cores-${{ runner.os }}-main-stack-
+          # The 'stack-root' output of haskell-actions/setup is null on our
+          # runners, so we hardcode the path. See clash-compiler's CI.
+          path: ~/.stack
+
+      - name: Ensure Stack is initialized
+        run: .ci/retry.sh stack build base -j1 +RTS -N1
+
+      - name: Build dependencies
+        run: stack build -j$(.ci/effective_cpus.sh) --only-dependencies
+
+      - uses: tespkg/actions-cache/save@e07e2d4953dc8c020d447363e5064e36d04f3cf9
+        with:
+          endpoint: '192.168.102.136'
+          port: 9000
+          insecure: true
+          accessKey: '${{ secrets.S3_ACCESS_KEY }}'
+          secretKey: '${{ secrets.S3_SECRET_KEY }}'
+          bucket: runner
+          region: local
+          use-fallback: true
+          retry: false
+          key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-stack-${{ hashFiles('stack.yaml', '**/*.cabal') }}
+          path: ~/.stack
+
+      - name: Build
+        # Note: the --pedantic switch adds -Wall -Werror to the options passed
+        # to GHC. Options specified in stack.yaml (like -Wcompat) are still
+        # passed; it is cumulative.
+        run: stack build -j$(.ci/effective_cpus.sh) --pedantic
+
   packages:
-    name: Push package to local cache
+    name: Nix package (${{ matrix.ghc-version }})
     runs-on: self-hosted
     strategy:
+      fail-fast: false
       matrix:
         ghc-version: [ "ghc9124", "ghc9103", "ghc984", "ghc967" ]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build & test
         run: |
@@ -34,7 +265,7 @@ jobs:
           attic push public $(nix path-info .#${{ matrix.ghc-version }})
 
       - name: Push package to cachix
-        # if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         env:
           # Having the variable be named `CACHIX_AUTH_TOKEN` authenticates cachix
           # https://docs.cachix.org/getting-started#authenticating
@@ -43,23 +274,23 @@ jobs:
           nix path-info .#${{ matrix.ghc-version }} | cachix push clash-lang
 
   devshells:
-    name: Push Nix developer shell to local cache
+    name: Nix developer shell (${{ matrix.ghc-version }})
     runs-on: self-hosted
     strategy:
+      fail-fast: false
       matrix:
         ghc-version: [ "ghc9124", "ghc9103", "ghc984", "ghc967" ]
     steps:
-        # There's no need to configure Nix, the dockerfile handling the GHA has it done for us!
-        # If a dependencies are already cached, we can simply re-use them!
-
-      - name: Checkout
-        uses: actions/checkout@v4
+      # There's no need to configure Nix, the dockerfile handling the GHA has it
+      # done for us! If dependencies are already cached, we can simply re-use
+      # them!
+      - uses: actions/checkout@v7
 
       - name: Build devshell
         run: |
           # Since the server is x86_64-linux, we can only build the devshell
           # for that
-          nix build .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full
+          nix build -L .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full
 
         # Pushes the binaries to the local network
         # url: http://192.168.102.136:9200/public
@@ -71,8 +302,8 @@ jobs:
           .ci/attic-auth.sh
           attic push public $(nix path-info .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full)
 
-        # Pushes the binaries to Cachix
       - name: Push devshell to cachix
+        if: github.ref == 'refs/heads/main'
         env:
           # Having the variable be named `CACHIX_AUTH_TOKEN` authenticates cachix
           # https://docs.cachix.org/getting-started#authenticating
@@ -80,3 +311,19 @@ jobs:
         run: |
           nix path-info .#devShells.x86_64-linux.${{ matrix.ghc-version }}-full | cachix push clash-lang
 
+  all:
+    name: All jobs finished
+    if: ${{ !cancelled() }}
+    needs: [
+      cabal,
+      haddock,
+      stack,
+      packages,
+      devshells,
+    ]
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v7
+      - uses: clash-lang/all-jobs-ok@v2
+        with:
+          needs: ${{ toJSON(needs) }}

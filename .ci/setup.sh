@@ -9,20 +9,20 @@ fi
 
 set -e
 
+THREADS=${THREADS:-$(.ci/effective_cpus.sh)}
+CABAL_JOBS=${CABAL_JOBS:-$THREADS}
+CABAL_DIR=${CABAL_DIR:-$HOME/.cabal}
+
 # Print out versions for debugging purposes
 cabal --version
 ghc --version
-
-# This might happen during tags on GitLab CI
-CI_COMMIT_BRANCH=${CI_COMMIT_BRANCH:-no_branch_set_by_ci}
 
 if [[ "$CLASH_BRANCH" == "master" ]]; then
   cp .ci/cabal.project-import-master cabal.project
 fi
 
-cabal v2-update | tee cabal_update_output
+.ci/retry.sh cabal v2-update | tee cabal_update_output
 
-# File may exist as part of a dist.tar.zst
 if [ ! -f cabal.project.local ]; then
   cp .ci/cabal.project.local .
 
@@ -36,9 +36,9 @@ fi
 cat cabal.project
 cat cabal.project.local
 
-rm -f $HOME/.cabal/config
+rm -f $CABAL_DIR/config
 cabal user-config init
-sed -i "s/-- ghc-options:/ghc-options: -j$THREADS/g" $HOME/.cabal/config
-sed -i "s/^[- ]*jobs:.*/jobs: $CABAL_JOBS/g" $HOME/.cabal/config
-sed -i "/remote-repo-cache:.*/d" $HOME/.cabal/config
-cat $HOME/.cabal/config
+sed -i "s/-- ghc-options:/ghc-options: -j$THREADS/g" $CABAL_DIR/config
+sed -i "s/^[- ]*jobs:.*/jobs: $CABAL_JOBS/g" $CABAL_DIR/config
+sed -i "/remote-repo-cache:.*/d" $CABAL_DIR/config
+cat $CABAL_DIR/config
