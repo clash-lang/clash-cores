@@ -150,7 +150,14 @@ runClashTest = defaultMain $ clashTestRoot
         ]
       ]
     , clashTestGroup "shouldwork"
-      [ clashTestGroup "Xilinx"
+      [ clashTestGroup "I2c"
+        [ runTest "WriteRead" def
+            { hdlTargets=[VHDL, Verilog, SystemVerilog]
+            , hdlLoad=[GHDL, IVerilog, Verilator]
+            , hdlSim=[GHDL, IVerilog, Verilator]
+            }
+        ]
+      , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
           ]
