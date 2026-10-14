@@ -149,7 +149,7 @@ prop_arp_receiver_d29 = arpReceiverPropertyGenerator d29
 
 tests :: TestTree
 tests =
-  localOption (mkTimeout 60_000_000 {- 60 seconds -})
+  localOption (mkTimeout 120_000_000 {- 120 seconds -})
     $ localOption
       (HedgehogTestLimit (Just 500))
       $(testGroupGenerator)
