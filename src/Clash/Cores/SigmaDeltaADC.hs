@@ -1,4 +1,6 @@
-{-|
+{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
+
+{- |
   Copyright   :  (C) 2023-2024, Floriaan Bulten
                      2026, Rowan Goemans
   License     :  BSD2 (see the file LICENSE)
@@ -6,206 +8,182 @@
 
   Sigma-delta ADC, originally contributed by FloriaanB in
   <https://github.com/clash-lang/clash-compiler/pull/2617>.
+
+  Connect the analog signal to the positive input of an external comparator
+  (or a suitable LVDS input), and the output of an RC low-pass network to its
+  negative input. Drive that network with the registered feedback output.
+  The comparator samples must already be captured in the circuit's clock
+  domain. When using DDR or a deserializer, serialize the feedback word in
+  the same bit order as the input samples.
+
+  The RC time constant depends on the comparator, I/O voltage, sampling
+  frequency and required analog bandwidth; this digital core does not choose
+  component values.
 -}
+module Clash.Cores.SigmaDeltaADC (
+  sigmaDeltaADC,
+  sigmaDeltaSampleRate,
+) where
 
-module Clash.Cores.SigmaDeltaADC where
-
-import Clash.Prelude hiding (filter, truncate)
+import Clash.Prelude
 import Clash.Sized.Internal.BitVector (popCountBV)
+import qualified Prelude as P
 
--- | Remove the LSBs from the accumulator output when the accumulator is ready
--- This is used for both the accumulator and the filter
+-- | Latch the most significant bits when a complete sum is available.
 truncateAccum ::
-  forall adcWdith accumExtra.
-  (KnownNat adcWdith, KnownNat accumExtra) =>
-  -- | The previous accum
-  BitVector adcWdith ->
-  -- | parts of the tuple
-  --
-  -- 1. Accumulator output
-  -- 2. Boolean for when the accumulator is ready
-  (BitVector (adcWdith + accumExtra), Bool) ->
-  -- | parts of tuple
-  --
-  -- 1. updated accum
-  -- 2. output accum
-  (BitVector adcWdith, BitVector adcWdith)
-truncateAccum accum (sigma, rollover)
-  | rollover = (fst (split sigma), accum)
+  forall adcWidth accumExtra.
+  (KnownNat adcWidth, KnownNat accumExtra) =>
+  BitVector adcWidth ->
+  (BitVector (adcWidth + accumExtra), Bool) ->
+  (BitVector adcWidth, BitVector adcWidth)
+truncateAccum accum (sigma, ready)
+  | ready = (fst (split sigma), accum)
   | otherwise = (accum, accum)
 
-
+{- | Count ones over a complete conversion window, then discard the extra
+accumulator bits. The ready signal is aligned with the registered result.
+-}
 accumulator ::
   forall adcWidth accumExtra inputWidth dom.
-  ( HiddenClockResetEnable dom,
-    KnownNat accumExtra,
-    KnownNat adcWidth,
-    KnownNat inputWidth,
-    inputWidth <= (adcWidth + accumExtra)
+  ( HiddenClockResetEnable dom
+  , KnownNat accumExtra
+  , KnownNat adcWidth
+  , KnownNat inputWidth
+  , inputWidth <= (adcWidth + accumExtra)
   ) =>
-  -- | The accumulator width
   SNat (accumExtra + adcWidth) ->
-  -- | The amount of ones from the input
   Signal dom (BitVector inputWidth) ->
-  -- | Parts of the Tuple
-  --
-  -- 1. The accumulator output
-  -- 2. Accumulator ready going to the filter
-  ( Signal dom (BitVector adcWidth),
-    Signal dom Bool
-  )
-accumulator _ numOnes = (accum, rollover)
-  where
-    accum = mealyB truncateAccum 0 (sigma, rollover)
-    (sigma, rollover) =
-        mealyB accumulatorCounter (accumInit , False, 0, 0) numOnes
-    accumInit = 0 :: BitVector (accumExtra + adcWidth + 1)
+  (Signal dom (BitVector adcWidth), Signal dom Bool)
+accumulator _ numOnes = (accum, register False rollover)
+ where
+  accum = mealyB truncateAccum 0 (sigma, rollover)
+  (sigma, rollover) =
+    mealyB accumulatorCounter (0 :: BitVector (accumExtra + adcWidth), 0) numOnes
 
--- | The counter for sigma, which counts counts the number of ones from
--- the input and resets when count is equal to zero
+{- | Saturate the sum before truncating: an all-ones input represents full
+scale, which must not wrap to zero. Include the last input in each window.
+-}
 accumulatorCounter ::
   forall sigmaWidth inputWidth.
   (KnownNat sigmaWidth, KnownNat inputWidth, inputWidth <= sigmaWidth) =>
-  -- | Parts of the Tuple
-  --
-  -- 1. The previous sigma
-  -- 2. bool for when sigma is ready
-  -- 3. previous number of ones from the input
-  -- 4. previous value of the main counter-> BitVector n1
-  ( BitVector (sigmaWidth + 1),
-    Bool,
-    BitVector inputWidth,
-    Unsigned (sigmaWidth - inputWidth + 1)
-  ) ->
-  -- | number of ones from the input
+  (BitVector sigmaWidth, Unsigned (sigmaWidth - inputWidth + 1)) ->
   BitVector inputWidth ->
-  -- | Parts of the Tuple
-  --
-  -- 1. The new sigma
-  -- 2. bool for when sigma is ready
-  -- 3. new number of ones from the input
-  -- 4. new value of the main counter
-  -- 5. The accumulator output
-  -- 6. Accumulator ready going to the filter
-  ( ( BitVector (sigmaWidth + 1),
-      Bool,
-      BitVector inputWidth,
-      Unsigned (sigmaWidth - inputWidth + 1)
-    ),
-    ( BitVector sigmaWidth,
-      Bool
-    )
+  ( (BitVector sigmaWidth, Unsigned (sigmaWidth - inputWidth + 1))
+  , (BitVector sigmaWidth, Bool)
   )
-accumulatorCounter (sigma, rollover, numOnes, count) numOnes' =
-  ((newState, rollover', numOnes', count'), (resize sigma, rollover))
-  where
-    count' = count + 1
-    rollover' = (count == 0)
-    newState
-      | rollover = resize numOnes
-      | sigma /= maxBound = min (sigma + resize numOnes) (shiftR maxBound 1)
-      | otherwise = maxBound
+accumulatorCounter (sigma, count) numOnes =
+  ((if rollover then 0 else total, count + 1), (total, rollover))
+ where
+  rollover = count == maxBound
+  total = resize (min (extend sigma + resize numOnes) limit)
+  limit = extend (maxBound :: BitVector sigmaWidth) :: BitVector (sigmaWidth + 1)
 
--- | Box avaraging filter
--- | All functions that start with filter are used for the box averaging filter
-filter ::
-  forall dom adcWidth filterDepth .
+{- | Average non-overlapping blocks of 2^filterDepth accumulator results.
+A depth of zero passes each result through with one register of latency.
+-}
+boxFilter ::
+  forall dom adcWidth filterDepth.
   (HiddenClockResetEnable dom, KnownNat adcWidth, KnownNat filterDepth) =>
-  -- | Filter Depth
   SNat filterDepth ->
-  -- | The input of the filter, width is equal to the adc width
   Signal dom (BitVector adcWidth) ->
-  -- | Boolean to show when the accumulator is ready
   Signal dom Bool ->
-  -- | Parts of the tuple
-  -- 1. The filtered output
-  -- 2. trigger when a new sample is ready
-  ( Signal dom (BitVector adcWidth),
-    Signal dom Bool
-  )
-filter _ dataIn accumRdy = (dataOut, resultValid)
-  where
-    count = regEn (0 :: Unsigned filterDepth) accumRdy (count + 1)
-    accum = mealyB filterAccumulator 0 (count, dataIn, accumulate)
-    dataOut = mealyB truncateAccum 0 (accum, latchResult)
-    accumRdyD1 = register False accumRdy
-    accumRdyD2 = register False accumRdyD1
-    accumulate = accumRdyD1 .&&. (not <$> accumRdyD2)
-    latchResult = accumulate .&&. (count .==. 1)
-    resultValid = register False latchResult
+  (Signal dom (BitVector adcWidth), Signal dom Bool)
+boxFilter _ dataIn accumRdy = (dataOut, register False latchResult)
+ where
+  count = regEn (0 :: Unsigned filterDepth) accumRdy (count + 1)
+  accum = mealyB filterAccumulator 0 (count, dataIn, accumRdy)
+  latchResult = accumRdy .&&. (count .==. pure maxBound)
+  dataOut = mealyB truncateAccum 0 (accum, latchResult)
 
--- | The accumulator for the filter, it adds the input to accum when
--- the sample from the accumulator is ready
+-- | Include the current sample in the completed sum before clearing it.
 filterAccumulator ::
   forall filterDepth adcWidth.
   (KnownNat filterDepth, KnownNat adcWidth) =>
-  -- | previous count of the filter accumulator
   BitVector (filterDepth + adcWidth) ->
-  -- | Parts of the Tuple:
-  -- 1. The filter counter
-  -- 2. Input data from a filter accumulator
-  -- 3. boolean for when the sample from the filter accumulator is ready
   (Unsigned filterDepth, BitVector adcWidth, Bool) ->
-  -- | Parts of the Tuple
-  -- 1. the new count of the accumulator
-  -- 2. the downsampled output of the filter and adc
   (BitVector (filterDepth + adcWidth), BitVector (filterDepth + adcWidth))
-filterAccumulator accum (count, dataIn, accumulate)
-  | count == 1 && accumulate = (extend dataIn, accum)
-  | accumulate = (accum + extend dataIn, accum)
-  | otherwise = (accum, accum)
+filterAccumulator accum (count, dataIn, ready)
+  | not ready = (accum, accum)
+  | count == maxBound = (0, total)
+  | otherwise = (total, total)
+ where
+  total = accum + extend dataIn
 
--- | Sigma Delta ADC configurable in the ADC width, OSR and filter depth
---
--- | The frequency for the ADC is equal to
---  clk / 2^((AccumulatorWidth - BitsPerCycle - 1) + FilterDepth),
--- where clk is the operating frequency of the ADC
---
--- The R and C of the low pass network need to be chosen such that:
--- RC inbetween 200 and 1000 x clk, where clk is the frequency of
--- output
---
--- For the design either lvds or an external comparator can be used
--- the input signal had to be connected to the positive input while
--- the output from a low pass RC-network connects to the negative input.
--- The input is a bitvector such that ddr or a deserialiser can be utilised
--- to get more bits per clock cycle for an increased sampling frequency.
+{- | Sigma-delta ADC with configurable output resolution and two stages of
+decimation.
+
+For an @adcWidth@-bit result and an @accumWidth = adcWidth + accumExtra@-bit
+accumulator, each conversion counts @2^accumWidth@ comparator samples.
+It saturates the sum at @2^accumWidth - 1@ and drops @accumExtra@ least
+significant bits. Increasing @accumExtra@ increases oversampling at the
+cost of conversion rate. The box filter then averages @2^filterDepth@
+conversions, rounding down. Increasing its depth reduces output rate and
+bandwidth; zero disables averaging.
+
+The input contains @inputWidth + 1@ successive samples per clock. This
+number must be a power of two so each conversion window contains exactly
+@2^accumWidth@ samples. The accumulator must be wide enough to represent
+the population count of an input word.
+
+With the enable continuously asserted, the output rate is
+@clockHz * (inputWidth + 1) / 2^(accumWidth + filterDepth)@.
+Use 'sigmaDeltaSampleRate' to calculate it. The first valid result appears
+after a full block plus two register stages: for a block of @N@ input
+clock cycles, inputs at cycles @0 .. N-1@ produce a result at cycle @N+1@.
+No partial result is emitted after reset. Output data holds its last
+result between conversions. Disabling the circuit freezes all state,
+including the ready flag; consume results only on enabled cycles.
+-}
 sigmaDeltaADC ::
-  forall adcWidth accumExtra filterDepth inputWidth dom .
-  ( HiddenClockResetEnable dom,
-    KnownNat adcWidth,
-    KnownNat accumExtra,
-    KnownNat inputWidth,
-    CLog 2 (inputWidth + 2) <= (adcWidth + accumExtra)
+  forall adcWidth accumExtra filterDepth inputWidth dom.
+  ( HiddenClockResetEnable dom
+  , KnownNat adcWidth
+  , KnownNat accumExtra
+  , KnownNat inputWidth
+  , 1 <= adcWidth
+  , inputWidth + 1 ~ 2 ^ CLog 2 (inputWidth + 1)
+  , CLog 2 (inputWidth + 2) <= (adcWidth + accumExtra)
   ) =>
-  -- | Accumulator width
-  -- Has to be larger or equal to the ADC width,
-  -- the OSR is equal to 2^(AccumulatorWidth - ADCwidth)
+  -- | Accumulator width; at least the output width and population-count width.
   SNat (accumExtra + adcWidth) ->
-  -- | Filter depth
-  -- The depth of the decimation filter,
-  -- the downsampling rate is equal to 2^FilterDepth
+  -- | Logarithm (base two) of the number of conversions to average.
   SNat filterDepth ->
-  -- | analog output from the comparator
+  -- | Captured comparator output; one or more successive samples per clock.
   Signal dom (BitVector (inputWidth + 1)) ->
-  -- | parts of the tuple
-  --
-  -- 1. feedback to the RC network:
-  --
-  -- 2. the digital output of the ADC
-  --
-  -- 3. Trigger for when the output is ready
-  ( Signal dom (BitVector (inputWidth + 1)),
-    Signal dom (BitVector adcWidth),
-    Signal dom Bool
+  -- | Registered feedback to the RC network, digital result, and result valid.
+  ( Signal dom (BitVector (inputWidth + 1))
+  , Signal dom (BitVector adcWidth)
+  , Signal dom Bool
   )
-sigmaDeltaADC accumWidth@SNat filterDepth@SNat analogCmp
-  = (delta, digitalOut, sampleRdy)
-  where
-    delta = register 0 analogCmp
-    (accum, accumRdy) = accumulator accumWidth numOnes
-    (digitalOut, sampleRdy) = filter filterDepth accum accumRdy
-    numOnes :: Signal dom (BitVector (CLog 2 (inputWidth + 2)))
-    numOnes = (pack . countOnes) <$> delta
-    countOnes :: BitVector (inputWidth + 1) -> Unsigned (CLog 2 (inputWidth + 2))
-    countOnes = fromIntegral . popCountBV
+sigmaDeltaADC accumWidth filterDepth@SNat analogCmp = (delta, digitalOut, sampleRdy)
+ where
+  delta = register 0 analogCmp
+  (accum, accumRdy) = accumulator accumWidth numOnes
+  (digitalOut, sampleRdy) = boxFilter filterDepth accum accumRdy
+  numOnes :: Signal dom (BitVector (CLog 2 (inputWidth + 2)))
+  numOnes = (pack . countOnes) <$> analogCmp
+  countOnes :: BitVector (inputWidth + 1) -> Unsigned (CLog 2 (inputWidth + 2))
+  countOnes bits = fromIntegral (popCountBV @inputWidth bits)
+
+{- | Output sample rate in hertz, assuming the circuit is always enabled.
+Takes the same accumulator and filter widths as 'sigmaDeltaADC', the
+number of comparator samples per clock, and the clock frequency in hertz.
+
+For example, a 12-bit accumulator, filter depth 2, and four samples per
+100 MHz clock give @100000000 * 4 / 2^(12+2) = 24414.0625@ samples/second.
+-}
+sigmaDeltaSampleRate ::
+  forall accumWidth filterDepth samplesPerCycle.
+  ( 1 <= samplesPerCycle
+  , samplesPerCycle ~ 2 ^ CLog 2 samplesPerCycle
+  , CLog 2 (samplesPerCycle + 1) <= accumWidth
+  ) =>
+  SNat accumWidth ->
+  SNat filterDepth ->
+  SNat samplesPerCycle ->
+  Rational ->
+  Rational
+sigmaDeltaSampleRate accumWidth filterDepth samplesPerCycle clockHz =
+  clockHz
+    * snatToNum samplesPerCycle
+    / fromInteger (2 P.^ (snatToNum accumWidth + snatToNum filterDepth :: Integer))

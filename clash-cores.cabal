@@ -241,6 +241,7 @@ test-suite unit-tests
     Test.Cores.Sgmii.RateAdapt
     Test.Cores.Sgmii.Sgmii
     Test.Cores.Sgmii.Sync
+    Test.Cores.SigmaDeltaADC
     Test.Cores.Spi
     Test.Cores.Spi.MultiSlave
     Test.Cores.Uart
