@@ -6,6 +6,7 @@ This repository contains a number of existing useful circuits written in Clash.
 These circuits include:
 - SPI core
 - I2C controller core
+- Sigma-delta ADC with configurable oversampling and box averaging
 - UART core
 - CRC core
 - Etherbone core

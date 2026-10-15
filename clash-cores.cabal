@@ -146,6 +146,7 @@ library
     Clash.Cores.Sgmii.PcsTransmit.OrderedSet
     Clash.Cores.Sgmii.RateAdapt
     Clash.Cores.Sgmii.Sync
+    Clash.Cores.SigmaDeltaADC
     Clash.Cores.Spi
     Clash.Cores.Uart
     Clash.Cores.Xilinx.BlockRam
@@ -240,6 +241,7 @@ test-suite unit-tests
     Test.Cores.Sgmii.RateAdapt
     Test.Cores.Sgmii.Sgmii
     Test.Cores.Sgmii.Sync
+    Test.Cores.SigmaDeltaADC
     Test.Cores.Spi
     Test.Cores.Spi.MultiSlave
     Test.Cores.Uart
