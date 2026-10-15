@@ -1,7 +1,17 @@
-module SigmaDeltaADC where
+{-|
+  Copyright   :  (C) 2023-2024, Floriaan Bulten
+                     2026, Rowan Goemans
+  License     :  BSD2 (see the file LICENSE)
+  Maintainer  :  Rowan Goemans <goemansrowan@gmail.com>
+
+  Sigma-delta ADC, originally contributed by FloriaanB in
+  <https://github.com/clash-lang/clash-compiler/pull/2617>.
+-}
+
+module Clash.Cores.SigmaDeltaADC where
 
 import Clash.Prelude hiding (filter, truncate)
-import Clash.Sized.Internal.BitVector
+import Clash.Sized.Internal.BitVector (popCountBV)
 
 -- | Remove the LSBs from the accumulator output when the accumulator is ready
 -- This is used for both the accumulator and the filter
@@ -127,7 +137,7 @@ filter _ dataIn accumRdy = (dataOut, resultValid)
 -- | The accumulator for the filter, it adds the input to accum when
 -- the sample from the accumulator is ready
 filterAccumulator ::
-  forall filterDepth adcWdith.
+  forall filterDepth adcWidth.
   (KnownNat filterDepth, KnownNat adcWidth) =>
   -- | previous count of the filter accumulator
   BitVector (filterDepth + adcWidth) ->
@@ -164,6 +174,7 @@ sigmaDeltaADC ::
   forall adcWidth accumExtra filterDepth inputWidth dom .
   ( HiddenClockResetEnable dom,
     KnownNat adcWidth,
+    KnownNat accumExtra,
     KnownNat inputWidth,
     CLog 2 (inputWidth + 2) <= (adcWidth + accumExtra)
   ) =>
@@ -194,4 +205,7 @@ sigmaDeltaADC accumWidth@SNat filterDepth@SNat analogCmp
     delta = register 0 analogCmp
     (accum, accumRdy) = accumulator accumWidth numOnes
     (digitalOut, sampleRdy) = filter filterDepth accum accumRdy
-    numOnes = pack <$> (popCountBV <$> delta)
+    numOnes :: Signal dom (BitVector (CLog 2 (inputWidth + 2)))
+    numOnes = (pack . countOnes) <$> delta
+    countOnes :: BitVector (inputWidth + 1) -> Unsigned (CLog 2 (inputWidth + 2))
+    countOnes = fromIntegral . popCountBV
