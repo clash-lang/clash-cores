@@ -59,7 +59,6 @@ jobs:
           secretKey: '${{ secrets.S3_SECRET_KEY }}'
           bucket: runner
           region: local
-          use-fallback: true
           retry: false
           key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-cabal-${{ matrix.clash }}-${{ matrix.ghc }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
           restore-keys: |
@@ -82,7 +81,6 @@ jobs:
           secretKey: '${{ secrets.S3_SECRET_KEY }}'
           bucket: runner
           region: local
-          use-fallback: true
           retry: false
           key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-cabal-${{ matrix.clash }}-${{ matrix.ghc }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
           path: ~/.cabal/store
@@ -133,7 +131,6 @@ jobs:
           secretKey: '${{ secrets.S3_SECRET_KEY }}'
           bucket: runner
           region: local
-          use-fallback: true
           retry: false
           key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-haddock-${{ matrix.clash }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
           restore-keys: |
@@ -156,7 +153,6 @@ jobs:
           secretKey: '${{ secrets.S3_SECRET_KEY }}'
           bucket: runner
           region: local
-          use-fallback: true
           retry: false
           key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-haddock-${{ matrix.clash }}-${{ hashFiles('.ci/cabal.project*', 'cabal.project*', '**/*.cabal') }}
           path: ~/.cabal/store
@@ -198,7 +194,6 @@ jobs:
           secretKey: '${{ secrets.S3_SECRET_KEY }}'
           bucket: runner
           region: local
-          use-fallback: true
           retry: false
           key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-stack-${{ hashFiles('stack.yaml', '**/*.cabal') }}
           restore-keys: |
@@ -223,7 +218,6 @@ jobs:
           secretKey: '${{ secrets.S3_SECRET_KEY }}'
           bucket: runner
           region: local
-          use-fallback: true
           retry: false
           key: clash-cores-${{ runner.os }}-${{ github.ref_name }}-stack-${{ hashFiles('stack.yaml', '**/*.cabal') }}
           path: ~/.stack
