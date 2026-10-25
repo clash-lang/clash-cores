@@ -143,3 +143,120 @@ compareBasicTB :: Signal XilinxSystem Bool
 compareBasicTB =
   basicRomTB compareBasic H.NaN $(memBlobTH Nothing halfCompareSamples)
 {-# ANN compareBasicTB (TestBench 'compareBasic) #-}
+
+sqrtBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.SqrtDefDelay Half
+sqrtBasic clk x = withClock clk $ withEnable enableGen $ H.sqrt x
+{-# OPAQUE sqrtBasic #-}
+{-# ANN sqrtBasic (unaryTopAnn "sqrtBasic") #-}
+
+sqrtBasicTB :: Signal XilinxSystem Bool
+sqrtBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> sqrtBasic clk a)
+    0
+    $(memBlobTH Nothing halfSqrtSamples)
+{-# ANN sqrtBasicTB (TestBench 'sqrtBasic) #-}
+
+-- | Square root using block memory
+sqrtBram
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem HalfSqrtBramDelay Half
+sqrtBram clk x =
+  withClock clk $ withEnable enableGen $
+    H.sqrtWith H.defConfig{H.bMemUsage = H.FullBMemUsage} x
+{-# OPAQUE sqrtBram #-}
+{-# ANN sqrtBram (unaryTopAnn "sqrtBram") #-}
+
+sqrtBramTB :: Signal XilinxSystem Bool
+sqrtBramTB =
+  unaryRomTB
+    (\clk a -> pack <$> sqrtBram clk a)
+    0
+    $(memBlobTH Nothing halfSqrtBramSamples)
+{-# ANN sqrtBramTB (TestBench 'sqrtBram) #-}
+
+-- | The IP is combinational, so this has no clock
+absBasic
+  :: DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem 0 Half
+absBasic = H.abs
+{-# OPAQUE absBasic #-}
+{-# ANN absBasic (unaryCombTopAnn "absBasic") #-}
+
+absBasicTB :: Signal XilinxSystem Bool
+absBasicTB =
+  unaryRomTB
+    (\_clk a -> pack <$> absBasic a)
+    0
+    $(memBlobTH Nothing halfAbsSamples)
+{-# ANN absBasicTB (TestBench 'absBasic) #-}
+
+-- | Conversion to the same precision
+convertBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem (H.ConvertDefDelay Half) Half
+convertBasic clk x = withClock clk $ withEnable enableGen $ H.convert x
+{-# OPAQUE convertBasic #-}
+{-# ANN convertBasic (unaryTopAnn "convertBasic") #-}
+
+convertBasicTB :: Signal XilinxSystem Bool
+convertBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> convertBasic clk a)
+    0
+    $(memBlobTH Nothing halfConvertSamples)
+{-# ANN convertBasicTB (TestBench 'convertBasic) #-}
+
+toFloatBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.ToFloatDefDelay Float
+toFloatBasic clk x = withClock clk $ withEnable enableGen $ H.toFloat x
+{-# OPAQUE toFloatBasic #-}
+{-# ANN toFloatBasic (unaryTopAnn "toFloatBasic") #-}
+
+toFloatBasicTB :: Signal XilinxSystem Bool
+toFloatBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> toFloatBasic clk a)
+    0
+    $(memBlobTH Nothing halfToFloatSamples)
+{-# ANN toFloatBasicTB (TestBench 'toFloatBasic) #-}
+
+toDoubleBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.ToDoubleDefDelay Double
+toDoubleBasic clk x = withClock clk $ withEnable enableGen $ H.toDouble x
+{-# OPAQUE toDoubleBasic #-}
+{-# ANN toDoubleBasic (unaryTopAnn "toDoubleBasic") #-}
+
+toDoubleBasicTB :: Signal XilinxSystem Bool
+toDoubleBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> toDoubleBasic clk a)
+    0
+    $(memBlobTH Nothing halfToDoubleSamples)
+{-# ANN toDoubleBasicTB (TestBench 'toDoubleBasic) #-}
+
+-- | Conversion through the generic API
+toDoubleGeneric
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem (G.ConvertDefDelay Half Double) Double
+toDoubleGeneric clk x = withClock clk $ withEnable enableGen $ G.convert x
+{-# OPAQUE toDoubleGeneric #-}
+{-# ANN toDoubleGeneric (unaryTopAnn "toDoubleGeneric") #-}
+
+toDoubleGenericTB :: Signal XilinxSystem Bool
+toDoubleGenericTB =
+  unaryRomTB
+    (\clk a -> pack <$> toDoubleGeneric clk a)
+    0
+    $(memBlobTH Nothing halfToDoubleSamples)
+{-# ANN toDoubleGenericTB (TestBench 'toDoubleGeneric) #-}

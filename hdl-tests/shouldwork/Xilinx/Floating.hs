@@ -19,7 +19,13 @@ import Numeric (showHex)
 
 import qualified Clash.Cores.Xilinx.Floating as F
 
+import Numeric.Half (Half)
+
 import Floating.Annotations
+import Floating.GenericTH
+  ( singleAbsSamples, singleConvertSamples, singleFromS64Samples
+  , singleFromU64Samples, singleSqrtSamples, singleToDoubleSamples
+  , singleToHalfSamples, singleToS32Samples )
 import Floating.RomTB
 import Floating.TH
 
@@ -309,3 +315,132 @@ fromSEnableTB = done
   clk = tbClockGen (not <$> done)
   rst = resetGen
 {-# ANN fromSEnableTB (TestBench 'fromSEnable) #-}
+
+sqrtBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.SqrtDefDelay Float
+sqrtBasic clk x = withClock clk $ withEnable enableGen $ F.sqrt x
+{-# OPAQUE sqrtBasic #-}
+{-# ANN sqrtBasic (unaryTopAnn "sqrtBasic") #-}
+
+sqrtBasicTB :: Signal XilinxSystem Bool
+sqrtBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> sqrtBasic clk a)
+    0
+    $(memBlobTH Nothing singleSqrtSamples)
+{-# ANN sqrtBasicTB (TestBench 'sqrtBasic) #-}
+
+-- | The IP is combinational, so this has no clock
+absBasic
+  :: DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem 0 Float
+absBasic = F.abs
+{-# OPAQUE absBasic #-}
+{-# ANN absBasic (unaryCombTopAnn "absBasic") #-}
+
+absBasicTB :: Signal XilinxSystem Bool
+absBasicTB =
+  unaryRomTB
+    (\_clk a -> pack <$> absBasic a)
+    0
+    $(memBlobTH Nothing singleAbsSamples)
+{-# ANN absBasicTB (TestBench 'absBasic) #-}
+
+-- | Conversion to the same precision
+convertBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem (F.ConvertDefDelay Float) Float
+convertBasic clk x = withClock clk $ withEnable enableGen $ F.convert x
+{-# OPAQUE convertBasic #-}
+{-# ANN convertBasic (unaryTopAnn "convertBasic") #-}
+
+convertBasicTB :: Signal XilinxSystem Bool
+convertBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> convertBasic clk a)
+    0
+    $(memBlobTH Nothing singleConvertSamples)
+{-# ANN convertBasicTB (TestBench 'convertBasic) #-}
+
+toHalfBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ToHalfDefDelay Half
+toHalfBasic clk x = withClock clk $ withEnable enableGen $ F.toHalf x
+{-# OPAQUE toHalfBasic #-}
+{-# ANN toHalfBasic (unaryTopAnn "toHalfBasic") #-}
+
+toHalfBasicTB :: Signal XilinxSystem Bool
+toHalfBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> toHalfBasic clk a)
+    0
+    $(memBlobTH Nothing singleToHalfSamples)
+{-# ANN toHalfBasicTB (TestBench 'toHalfBasic) #-}
+
+toDoubleBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ToDoubleDefDelay Double
+toDoubleBasic clk x = withClock clk $ withEnable enableGen $ F.toDouble x
+{-# OPAQUE toDoubleBasic #-}
+{-# ANN toDoubleBasic (unaryTopAnn "toDoubleBasic") #-}
+
+toDoubleBasicTB :: Signal XilinxSystem Bool
+toDoubleBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> toDoubleBasic clk a)
+    0
+    $(memBlobTH Nothing singleToDoubleSamples)
+{-# ANN toDoubleBasicTB (TestBench 'toDoubleBasic) #-}
+
+fromU64Basic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 (Unsigned 64)
+  -> DSignal XilinxSystem F.FromU64DefDelay Float
+fromU64Basic clk x = withClock clk $ withEnable enableGen $ F.fromU64 x
+{-# OPAQUE fromU64Basic #-}
+{-# ANN fromU64Basic (unaryTopAnn "fromU64Basic") #-}
+
+fromU64BasicTB :: Signal XilinxSystem Bool
+fromU64BasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> fromU64Basic clk a)
+    0
+    $(memBlobTH Nothing singleFromU64Samples)
+{-# ANN fromU64BasicTB (TestBench 'fromU64Basic) #-}
+
+fromS64Basic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 (Signed 64)
+  -> DSignal XilinxSystem F.FromS64DefDelay Float
+fromS64Basic clk x = withClock clk $ withEnable enableGen $ F.fromS64 x
+{-# OPAQUE fromS64Basic #-}
+{-# ANN fromS64Basic (unaryTopAnn "fromS64Basic") #-}
+
+fromS64BasicTB :: Signal XilinxSystem Bool
+fromS64BasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> fromS64Basic clk a)
+    0
+    $(memBlobTH Nothing singleFromS64Samples)
+{-# ANN fromS64BasicTB (TestBench 'fromS64Basic) #-}
+
+toS32Basic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ToS32DefDelay (Signed 32)
+toS32Basic clk x = withClock clk $ withEnable enableGen $ F.toS32 x
+{-# OPAQUE toS32Basic #-}
+{-# ANN toS32Basic (unaryTopAnn "toS32Basic") #-}
+
+toS32BasicTB :: Signal XilinxSystem Bool
+toS32BasicTB =
+  unaryRomTB
+    toS32Basic
+    0
+    $(memBlobTH Nothing singleToS32Samples)
+{-# ANN toS32BasicTB (TestBench 'toS32Basic) #-}
