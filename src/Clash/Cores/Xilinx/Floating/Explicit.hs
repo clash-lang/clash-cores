@@ -46,6 +46,28 @@ module Clash.Cores.Xilinx.Floating.Explicit
   , fromS32With
   , fromS32
   , FromS32DefDelay
+  , sqrtWith
+  , sqrt
+  , SqrtDefDelay
+  , abs
+  , fromU64With
+  , fromU64
+  , FromU64DefDelay
+  , fromS64With
+  , fromS64
+  , FromS64DefDelay
+  , toS32With
+  , toS32
+  , ToS32DefDelay
+  , convertWith
+  , convert
+  , ConvertDefDelay
+  , toHalfWith
+  , toHalf
+  , ToHalfDefDelay
+  , toDoubleWith
+  , toDouble
+  , ToDoubleDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -56,15 +78,17 @@ module Clash.Cores.Xilinx.Floating.Explicit
   , xilinxNaN
   ) where
 
-import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Explicit.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
+import Numeric.Half (Half)
 
 import Clash.Cores.Xilinx.Floating.Generic.Explicit (defConfig)
 import qualified Clash.Cores.Xilinx.Floating.Generic.Explicit as G
 import Clash.Cores.Xilinx.Floating.Internal
   ( ArchOpt(..), BMemUsage(..), Config(..), DspUsage(..), Ordering(..)
-  , toMaybeOrdering, xilinxNaN )
+  , XilinxFloat, toMaybeOrdering, xilinxNaN )
 
 -- | Customizable floating point addition.
 addWith
@@ -306,3 +330,317 @@ compare = withFrozenCallStack G.compare
 
 -- | The default delay for @Float@ comparison
 type CompareDefDelay = G.CompareDefDelay Float
+
+-- | Customizable floating point square root.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+--
+-- The t'Config' makes no difference in single precision: only the square root
+-- in half precision uses it (@bMemUsage@).
+sqrtWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sqrtWith = withFrozenCallStack G.sqrtWith
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root with default settings.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+sqrt
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + SqrtDefDelay) Float
+sqrt = withFrozenCallStack G.sqrt
+{-# INLINE sqrt #-}
+
+-- | The default delay for floating point square root with default
+-- customization.
+type SqrtDefDelay = G.SqrtDefDelay Float
+
+-- | Floating point absolute value.
+--
+-- The IP only clears the sign bit. Unlike the other operations, it leaves
+-- subnormal numbers and the payloads of NaNs alone.
+--
+-- The IP only supports a latency of zero, so the result has the same delay as
+-- the input. The IP is then combinational, without a clock or clock enable,
+-- so this function does not take them either.
+abs
+  :: forall dom n
+   . KnownDomain dom
+  => DSignal dom n Float
+  -> DSignal dom n Float
+abs = G.abs
+{-# INLINE abs #-}
+
+-- | Customizable conversion of @Unsigned 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromU64With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + d) Float
+fromU64With = withFrozenCallStack G.fromU64With
+{-# INLINE fromU64With #-}
+
+-- | Conversion of @Unsigned 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromU64
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + FromU64DefDelay) Float
+fromU64 = withFrozenCallStack G.fromU64
+{-# INLINE fromU64 #-}
+
+-- | The default delay for conversion of @Unsigned 64@ to @Float@
+type FromU64DefDelay = G.FromU64DefDelay Float
+
+-- | Customizable conversion of @Signed 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromS64With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Signed 64)
+  -> DSignal dom (n + d) Float
+fromS64With = withFrozenCallStack G.fromS64With
+{-# INLINE fromS64With #-}
+
+-- | Conversion of @Signed 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromS64
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Signed 64)
+  -> DSignal dom (n + FromS64DefDelay) Float
+fromS64 = withFrozenCallStack G.fromS64
+{-# INLINE fromS64 #-}
+
+-- | The default delay for conversion of @Signed 64@ to @Float@
+type FromS64DefDelay = G.FromS64DefDelay Float
+
+-- | Customizable conversion of @Float@ to @Signed 32@.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toS32With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Signed 32)
+toS32With = withFrozenCallStack G.toS32With
+{-# INLINE toS32With #-}
+
+-- | Conversion of @Float@ to @Signed 32@, with default delay.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+toS32
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ToS32DefDelay) (Signed 32)
+toS32 = withFrozenCallStack G.toS32
+{-# INLINE toS32 #-}
+
+-- | The default delay for conversion of @Float@ to @Signed 32@
+type ToS32DefDelay = G.ToS32DefDelay Float
+
+-- | Customizable conversion of @Float@ to precision @b@, which can be @Float@
+-- itself.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+convertWith
+  :: forall b d dom n
+   . ( XilinxFloat b
+     , KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) b
+convertWith = withFrozenCallStack G.convertWith
+{-# INLINE convertWith #-}
+
+-- | Conversion of @Float@ to precision @b@, which can be @Float@ itself, with
+-- default delay.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+convert
+  :: forall b dom n
+   . ( XilinxFloat b
+     , KnownNat (ConvertDefDelay b)
+     , KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ConvertDefDelay b) b
+convert = withFrozenCallStack G.convert
+{-# INLINE convert #-}
+
+-- | The default delay for conversion of @Float@ to precision @b@
+type ConvertDefDelay b = G.ConvertDefDelay Float b
+
+-- | Customizable conversion of @Float@ to @Half@.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toHalfWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Half
+toHalfWith = withFrozenCallStack G.convertWith
+{-# INLINE toHalfWith #-}
+
+-- | Conversion of @Float@ to @Half@, with default delay.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+toHalf
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ToHalfDefDelay) Half
+toHalf = withFrozenCallStack G.convert
+{-# INLINE toHalf #-}
+
+-- | The default delay for conversion of @Float@ to @Half@
+type ToHalfDefDelay = G.ConvertDefDelay Float Half
+
+-- | Customizable conversion of @Float@ to @Double@.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toDoubleWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Double
+toDoubleWith = withFrozenCallStack G.convertWith
+{-# INLINE toDoubleWith #-}
+
+-- | Conversion of @Float@ to @Double@, with default delay.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+toDouble
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ToDoubleDefDelay) Double
+toDouble = withFrozenCallStack G.convert
+{-# INLINE toDouble #-}
+
+-- | The default delay for conversion of @Float@ to @Double@
+type ToDoubleDefDelay = G.ConvertDefDelay Float Double

@@ -14,7 +14,10 @@ t'Clash.Cores.Xilinx.Floating.Generic.XilinxFloat'. See
 they behave. The default delays depend on the precision, so they are type
 families. The IP does not support conversions between integers and half
 precision, so 'fromU32' and 'fromS32' only produce 'Float' and 'Double', see
-t'Clash.Cores.Xilinx.Floating.Generic.FromInt32'.
+t'Clash.Cores.Xilinx.Floating.Generic.FromInt32', and likewise for 'fromU64'
+and 'fromS64' (t'Clash.Cores.Xilinx.Floating.Generic.FromInt64') and 'toS32'
+(t'Clash.Cores.Xilinx.Floating.Generic.ToInt32'). 'convert' converts between
+any two precisions.
 
 Related modules:
 
@@ -35,44 +38,65 @@ maximum clock frequency.
 
 The maximum latencies, as reported by Vivado 2022.1:
 
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| Function             | Configuration                         | Half       | Float      | Double, 7-series | Double, UltraScale(+) |
-+======================+=======================================+============+============+==================+=======================+
-| 'addWith', 'subWith' | @SpeedArch@, @NoDspUsage@             | 8          | 12         | 12               | 12                    |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'addWith', 'subWith' | @SpeedArch@, @MediumDspUsage@         | 11         | 11         | /rejected/       | /rejected/            |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'addWith', 'subWith' | @SpeedArch@, @FullDspUsage@ (default) | 11         | 11         | 14               | 14                    |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'addWith', 'subWith' | @SpeedArch@, @MaxDspUsage@            | /rejected/ | /rejected/ | /rejected/       | /rejected/            |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'addWith', 'subWith' | @LatencyArch@, any @DspUsage@         | 7          | 8          | 8                | 8                     |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'mulWith'            | @NoDspUsage@                          | 6          | 8          | 9                | 9                     |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'mulWith'            | @MediumDspUsage@                      | /rejected/ | 8          | 15               | 12                    |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'mulWith'            | @FullDspUsage@ (default)              | 6          | 8          | 15               | 12                    |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'mulWith'            | @MaxDspUsage@                         | 8          | 6          | 16               | 13                    |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'divWith'            | any                                   | 15         | 28         | 57               | 57                    |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'compareWith'        |                                       | 2          | 2          | 2                | 2                     |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'fromU32With'        |                                       | n/a        | 5          | 5                | 5                     |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
-| 'fromS32With'        |                                       | n/a        | 6          | 6                | 6                     |
-+----------------------+---------------------------------------+------------+------------+------------------+-----------------------+
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| Function                   | Configuration                         | Half          | Float      | Double, 7-series | Double, UltraScale(+) |
++============================+=======================================+===============+============+==================+=======================+
+| 'addWith', 'subWith'       | @SpeedArch@, @NoDspUsage@             | 8             | 12         | 12               | 12                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'addWith', 'subWith'       | @SpeedArch@, @MediumDspUsage@         | 11            | 11         | /rejected/       | /rejected/            |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'addWith', 'subWith'       | @SpeedArch@, @FullDspUsage@ (default) | 11            | 11         | 14               | 14                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'addWith', 'subWith'       | @SpeedArch@, @MaxDspUsage@            | /rejected/    | /rejected/ | /rejected/       | /rejected/            |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'addWith', 'subWith'       | @LatencyArch@, any @DspUsage@         | 7             | 8          | 8                | 8                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'mulWith'                  | @NoDspUsage@                          | 6             | 8          | 9                | 9                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'mulWith'                  | @MediumDspUsage@                      | /rejected/    | 8          | 15               | 12                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'mulWith'                  | @FullDspUsage@ (default)              | 6             | 8          | 15               | 12                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'mulWith'                  | @MaxDspUsage@                         | 8             | 6          | 16               | 13                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'divWith'                  | any                                   | 15            | 28         | 57               | 57                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'compareWith'              |                                       | 2             | 2          | 2                | 2                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'fromU32With'              |                                       | n/a           | 5          | 5                | 5                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'fromS32With'              |                                       | n/a           | 6          | 6                | 6                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'sqrtWith'                 | @NoBMemUsage@ (default)               | 15            | 28         | 57               | 57                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'sqrtWith'                 | @FullBMemUsage@                       | 4 (minimum 1) | 28         | 57               | 57                    |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'abs'                      |                                       | 0 (only)      | 0 (only)   | 0 (only)         | 0 (only)              |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'fromU64With'              |                                       | n/a           | 6          | 6                | 6                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'fromS64With'              |                                       | n/a           | 7          | 7                | 7                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'toS32With'                |                                       | n/a           | 6          | 6                | 6                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'convertWith', to @Half@   |                                       | 2             | 3          | 3                | 3                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'convertWith', to @Float@  |                                       | 2             | 2          | 3                | 3                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
+| 'convertWith', to @Double@ |                                       | 2             | 2          | 2                | 2                     |
++----------------------------+---------------------------------------+---------------+------------+------------------+-----------------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
-ignores the @dspUsage@ setting of 'addWith' and 'subWith'. Only 'Double'
-multiplication has a different maximum on 7-series devices than on UltraScale
-and UltraScale+ devices. The measured 7-series devices are Artix-7, Kintex-7
-and Spartan-7; the UltraScale and UltraScale+ devices are Kintex UltraScale,
-Kintex UltraScale+ and Zynq UltraScale+. Other versions of Vivado might accept
-other latencies.
+ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only
+uses the @bMemUsage@ setting in half precision; with @FullBMemUsage@ it also
+needs a latency of at least one. The IP only supports a latency of zero for
+'abs'. For 'convertWith', the columns are the precision of the input. Only
+'Double' multiplication has a different maximum on 7-series devices than on
+UltraScale and UltraScale+ devices. The measured 7-series devices are Artix-7,
+Kintex-7 and Spartan-7; the UltraScale and UltraScale+ devices are Kintex
+UltraScale, Kintex UltraScale+ and Zynq UltraScale+. Other versions of Vivado
+might accept other latencies.
 
 The functions without @With@ use
 'Clash.Cores.Xilinx.Floating.Generic.defConfig' and the default delays
@@ -88,6 +112,8 @@ module Clash.Cores.Xilinx.Floating.Generic
   ( -- * Precisions
     E.XilinxFloat(..)
   , E.FromInt32
+  , E.FromInt64
+  , E.ToInt32
     -- * Instantiating IP
   , addWith
   , add
@@ -112,6 +138,22 @@ module Clash.Cores.Xilinx.Floating.Generic
   , fromS32With
   , fromS32
   , E.FromS32DefDelay
+  , sqrtWith
+  , sqrt
+  , E.SqrtDefDelay
+  , abs
+  , fromU64With
+  , fromU64
+  , E.FromU64DefDelay
+  , fromS64With
+  , fromS64
+  , E.FromS64DefDelay
+  , toS32With
+  , toS32
+  , E.ToS32DefDelay
+  , convertWith
+  , convert
+  , E.ConvertDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -122,7 +164,8 @@ module Clash.Cores.Xilinx.Floating.Generic
   , E.xilinxNaN
   ) where
 
-import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -352,3 +395,222 @@ fromS32
   -> DSignal dom (n + E.FromS32DefDelay a) a
 fromS32 = withFrozenCallStack $ hideEnable $ hideClock E.fromS32
 {-# INLINE fromS32 #-}
+
+-- | Customizable floating point square root.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+--
+-- Only the @bMemUsage@ setting of the t'E.Config' matters, and only in half
+-- precision: with 'E.FullBMemUsage' the IP uses block memory, which lowers
+-- its maximum latency.
+sqrtWith
+  :: forall a d dom n
+   . ( E.XilinxFloat a
+     , HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n a
+  -> DSignal dom (n + d) a
+sqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.sqrtWith cfg
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root with default settings.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+sqrt
+  :: forall a dom n
+   . ( E.XilinxFloat a
+     , KnownNat (E.SqrtDefDelay a)
+     , HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n a
+  -> DSignal dom (n + E.SqrtDefDelay a) a
+sqrt = withFrozenCallStack $ hideEnable $ hideClock E.sqrt
+{-# INLINE sqrt #-}
+
+-- | Floating point absolute value.
+--
+-- The IP only clears the sign bit. Unlike the other operations, it leaves
+-- subnormal numbers and the payloads of NaNs alone.
+--
+-- The IP only supports a latency of zero, so the result has the same delay as
+-- the input. The IP is then combinational, without a clock or clock enable,
+-- so this function does not take them either.
+abs
+  :: forall a dom n
+   . ( E.XilinxFloat a
+     , KnownDomain dom
+     )
+  => DSignal dom n a
+  -> DSignal dom n a
+abs = E.abs
+{-# INLINE abs #-}
+
+-- | Customizable conversion of @Unsigned 64@ to a floating point number. It
+-- rounds to nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromU64With
+  :: forall a d dom n
+   . ( E.FromInt64 a
+     , HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + d) a
+fromU64With = withFrozenCallStack $ hideEnable $ hideClock E.fromU64With
+{-# INLINE fromU64With #-}
+
+-- | Conversion of @Unsigned 64@ to a floating point number, with default delay.
+-- It rounds to nearest, ties to even.
+fromU64
+  :: forall a dom n
+   . ( E.FromInt64 a
+     , KnownNat (E.FromU64DefDelay a)
+     , HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + E.FromU64DefDelay a) a
+fromU64 = withFrozenCallStack $ hideEnable $ hideClock E.fromU64
+{-# INLINE fromU64 #-}
+
+-- | Customizable conversion of @Signed 64@ to a floating point number. It
+-- rounds to nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromS64With
+  :: forall a d dom n
+   . ( E.FromInt64 a
+     , HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n (Signed 64)
+  -> DSignal dom (n + d) a
+fromS64With = withFrozenCallStack $ hideEnable $ hideClock E.fromS64With
+{-# INLINE fromS64With #-}
+
+-- | Conversion of @Signed 64@ to a floating point number, with default delay.
+-- It rounds to nearest, ties to even.
+fromS64
+  :: forall a dom n
+   . ( E.FromInt64 a
+     , KnownNat (E.FromS64DefDelay a)
+     , HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Signed 64)
+  -> DSignal dom (n + E.FromS64DefDelay a) a
+fromS64 = withFrozenCallStack $ hideEnable $ hideClock E.fromS64
+{-# INLINE fromS64 #-}
+
+-- | Customizable conversion of a floating point number to @Signed 32@.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toS32With
+  :: forall a d dom n
+   . ( E.ToInt32 a
+     , HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n a
+  -> DSignal dom (n + d) (Signed 32)
+toS32With = withFrozenCallStack $ hideEnable $ hideClock E.toS32With
+{-# INLINE toS32With #-}
+
+-- | Conversion of a floating point number to @Signed 32@, with default delay.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+toS32
+  :: forall a dom n
+   . ( E.ToInt32 a
+     , KnownNat (E.ToS32DefDelay a)
+     , HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n a
+  -> DSignal dom (n + E.ToS32DefDelay a) (Signed 32)
+toS32 = withFrozenCallStack $ hideEnable $ hideClock E.toS32
+{-# INLINE toS32 #-}
+
+-- | Customizable conversion of a floating point number in precision @a@ to
+-- precision @b@. The precisions can be the same.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+convertWith
+  :: forall a b d dom n
+   . ( E.XilinxFloat a
+     , E.XilinxFloat b
+     , HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n a
+  -> DSignal dom (n + d) b
+convertWith = withFrozenCallStack $ hideEnable $ hideClock E.convertWith
+{-# INLINE convertWith #-}
+
+-- | Conversion of a floating point number in precision @a@ to precision @b@,
+-- with default delay. The precisions can be the same.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+convert
+  :: forall a b dom n
+   . ( E.XilinxFloat a
+     , E.XilinxFloat b
+     , KnownNat (E.ConvertDefDelay a b)
+     , HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n a
+  -> DSignal dom (n + E.ConvertDefDelay a b) b
+convert = withFrozenCallStack $ hideEnable $ hideClock E.convert
+{-# INLINE convert #-}

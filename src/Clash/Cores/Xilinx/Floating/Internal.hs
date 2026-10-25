@@ -31,14 +31,22 @@ module Clash.Cores.Xilinx.Floating.Internal
   , xilinxBinaryExact
   , xilinxRoundExact
   , xilinxCompare
+  , xilinxSqrt
+  , xilinxAbs
+  , xilinxConvert
+  , xilinxFromInteger
+  , xilinxToS32
+  , xilinxRoundScaled
   , toMaybeOrdering
   , unaryInst
+  , unaryCombinationalInst
   , binaryInst
   ) where
 
 import Clash.Prelude hiding (Ordering(..))
 import qualified Prelude as P
 import GHC.Float (double2Float, float2Double)
+import GHC.Num.Integer (integerLog2)
 import Numeric.Half (Half)
 
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
@@ -59,7 +67,7 @@ data Config = Config
   , dspUsage :: !DspUsage
     -- ^ DSP slice usage
   , bMemUsage :: !BMemUsage
-    -- ^ Use block memory for exponential function
+    -- ^ Block memory usage of the square root in half precision
   } deriving (Eq, Show)
 
 -- | Architecture optimizations.
@@ -98,7 +106,9 @@ dspUsageToTcl = \case
 
 -- | Block memory usage.
 --
--- Configures whether the exponential operator uses block memory.
+-- Configures whether the square root in half precision uses block memory,
+-- which lowers its maximum latency. The other operations, including the square
+-- root in single and double precision, ignore this setting.
 data BMemUsage
   = NoBMemUsage
     -- ^ Do not use block memory
@@ -276,6 +286,134 @@ xilinxRoundExact r
   emin = fst (floatRange (undefined :: a))
   minNormal = 2 ^^ (emin - 1) :: Rational
 
+-- | Round @m * 2^e@, for a non-zero integer @m@, the way the IP does: to the
+-- precision of the target type as if the exponent were unbounded (to nearest,
+-- ties to even), and then to a zero of the same sign if the magnitude is below
+-- the smallest normal number, or to an infinity of the same sign if it is at
+-- least @2^emax@ (it rounded beyond the largest finite number). Like
+-- 'xilinxRoundExact', but it uses integer arithmetic only, so it rounds
+-- exactly in every precision. ('fromRational' to 'Half' rounds to 'Float'
+-- first, which can round wrongly.)
+--
+-- __NB__: Not synthesizable
+xilinxRoundScaled :: forall a. RealFloat a => Integer -> Int -> a
+xilinxRoundScaled m e
+  | m < 0 = negate (xilinxRoundScaled (negate m) e)
+  | top > emax = 1 / 0
+  | top < emin = 0
+  -- Exact: 'q' has at most 'p' significant bits (if rounding carried, it is a
+  -- power of two) and the result is a normal number. For 'Half',
+  -- 'encodeFloat' goes through 'Float', which is exact as well.
+  | otherwise = encodeFloat q (e + dropped)
+ where
+  p = floatDigits (undefined :: a)
+  -- The smallest normal number is @2^(emin-1)@, the largest finite number is
+  -- just below @2^emax@
+  (emin, emax) = floatRange (undefined :: a)
+  -- Drop the bits below the precision, rounding to nearest, ties to even
+  dropped = max 0 (bitLength m - p)
+  q = roundShiftR dropped m
+  -- The rounded magnitude @q * 2^(e + dropped)@ lies in @[2^(top-1), 2^top)@
+  top = e + dropped + bitLength q
+
+-- | Number of bits of a positive integer
+bitLength :: Integer -> Int
+bitLength i = fromIntegral (integerLog2 i) + 1
+
+-- | Shift a non-negative integer to the right by the given number of bits,
+-- rounding to nearest, ties to even.
+roundShiftR :: Int -> Integer -> Integer
+roundShiftR s m
+  | s <= 0 = m
+  | rest > half || (rest == half && odd q) = q + 1
+  | otherwise = q
+ where
+  q = m `shiftR` s
+  rest = m .&. (bit s - 1)
+  half = bit (s - 1)
+
+-- | Model of the IP's square root.
+--
+-- Like the IP, it treats every NaN input as the NaN the IP generates and
+-- subnormal inputs as a zero of the same sign. The square root of a negative
+-- zero is a negative zero, so negative subnormal inputs give a negative zero.
+-- The square root of any other negative number, including negative infinity,
+-- is NaN.
+--
+-- The square roots of normal numbers are normal numbers, so no flushing to
+-- zero or overflow happens. The IP rounds them to nearest, like 'sqrt' does
+-- for 'Float' and 'Double': IEEE 754 requires square roots to be correctly
+-- rounded. Square roots are never exactly halfway between two numbers, so ties
+-- do not occur. 'sqrt' for 'Half' takes the square root in 'Float' and rounds
+-- that to 'Half'. Rounding twice gives the correctly rounded square root as
+-- long as the intermediate precision has at least @2p + 2@ bits, for a
+-- precision of @p@ bits (S. A. Figueroa, "When is double rounding
+-- innocuous?", 1995): 'Float' has 24, and @2 * 11 + 2 = 24@.
+--
+-- __NB__: Not synthesizable
+xilinxSqrt :: XilinxFloat a => a -> a
+xilinxSqrt (xilinxCondition -> x)
+  | isNaN x = ipNaN
+  | x == 0 = x
+  | x < 0 = ipNaN
+  | otherwise = sqrt x
+
+-- | Model of the IP's absolute value: it clears the sign bit and nothing else.
+-- Unlike the other operations, it leaves subnormal numbers and NaNs (including
+-- their payloads) alone.
+--
+-- __NB__: Not synthesizable
+xilinxAbs :: XilinxFloat a => a -> a
+xilinxAbs x = unpack (clearBit bits (finiteBitSize bits - 1))
+ where
+  bits = pack x
+
+-- | Model of the IP's conversion between precisions, including conversions to
+-- the same precision.
+--
+-- Like the IP, it treats every NaN input as the NaN the IP generates and
+-- subnormal inputs as a zero of the same sign. Conversions to a narrower
+-- precision round like the arithmetic operations do, see
+-- 'xilinxRoundScaled': to nearest, ties to even, as if the exponent were
+-- unbounded, then to a zero of the same sign below the smallest normal number
+-- and to an infinity of the same sign beyond the largest finite number.
+-- Conversions to the same or a wider precision are exact, apart from the
+-- treatment of NaNs and subnormal inputs.
+--
+-- __NB__: Not synthesizable
+xilinxConvert :: forall a b. (XilinxFloat a, XilinxFloat b) => a -> b
+xilinxConvert (xilinxCondition -> x)
+  | isNaN x = ipNaN
+  | isInfinite x = if x < 0 then -1 / 0 else 1 / 0
+  | x == 0 = if isNegativeZero x then -0 else 0
+  | otherwise = uncurry xilinxRoundScaled (decodeFloat x)
+
+-- | Model of the IP's conversion of an integer to a floating point number:
+-- round to nearest, ties to even. Zero becomes a positive zero.
+--
+-- __NB__: Not synthesizable
+xilinxFromInteger :: RealFloat a => Integer -> a
+xilinxFromInteger 0 = 0
+xilinxFromInteger i = xilinxRoundScaled i 0
+
+-- | Model of the IP's conversion of a floating point number to a 32-bit signed
+-- integer.
+--
+-- It rounds to nearest, ties to even, and saturates results that do not fit,
+-- including infinities. Every NaN becomes 'minBound'. Like other operations,
+-- the IP treats subnormal inputs as zero.
+--
+-- __NB__: Not synthesizable
+xilinxToS32 :: XilinxFloat a => a -> Signed 32
+xilinxToS32 (xilinxCondition -> x)
+  | isNaN x = minBound
+  | isInfinite x = if x < 0 then minBound else maxBound
+  -- 'round' rounds ties to even
+  | otherwise = fromInteger (max lo (min hi (round (toRational x))))
+ where
+  lo = toInteger (minBound :: Signed 32)
+  hi = toInteger (maxBound :: Signed 32)
+
 -- | One-hot encoded version of t'Prelude.Ordering'. The order of fields is
 -- chosen to match the ordering picked by Xilinx's Floating Point comparison IP.
 data Ordering
@@ -377,6 +515,51 @@ unaryInst nm operType extraOptions clk ena a =
       (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
       (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
 {-# INLINE unaryInst #-}
+
+-- | Instantiate the Floating-Point IP for an operation with one input and a
+-- latency of zero. Such an IP is combinational: it has no clock and no clock
+-- enable.
+unaryCombinationalInst ::
+  forall nExtraOpts n dom a b .
+  ( KnownNat nExtraOpts
+  , KnownDomain dom
+  , BitPack a
+  , BitPack b
+  ) =>
+  -- | Instantiation type hint
+  String ->
+  -- | @CONFIG.Operation_Type@. E.g., @Absolute@.
+  String ->
+  -- | Extra Wizard options (will be added to the default ones)
+  Vec nExtraOpts (OptionName, XilinxWizardOption) ->
+  DSignal dom n a ->
+  DSignal dom n b
+unaryCombinationalInst nm operType extraOptions a =
+  D.unsafeFromSignal $ unpack . resize <$> unPort (snd go)
+ where
+  go ::
+    ( Port "m_axis_result_tvalid" dom Bit
+    , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize b)))
+    )
+  go =
+    instWithXilinxWizard
+      (instConfig nm)
+      XilinxWizard
+        { wiz_name = "floating_point"
+        , wiz_vendor = "xilinx.com"
+        , wiz_library = "ip"
+        , wiz_version = "7.1"
+        , wiz_options =
+             ("CONFIG.Operation_Type",     StrOpt operType)
+          :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
+          :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
+          :> ("CONFIG.Maximum_Latency",    BoolOpt False)
+          :> ("CONFIG.C_Latency",          IntegerOpt 0)
+          :> extraOptions
+        }
+      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE unaryCombinationalInst #-}
 
 -- | Instantiate the Floating-Point IP for an operation with two inputs
 binaryInst ::
