@@ -45,11 +45,7 @@ delay for the Xilinx IP with that configuration. That delay is also defined as a
 type variable for delay annotation in circuits.
 -}
 
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
-
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE NamedFieldPuns #-}
 
 module Clash.Cores.Xilinx.Floating.Explicit
   ( -- * Instantiating IP
@@ -90,8 +86,11 @@ import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
+import Clash.Cores.Xilinx.Floating.Generic.Explicit (defConfig)
+import qualified Clash.Cores.Xilinx.Floating.Generic.Explicit as G
 import Clash.Cores.Xilinx.Floating.Internal
-import Clash.Cores.Xilinx.Xpm.Cdc.Internal
+  ( ArchOpt(..), BMemUsage(..), Config(..), DspUsage(..), Ordering(..)
+  , toMaybeOrdering, xilinxNaN )
 
 -- | Customizable floating point addition.
 addWith
@@ -106,18 +105,8 @@ addWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-addWith Config{archOpt, dspUsage} clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk (xilinxBinary (+) <$> x <*> y)
-  und = withFrozenCallStack $ deepErrorX "Initial values of add undefined"
-  extraOpts =
-       ("CONFIG.Add_Sub_Value",  StrOpt "Add")
-    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
-    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
-    :> Nil
-  synth = binaryInst "add" "Add_Subtract" extraOpts  clk en x y
+addWith = withFrozenCallStack G.addWith
+{-# INLINE addWith #-}
 
 -- | Floating point addition with default settings.
 add
@@ -130,11 +119,11 @@ add
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + AddDefDelay) Float
-add = withFrozenCallStack $ addWith defConfig
+add = withFrozenCallStack G.add
 {-# INLINE add #-}
 
 -- | The default delay for floating point addition with default customization.
-type AddDefDelay = 11
+type AddDefDelay = G.AddDefDelay Float
 
 -- | Customizable floating point subtraction.
 subWith
@@ -149,18 +138,7 @@ subWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-subWith Config{archOpt, dspUsage} clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk (xilinxBinary (-) <$> x <*> y)
-  und = withFrozenCallStack $ deepErrorX "Initial values of sub undefined"
-  extraOpts =
-       ("CONFIG.Add_Sub_Value",  StrOpt "Subtract")
-    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
-    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
-    :> Nil
-  synth = binaryInst "sub" "Add_Subtract" extraOpts  clk en x y
+subWith = withFrozenCallStack G.subWith
 {-# INLINE subWith #-}
 
 -- | Floating point subtraction with default settings.
@@ -174,12 +152,12 @@ sub
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + SubDefDelay) Float
-sub = withFrozenCallStack $ subWith defConfig
+sub = withFrozenCallStack G.sub
 {-# INLINE sub #-}
 
 -- | The default delay for floating point subtraction with default
 -- customization.
-type SubDefDelay = 11
+type SubDefDelay = G.SubDefDelay Float
 
 -- | Customizable floating point multiplication.
 mulWith
@@ -194,14 +172,7 @@ mulWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-mulWith Config{dspUsage} clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  und = withFrozenCallStack $ deepErrorX "Initial values of mul undefined"
-  sim = delayI und en clk (xilinxBinary (*) <$> x <*> y)
-  extraOpts = ("CONFIG.C_Mult_Usage", StrOpt $ dspUsageToTcl dspUsage) :> Nil
-  synth = binaryInst "mul" "Multiply" extraOpts  clk en x y
+mulWith = withFrozenCallStack G.mulWith
 {-# INLINE mulWith #-}
 
 -- | Floating point multiplication with default settings.
@@ -215,12 +186,12 @@ mul
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + MulDefDelay) Float
-mul = withFrozenCallStack $ mulWith defConfig
+mul = withFrozenCallStack G.mul
 {-# INLINE mul #-}
 
 -- | The default delay for floating point multiplication with default
 -- customization.
-type MulDefDelay = 8
+type MulDefDelay = G.MulDefDelay Float
 
 -- | Customizable floating point division.
 divWith
@@ -235,13 +206,7 @@ divWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-divWith !_ clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk (xilinxBinary (/) <$> x <*> y)
-  und = withFrozenCallStack $ deepErrorX "Initial values of div undefined"
-  synth = binaryInst "div" "Divide" Nil clk en x y
+divWith = withFrozenCallStack G.divWith
 {-# INLINE divWith #-}
 
 -- | Floating point division with default settings.
@@ -255,11 +220,11 @@ div
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + DivDefDelay) Float
-div = withFrozenCallStack $ divWith defConfig
+div = withFrozenCallStack G.div
 {-# INLINE div #-}
 
 -- | The default delay for floating point division with default customization.
-type DivDefDelay = 28
+type DivDefDelay = G.DivDefDelay Float
 
 -- | Customizable conversion of @Unsigned 32@ to @Float@
 --
@@ -275,19 +240,7 @@ fromU32With
   -> Enable dom
   -> DSignal dom n (Unsigned 32)
   -> DSignal dom (n + d) Float
-fromU32With clk en inp
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk $ fmap fromIntegral inp
-  und = withFrozenCallStack $ errorX "Initial values of fromU32 undefined"
-  extraOpts =
-       ("CONFIG.A_Precision_Type",   StrOpt "Uint32")
-    :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
-    :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
-    :> ("CONFIG.C_Rate",             IntegerOpt 1)
-    :> Nil
-  synth = unaryInst "fromU32" "Fixed_to_float" extraOpts clk en inp
+fromU32With = withFrozenCallStack G.fromU32With
 {-# INLINE fromU32With #-}
 
 -- | Conversion of @Unsigned 32@ to @Float@, with default delay
@@ -300,11 +253,11 @@ fromU32
   -> Enable dom
   -> DSignal dom n (Unsigned 32)
   -> DSignal dom (n + FromU32DefDelay) Float
-fromU32 = withFrozenCallStack fromU32With
+fromU32 = withFrozenCallStack G.fromU32
 {-# INLINE fromU32 #-}
 
 -- | The default delay for conversion of @Unsigned 32@ to @Float@
-type FromU32DefDelay = 5
+type FromU32DefDelay = G.FromU32DefDelay Float
 
 -- | Customizable conversion of @Signed 32@ to @Float@
 --
@@ -320,19 +273,7 @@ fromS32With
   -> Enable dom
   -> DSignal dom n (Signed 32)
   -> DSignal dom (n + d) Float
-fromS32With clk en inp
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk $ fmap fromIntegral inp
-  und = withFrozenCallStack $ errorX "Initial values of fromS32 undefined"
-  extraOpts =
-       ("CONFIG.A_Precision_Type",   StrOpt "Int32")
-    :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
-    :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
-    :> ("CONFIG.C_Rate",             IntegerOpt 1)
-    :> Nil
-  synth = unaryInst "fromS32" "Fixed_to_float" extraOpts clk en inp
+fromS32With = withFrozenCallStack G.fromS32With
 {-# INLINE fromS32With #-}
 
 -- | Conversion of @Signed 32@ to @Float@, with default delay
@@ -345,16 +286,16 @@ fromS32
   -> Enable dom
   -> DSignal dom n (Signed 32)
   -> DSignal dom (n + FromS32DefDelay) Float
-fromS32 = withFrozenCallStack fromS32With
+fromS32 = withFrozenCallStack G.fromS32
 {-# INLINE fromS32 #-}
 
 -- | The default delay for conversion of @Signed 32@ to @Float@
-type FromS32DefDelay = 6
+type FromS32DefDelay = G.FromS32DefDelay Float
 
 -- | Customizable floating point comparison
 --
 -- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
 --
 -- Only the delay is configurable, so this function does not take a @Config@
 -- argument.
@@ -369,30 +310,13 @@ compareWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Ordering
-compareWith clk ena a b
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und ena clk (xilinxCompare <$> a <*> b)
-  und = withFrozenCallStack $ errorX "Initial values of compare undefined"
-  extraOpts =
-       ("CONFIG.C_Compare_Operation",     StrOpt "Condition_Code")
-    :> ("CONFIG.A_Precision_Type",        StrOpt "Single")
-    :> ("CONFIG.C_A_Exponent_Width",      IntegerOpt 8)
-    :> ("CONFIG.C_A_Fraction_Width",      IntegerOpt 24)
-    :> ("CONFIG.Result_Precision_Type",   StrOpt "Custom")
-    :> ("CONFIG.C_Result_Exponent_Width", IntegerOpt 4)
-    :> ("CONFIG.C_Result_Fraction_Width", IntegerOpt 0)
-    :> ("CONFIG.C_Mult_Usage",            StrOpt "No_Usage")
-    :> ("CONFIG.C_Rate",                  IntegerOpt 1)
-    :> Nil
-  synth = binaryInst "compare" "Compare" extraOpts clk ena a b
+compareWith = withFrozenCallStack G.compareWith
 {-# INLINE compareWith #-}
 
 -- | Floating point comparison, with default delay
 --
 -- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
 compare
   :: forall dom n
    . ( KnownDomain dom
@@ -403,22 +327,8 @@ compare
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + CompareDefDelay) Ordering
-compare = compareWith
+compare = withFrozenCallStack G.compare
 {-# INLINE compare #-}
 
 -- | The default delay for @Float@ comparison
-type CompareDefDelay = 2
-
--- | Default customization options.
---
--- For those operations that support it, the default options are:
---
--- * Speed-optimized architecture ('SpeedArch')
--- * Full DSP slice usage ('FullDspUsage')
--- * Exponential operator does not use block memory ('NoBMemUsage')
-defConfig :: Config
-defConfig = Config
-  { archOpt = SpeedArch
-  , dspUsage = FullDspUsage
-  , bMemUsage = NoBMemUsage
-  }
+type CompareDefDelay = G.CompareDefDelay Float
