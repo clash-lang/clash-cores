@@ -1,0 +1,125 @@
+{-|
+Copyright  :  (C) 2026, QBayLogic B.V.
+License    :  BSD2 (see the file LICENSE)
+Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Tests of "Clash.Cores.Xilinx.Floating.Half". See "Floating.GenericTH" for the
+samples.
+-}
+
+{-# OPTIONS_GHC -fconstraint-solver-iterations=10 -Wall -Werror #-}
+
+module FloatingHalf where
+
+import Clash.Prelude
+
+import Numeric.Half (Half)
+
+import qualified Clash.Cores.Xilinx.Floating.Half as H
+
+import Floating.Annotations
+import Floating.GenericTH
+import Floating.RomTB
+
+addBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.AddDefDelay Half
+addBasic clk x y = withClock clk $ withEnable enableGen $ H.add x y
+{-# OPAQUE addBasic #-}
+{-# ANN addBasic (binaryTopAnn "addBasic") #-}
+
+addBasicTB :: Signal XilinxSystem Bool
+addBasicTB =
+  basicRomTB
+    (\clk a b -> pack <$> addBasic clk a b)
+    0
+    $(memBlobTH Nothing halfAddSamples)
+{-# ANN addBasicTB (TestBench 'addBasic) #-}
+
+-- | Addition with the low-latency architecture, at its maximum latency
+addLowLatency
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem HalfAddLowLatencyDelay Half
+addLowLatency clk x y =
+  withClock clk $ withEnable enableGen $
+    H.addWith H.defConfig{H.archOpt = H.LatencyArch} x y
+{-# OPAQUE addLowLatency #-}
+{-# ANN addLowLatency (binaryTopAnn "addLowLatency") #-}
+
+addLowLatencyTB :: Signal XilinxSystem Bool
+addLowLatencyTB =
+  basicRomTB
+    (\clk a b -> pack <$> addLowLatency clk a b)
+    0
+    $(memBlobTH Nothing halfAddLowLatencySamples)
+{-# ANN addLowLatencyTB (TestBench 'addLowLatency) #-}
+
+subBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.SubDefDelay Half
+subBasic clk x y = withClock clk $ withEnable enableGen $ H.sub x y
+{-# OPAQUE subBasic #-}
+{-# ANN subBasic (binaryTopAnn "subBasic") #-}
+
+subBasicTB :: Signal XilinxSystem Bool
+subBasicTB =
+  basicRomTB
+    (\clk a b -> pack <$> subBasic clk a b)
+    0
+    $(memBlobTH Nothing halfSubSamples)
+{-# ANN subBasicTB (TestBench 'subBasic) #-}
+
+mulBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.MulDefDelay Half
+mulBasic clk x y = withClock clk $ withEnable enableGen $ H.mul x y
+{-# OPAQUE mulBasic #-}
+{-# ANN mulBasic (binaryTopAnn "mulBasic") #-}
+
+mulBasicTB :: Signal XilinxSystem Bool
+mulBasicTB =
+  basicRomTB
+    (\clk a b -> pack <$> mulBasic clk a b)
+    0
+    $(memBlobTH Nothing halfMulSamples)
+{-# ANN mulBasicTB (TestBench 'mulBasic) #-}
+
+divBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.DivDefDelay Half
+divBasic clk x y = withClock clk $ withEnable enableGen $ H.div x y
+{-# OPAQUE divBasic #-}
+{-# ANN divBasic (binaryTopAnn "divBasic") #-}
+
+divBasicTB :: Signal XilinxSystem Bool
+divBasicTB =
+  basicRomTB
+    (\clk a b -> pack <$> divBasic clk a b)
+    0
+    $(memBlobTH Nothing halfDivSamples)
+{-# ANN divBasicTB (TestBench 'divBasic) #-}
+
+compareBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem 0 Half
+  -> DSignal XilinxSystem H.CompareDefDelay H.Ordering
+compareBasic clk x y =
+  withClock clk $ withEnable enableGen $ H.compare x y
+{-# OPAQUE compareBasic #-}
+{-# ANN compareBasic (binaryTopAnn "compareBasic") #-}
+
+compareBasicTB :: Signal XilinxSystem Bool
+compareBasicTB =
+  basicRomTB compareBasic H.NaN $(memBlobTH Nothing halfCompareSamples)
+{-# ANN compareBasicTB (TestBench 'compareBasic) #-}

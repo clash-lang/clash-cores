@@ -188,6 +188,32 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
+        , runTest "FloatingDouble" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific [ "addBasicTB"
+                                         , "subBasicTB"
+                                         , "mulBasicTB"
+                                         , "mulMaxDspTB"
+                                         , "divBasicTB"
+                                         , "compareBasicTB"
+                                         , "fromUBasicTB"
+                                         , "fromSBasicTB"
+                                         ]
+            }
+        , runTest "FloatingHalf" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific [ "addBasicTB"
+                                         , "addLowLatencyTB"
+                                         , "subBasicTB"
+                                         , "mulBasicTB"
+                                         , "divBasicTB"
+                                         , "compareBasicTB"
+                                         ]
+            }
         , runTest "Ibufds" def
           { hdlLoad = [Vivado]
           , hdlSim = [Vivado]
