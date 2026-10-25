@@ -86,7 +86,7 @@ delay, for example for 'addWith' with @NoDspUsage@.
 
 module Clash.Cores.Xilinx.Floating.Generic
   ( -- * Precisions
-    E.XilinxFloat
+    E.XilinxFloat(..)
   , E.FromInt32
     -- * Instantiating IP
   , addWith

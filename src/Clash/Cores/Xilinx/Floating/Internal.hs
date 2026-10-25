@@ -167,7 +167,8 @@ xilinxRound d
     abs (double2Float (scaleFloat 64 d)) >= scaleFloat 64 minNormalF
 
 -- | Floating point formats the Xilinx Floating-Point IP supports: 'Half',
--- 'Float' (single precision) and 'Double'.
+-- 'Float' (single precision) and 'Double'. The IP supports no others, so there
+-- is no need to define other instances.
 class (BitPack a, NFDataX a, RealFloat a) => XilinxFloat a where
   -- | Name of the precision in the IP's settings, e.g. @Single@
   precisionName :: proxy a -> String
@@ -183,9 +184,11 @@ class (BitPack a, NFDataX a, RealFloat a) => XilinxFloat a where
   ipNaN :: a
 
   -- | Model of an operation of the IP with two inputs: addition, subtraction,
-  -- multiplication or division. Conditions the inputs like the IP does (see
-  -- 'xilinxCondition') and rounds the result like the IP does. The default
-  -- computes the exact result, see 'xilinxBinaryExact'.
+  -- multiplication or division. Like the IP, it treats every NaN input as the
+  -- NaN the IP generates and subnormal inputs as a zero of the same sign. It
+  -- rounds the result to full precision before flushing a result below the
+  -- smallest normal number to a zero of the same sign. Clash simulation uses
+  -- this model.
   --
   -- __NB__: Not synthesizable
   xilinxBinary :: (forall b. Fractional b => b -> b -> b) -> a -> a -> a
@@ -197,10 +200,10 @@ instance XilinxFloat Half where
   fractionWidth _ = 11
   ipNaN = unpack 0x7E00
 
--- | For single precision, computing the result as a Double and rounding it
--- with 'xilinxRound' gives the same result as computing the exact result,
--- because a Double has more than twice the precision of a Float plus two
--- bits. It is much faster.
+-- | For single precision, the model computes the result as a 'Double' and
+-- rounds it to a 'Float' like the IP does. That gives the same result as
+-- computing the exact result, because a 'Double' has more than twice the
+-- precision of a 'Float' plus two bits, and it is much faster.
 instance XilinxFloat Float where
   precisionName _ = "Single"
   exponentWidth _ = 8

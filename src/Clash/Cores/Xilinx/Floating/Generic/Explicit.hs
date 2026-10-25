@@ -32,7 +32,7 @@ Related modules:
 
 module Clash.Cores.Xilinx.Floating.Generic.Explicit
   ( -- * Precisions
-    XilinxFloat
+    XilinxFloat(..)
   , FromInt32
     -- * Instantiating IP
   , addWith
