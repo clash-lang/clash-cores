@@ -68,35 +68,6 @@ playSampleRom clk rst content = (done, out)
   cnt :: Signal dom (Index n)
   cnt = CEP.register clk rst enableGen 0 $ satSucc SatBound <$> cnt
 
-basicBinaryTB
-  :: forall n d x y z
-   . ( KnownNat n
-     , KnownNat d
-     , Eq z, ShowX z
-     , 1 <= n
-     )
-  => (   Clock XilinxSystem
-      -> DSignal XilinxSystem 0 x
-      -> DSignal XilinxSystem 0 y
-      -> DSignal XilinxSystem d z
-     )
-  -> z
-  -> Vec n (x, y, z)
-  -> Signal XilinxSystem Bool
-basicBinaryTB comp zDef samples = done
- where
-  (inputX, inputY, expectedOutput) = unzip3 samples
-  testInputX = fromSignal $ stimuliGenerator clk rst inputX
-  testInputY = fromSignal $ stimuliGenerator clk rst inputY
-  expectOutput = outputVerifier' clk rst (repeat @d zDef ++ expectedOutput)
-  done =
-      expectOutput . ignoreFor clk rst en (SNat @d) zDef
-    . toSignal $ comp clk testInputX testInputY
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
-{-# INLINE basicBinaryTB #-}
-
 basicRomTB
   :: forall d n x y z
    . ( KnownNat n
@@ -191,19 +162,20 @@ addShortPL
   :: Clock XilinxSystem
   -> DSignal XilinxSystem 0 Float
   -> DSignal XilinxSystem 0 Float
-  -> DSignal XilinxSystem 6 Float
+  -> DSignal XilinxSystem AddShortPLDelay Float
 addShortPL clk x y =
   withClock clk $ withEnable enableGen $ F.addWith F.defConfig x y
 {-# OPAQUE addShortPL #-}
 {-# ANN addShortPL (binaryTopAnn "addShortPL") #-}
 
+-- | Uses a ROM like the other tests. Concatenating vectors ('++') in the
+-- test bench makes Vivado 2022.1's VHDL elaborator segfault.
 addShortPLTB :: Signal XilinxSystem Bool
 addShortPLTB =
-  basicBinaryTB addShortPL 0.0
-    $(listToVecTH [ (1, 4, 5) :: (Float, Float, Float)
-                  , (2, 5, 7)
-                  , (3, 6, 9)
-                  ])
+  basicRomTB
+    (\clk a b -> FloatVerifier <$> addShortPL clk a b)
+    (FloatVerifier 0.0)
+    $(memBlobTH Nothing addShortPLSamples)
 {-# ANN addShortPLTB (TestBench 'addShortPL) #-}
 
 subBasic

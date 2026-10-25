@@ -66,8 +66,17 @@ delayOutput d aDef es = zip3 xs ys rs
   rs = replicate d aDef ++ rs0
 
 addBasicSamples :: [(Float, Float, Float)]
-addBasicSamples =
-  delayOutput (natToNum @F.AddDefDelay) 0.0 $
+addBasicSamples = delayOutput (natToNum @F.AddDefDelay) 0.0 addSamples
+
+-- | Latency of the @addShortPL@ test, shorter than 'F.AddDefDelay'
+type AddShortPLDelay = 6
+
+addShortPLSamples :: [(Float, Float, Float)]
+addShortPLSamples = delayOutput (natToNum @AddShortPLDelay) 0.0 addSamples
+
+-- | Additions and their results, before delaying the results by the latency
+addSamples :: [(Float, Float, Float)]
+addSamples =
   [ (1, 4, 5)
   , (2, 5, 7)
   , (3, 6, 9)
