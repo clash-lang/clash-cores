@@ -23,6 +23,8 @@ module Clash.Cores.Xilinx.Floating.Internal
   , xilinxNaN
   , conditionFloat
   , conditionFloatF
+  , xilinxRound
+  , xilinxBinary
   , xilinxCompare
   , toMaybeOrdering
   , unaryInst
@@ -31,6 +33,7 @@ module Clash.Cores.Xilinx.Floating.Internal
 
 import Clash.Prelude hiding (Ordering(..))
 import qualified Prelude as P
+import GHC.Float (double2Float, float2Double)
 
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
 
@@ -134,6 +137,44 @@ conditionFloatF
   => f Float
   -> f Float
 conditionFloatF = fmap conditionFloat
+
+-- | Round a result to a Float the way the Xilinx IP does: round to 24
+-- significant bits as if the exponent were unbounded, then flush results below
+-- the smallest normal number to a zero of the same sign. NaNs become
+-- 'xilinxNaN'.
+--
+-- IEEE rounding instead rounds results below the smallest normal number to the
+-- subnormal grid. For results just below the smallest normal number, from
+-- @2^-126 - 2^-150@ up to @2^-126 - 2^-151@, it gives the smallest normal
+-- number where the IP gives zero.
+--
+-- __NB__: Not synthesizable
+xilinxRound :: Double -> Float
+xilinxRound d
+  | isNaN d = xilinxNaN
+  | abs d >= float2Double minNormalF = double2Float d
+  | roundsToMinNormal = if d < 0 then negate minNormalF else minNormalF
+  | d < 0 || isNegativeZero d = -0
+  | otherwise = 0
+ where
+  minNormalF = 2 ^^ (-126 :: Int) :: Float
+  -- Scale into the normal range of Float, so that 'double2Float' rounds to 24
+  -- significant bits. Scaling by a power of two is exact.
+  roundsToMinNormal =
+    abs (double2Float (scaleFloat 64 d)) >= scaleFloat 64 minNormalF
+
+-- | Model of an operation of the Xilinx IP with two Float inputs: condition
+-- the inputs like the IP does, compute the result as a Double, and round it
+-- with 'xilinxRound'. For addition, subtraction, multiplication and division,
+-- rounding the Double result gives the same Float as rounding the exact
+-- result, because a Double has more than twice the precision of a Float plus
+-- two bits.
+--
+-- __NB__: Not synthesizable
+xilinxBinary :: (Double -> Double -> Double) -> Float -> Float -> Float
+xilinxBinary f x y = xilinxRound (f (cond x) (cond y))
+ where
+  cond = float2Double . conditionFloat
 
 -- | One-hot encoded version of 'P.Ordering'. The order of fields is chosen to
 -- match the ordering picked by Xilinx's Floating Point comparison IP.

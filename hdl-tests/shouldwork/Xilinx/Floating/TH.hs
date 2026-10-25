@@ -85,7 +85,7 @@ addSamples =
   ++ cartesianProductTest model interesting interesting
   ++ nanTest
  where
-  model (conditionFloat -> x) (conditionFloat -> y) = conditionFloat $ x + y
+  model = xilinxBinary (+)
 
 subBasicSamples :: [(Float, Float, Float)]
 subBasicSamples =
@@ -98,7 +98,7 @@ subBasicSamples =
   ++ cartesianProductTest model interesting interesting
   ++ nanTest
  where
-  model (conditionFloat -> x) (conditionFloat -> y) = conditionFloat $ x - y
+  model = xilinxBinary (-)
 
 addSubBasicSamples :: [(Float, Float, Float)]
 addSubBasicSamples =
@@ -270,6 +270,18 @@ mulBasicSamples =
   [ (1, 4, 4)
   , (2, 5, 10)
   , (3, 6, 18)
+    -- The exact result is 2^-126 - 2^-150, just below the smallest normal
+    -- number. The IP rounds it to 24 significant bits, which is still below
+    -- the smallest normal number, and flushes it to zero. Rounding to the
+    -- subnormal grid first, as IEEE does, would give 'minNormal' instead.
+  , ( unpack 0x3f7fffff
+    , unpack 0x00800000
+    , 0
+    )
+  , ( unpack 0x00a18d13
+    , unpack 0xbf4ad56c
+    , -0
+    )
     -- Subnormal positive number is conditioned to plus zero
     --
     -- The unconditioned result is the subnormal of largest magnitude
@@ -419,13 +431,19 @@ mulBasicSamples =
  where
   digits = floatDigits (undefined :: Float)
   (minExp, _) = floatRange (undefined :: Float)
-  model (conditionFloat -> x) (conditionFloat -> y) = conditionFloat $ x * y
+  model = xilinxBinary (*)
 
 divBasicSamples :: [(Float, Float, Float)]
 divBasicSamples =
   delayOutput (natToNum @F.DivDefDelay) 0.0 $
   [ (1, 2, 0.5)
   , (3, 4, 0.75)
+    -- The exact result is 2^-126 - 2^-150. As for multiplication, the IP
+    -- flushes it to zero instead of rounding up to 'minNormal'.
+  , ( unpack 0x3fffffff
+    , unpack 0x7f000000
+    , 0
+    )
   , (7, 8, 0.875)
     -- Subnormal positive number is conditioned to plus zero
     --
@@ -499,7 +517,7 @@ divBasicSamples =
  where
   digits = floatDigits (undefined :: Float)
   (_, maxExp) = floatRange (undefined :: Float)
-  model (conditionFloat -> x) (conditionFloat -> y) = conditionFloat $ x / y
+  model = xilinxBinary (/)
 
 compareBasicSamples :: [(Float, Float, F.Ordering)]
 compareBasicSamples =

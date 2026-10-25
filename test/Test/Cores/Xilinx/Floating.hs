@@ -65,25 +65,23 @@
   * GHC needs a C compiler to link anyway, so compiling the driver adds no
     dependencies.
 
-  = Known mismatches
+  = Results just below the smallest normal number
 
-  The C model rounds an exact result to 24 significant bits first, and only
-  then flushes it to zero if its magnitude is below the smallest normal number,
-  2^-126. The Haskell models compute an IEEE result, rounding to the
-  /subnormal/ grid near zero, and flush subnormal results afterwards. The two
-  disagree when the exact result's magnitude lies in
+  The IP rounds an exact result to 24 significant bits first, and only then
+  flushes it to zero if its magnitude is below the smallest normal number,
+  2^-126. IEEE rounding instead rounds to the /subnormal/ grid near zero, which
+  gives the smallest normal number, @±0x00800000@, where the IP gives a zero of
+  the same sign when the exact result's magnitude lies in
 
   > [2^-126 - 2^-150, 2^-126 - 2^-151)
 
-  In that window the Haskell models round up to the smallest normal number,
-  @±0x00800000@, while the C model returns a zero of the same sign,
-  @±0x00000000@. Results of 'F.add' and 'F.sub' never land in the window,
-  because sums of normal numbers are exact multiples of 2^-149 there. Products
-  can: for example @0x3f7fffff * 0x00800000@ (exact result 2^-126 - 2^-150).
-  Quotients land in it only when the dividend's significand is all ones and the
-  divisor is a power of two, for example @0x3fffffff / 0x7f000000@. The tests
-  check that inputs in the window give exactly this mismatch, and equal results
-  everywhere else. They do not change the models.
+  The Haskell models used to round like IEEE there. Results of 'F.add' and
+  'F.sub' never land in this window, because sums of normal numbers are exact
+  multiples of 2^-149 there. Products can: for example @0x3f7fffff * 0x00800000@
+  (exact result 2^-126 - 2^-150). Quotients land in it only when the dividend's
+  significand is all ones and the divisor is a power of two, for example
+  @0x3fffffff / 0x7f000000@. Random inputs almost never hit the window, so
+  separate properties generate products and quotients in it.
 -}
 module Test.Cores.Xilinx.Floating (mkTests) where
 
@@ -152,9 +150,10 @@ cmodelHeader = "floating_point_v7_1_bitacc_cmodel.h"
 nTests :: H.TestLimit
 nTests = 20_000
 
--- | Number of random cases for the properties checking the known mismatch
-nTestsKnownMismatch :: H.TestLimit
-nTestsKnownMismatch = 2_000
+-- | Number of random cases for the properties generating results just below
+-- the smallest normal number
+nTestsBelowMinNormal :: H.TestLimit
+nTestsBelowMinNormal = 2_000
 
 {- | Build the test tree. Needs 'IO' to find out whether the C model is
 available. Finding it is cheap: preparing the C model happens when the tests
@@ -177,8 +176,8 @@ mkTests = do
           , testPropertyNamed "compare" "prop_compare" (prop_compare getDriver)
           , testPropertyNamed "fromU32" "prop_fromU32" (prop_fromU32 getDriver)
           , testPropertyNamed "fromS32" "prop_fromS32" (prop_fromS32 getDriver)
-          , knownMismatchTest getDriver Mul genMulWindow
-          , knownMismatchTest getDriver Div genDivWindow
+          , belowMinNormalTest getDriver Mul genMulWindow
+          , belowMinNormalTest getDriver Div genDivWindow
           ]
  where
   groupName = "Xilinx floating point vs. C model"
@@ -192,20 +191,20 @@ mkTests = do
     labels x y exact = do
       classifyOperands x y
       H.classify "exact result near smallest normal number" (maybe False nearMinNormal exact)
-      H.classify "exact result in known mismatch window" (maybe False inKnownMismatchWindow exact)
+      H.classify "exact result just below smallest normal number" (maybe False justBelowMinNormal exact)
     nearMinNormal r = abs r >= 2 ^^ (-128 :: Int) && abs r < 2 ^^ (-124 :: Int)
 
-  knownMismatchTest getDriver op gen =
+  belowMinNormalTest getDriver op gen =
     testPropertyNamed
       ( opName op
-          <> ", known mismatch: exact result in [2^-126 - 2^-150, 2^-126 - 2^-151)"
+          <> ", exact result in [2^-126 - 2^-150, 2^-126 - 2^-151)"
       )
-      (fromString ("prop_" <> opName op <> "KnownMismatch"))
-      (H.withTests nTestsKnownMismatch (prop_binary getDriver op gen labels))
+      (fromString ("prop_" <> opName op <> "BelowMinNormal"))
+      (H.withTests nTestsBelowMinNormal (prop_binary getDriver op gen labels))
    where
     -- Check the generator
     labels _ _ exact =
-      H.cover 100 "exact result in known mismatch window" (maybe False inKnownMismatchWindow exact)
+      H.cover 100 "exact result just below smallest normal number" (maybe False justBelowMinNormal exact)
 
 {- | Find the C model, see the module documentation. Returns either a path to
 the zip file or directory, or the reason the tests are skipped.
@@ -409,11 +408,12 @@ flushSubnormal :: Float -> Float
 flushSubnormal z = if isDenormalized z then 0 else z
 
 {- | Whether the magnitude of an exact result lies in
-@[2^-126 - 2^-150, 2^-126 - 2^-151)@, the window in which the Haskell models
-and the C model are known to disagree. See the module documentation.
+@[2^-126 - 2^-150, 2^-126 - 2^-151)@, where the IP flushes results to zero
+that IEEE rounding would round up to the smallest normal number. See the
+module documentation.
 -}
-inKnownMismatchWindow :: Rational -> Bool
-inKnownMismatchWindow r = lo <= abs r && abs r < hi
+justBelowMinNormal :: Rational -> Bool
+justBelowMinNormal r = lo <= abs r && abs r < hi
  where
   lo = 2 ^^ (-126 :: Int) - 2 ^^ (-150 :: Int)
   hi = 2 ^^ (-126 :: Int) - 2 ^^ (-151 :: Int)
@@ -440,16 +440,7 @@ prop_binary getDriver op genOperands labels = H.property $ do
     cmodel = FloatBits cBits
   H.footnote ("C model exception flags: " <> show exceptions)
 
-  case exact of
-    Just r | inKnownMismatchWindow r -> do
-      -- Known mismatch, see module documentation. Check that it is exactly
-      -- what we expect, so the test notices when either side changes.
-      let negative = r < 0
-      H.footnote "Exact result in [2^-126 - 2^-150, 2^-126 - 2^-151): known mismatch"
-      cmodel === FloatBits (if negative then 0x8000_0000 else 0x0000_0000)
-      haskell === FloatBits (if negative then 0x8080_0000 else 0x0080_0000)
-    _ ->
-      haskell === cmodel
+  haskell === cmodel
 
 {- | Labels for the coverage report. We do not use 'H.cover' here: it fails
 the test when the percentages are not met, which happens when running only a
@@ -645,7 +636,8 @@ genCompareOperands =
       , (\s d -> mkFloat s 1 d) <$> Gen.bool <*> Gen.word32 (Range.constant 0 4)
       ]
 
-{- | Products in the known mismatch window. With @x = mx * 2^ex@ and
+{- | Products just below the smallest normal number, see
+'justBelowMinNormal'. With @x = mx * 2^ex@ and
 @y = my * 2^ey@ for 24-bit integer significands @mx@ and @my@, the exact
 product is in the window iff @mx * my@ is in @[2^47 - 2^23, 2^47 - 2^22)@ and
 @ex + ey = -173@.
@@ -666,7 +658,8 @@ genMulWindow = do
   lo = 2 ^ (47 :: Int) - 2 ^ (23 :: Int)
   hi = 2 ^ (47 :: Int) - 2 ^ (22 :: Int)
 
-{- | Quotients in the known mismatch window. There is only one pair of
+{- | Quotients just below the smallest normal number, see
+'justBelowMinNormal'. There is only one pair of
 significands for which this happens: the dividend's is all ones and the
 divisor's is one, and then @x / y = 2^-126 - 2^-150@ exactly.
 -}
