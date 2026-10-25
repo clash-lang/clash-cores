@@ -23,6 +23,8 @@ import Numeric.IEEE
 import Clash.Cores.Xilinx.Floating as F
 import Clash.Cores.Xilinx.Floating.Internal as F
 
+import Floating.GenericTH (delayOutput, delayOutput1)
+
 -- | For @compareEnableTB@. Obtained by running an RNG.
 compareFloatsEnableInputA :: [Float]
 compareFloatsEnableInputA =
@@ -52,18 +54,6 @@ compareFloatsEnableExpected =
   , F.LT, F.LT, F.LT, F.GT, F.LT, F.LT, F.LT, F.GT, F.GT, F.GT, F.GT, F.LT, F.LT
   , F.LT, F.LT, F.LT, F.LT, F.LT
   ]
-
-delayOutput
-  :: Int
-  -> a
-  -> [(Float, Float, a)]
-  -> [(Float, Float, a)]
-delayOutput d aDef es = zip3 xs ys rs
- where
-  (xs0, ys0, rs0) = unzip3 es
-  xs = xs0 ++ repeat (last xs0)
-  ys = ys0 ++ repeat (last ys0)
-  rs = replicate d aDef ++ rs0
 
 addBasicSamples :: [(Float, Float, Float)]
 addBasicSamples = delayOutput (natToNum @F.AddDefDelay) 0.0 addSamples
@@ -596,7 +586,7 @@ nanTest =
     ]
 
 fromUBasicSamples :: [(Unsigned 32, Float)]
-fromUBasicSamples = delayOutput0 (natToNum @F.FromU32DefDelay) $
+fromUBasicSamples = delayOutput1 (natToNum @F.FromU32DefDelay) 0 $
   map (\x -> (x, fromIntegral x))
     [ 0
     , 1
@@ -621,15 +611,9 @@ fromUBasicSamples = delayOutput0 (natToNum @F.FromU32DefDelay) $
     , 0b0000_0001_0000_0000_0000_0000_0000_0011
     , 0b0000_0010_0000_0000_0000_0000_0000_0001
     ]
- where
-  delayOutput0 d es = zip is os
-   where
-    (is0, os0) = unzip es
-    is = is0 ++ repeat (last is0)
-    os = replicate d 0 ++ os0
 
 fromSBasicSamples :: [(Signed 32, Float)]
-fromSBasicSamples = delayOutput0 (natToNum @F.FromS32DefDelay) $
+fromSBasicSamples = delayOutput1 (natToNum @F.FromS32DefDelay) 0 $
   map (\x -> (x, fromIntegral x)) (specials ++ map (* (-1)) specials)
 
  where
@@ -657,12 +641,6 @@ fromSBasicSamples = delayOutput0 (natToNum @F.FromS32DefDelay) $
     , 0b0000_0001_0000_0000_0000_0000_0000_0011
     , 0b0000_0010_0000_0000_0000_0000_0000_0001
     ]
-
-  delayOutput0 d es = zip is os
-   where
-    (is0, os0) = unzip es
-    is = is0 ++ repeat (last is0)
-    os = replicate d 0 ++ os0
 
 -- Maximum subnormal value
 maxDenormal :: Float

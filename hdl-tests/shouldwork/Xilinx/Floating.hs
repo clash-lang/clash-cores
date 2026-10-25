@@ -20,6 +20,7 @@ import Numeric (showHex)
 import qualified Clash.Cores.Xilinx.Floating as F
 
 import Floating.Annotations
+import Floating.RomTB
 import Floating.TH
 
 newtype FloatVerifier = FloatVerifier Float
@@ -49,57 +50,6 @@ floatVerifierShowsPrec _ (FloatVerifier x)
     | testBit (pack x) 22 = ("qNaN(0x" P.++)
     | otherwise           = ("sNaN(0x" P.++)
   payload = truncateB $ pack x :: BitVector 22
-
-playSampleRom
-  :: forall n a dom
-   . ( KnownDomain dom
-     , KnownNat n
-     , BitPack a
-     , 1 <= n
-     )
-  => Clock dom
-  -> Reset dom
-  -> MemBlob n (BitSize a)
-  -> (Signal dom Bool, Signal dom a)
-playSampleRom clk rst content = (done, out)
- where
-  out = unpack . asyncRomBlob content <$> cnt
-  done = CEP.register clk rst enableGen False $ (== maxBound) <$> cnt
-  cnt :: Signal dom (Index n)
-  cnt = CEP.register clk rst enableGen 0 $ satSucc SatBound <$> cnt
-
-basicRomTB
-  :: forall d n x y z
-   . ( KnownNat n
-     , KnownNat d
-     , BitPack x
-     , BitPack y
-     , Eq z, ShowX z, BitPack z
-     , 1 <= n
-     )
-  => (   Clock XilinxSystem
-      -> DSignal XilinxSystem 0 x
-      -> DSignal XilinxSystem 0 y
-      -> DSignal XilinxSystem d z
-     )
-  -> z
-  -> MemBlob n (BitSize (x, y, z))
-  -> Signal XilinxSystem Bool
-basicRomTB comp resDef sampleBlob = done
- where
-  (done0, samples) = playSampleRom clk rst sampleBlob
-  (inputX, inputY, expectedOutput) = unbundle samples
-  -- Only assert while not finished
-  done = mux done0 done0
-    $ assert clk rst "basicRomTB" out expectedOutput
-             done0
-  out =
-      ignoreFor clk rst en (SNat @d) resDef
-    . toSignal $ comp clk (fromSignal inputX) (fromSignal inputY)
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
-{-# INLINE basicRomTB #-}
 
 addBasic
   :: Clock XilinxSystem
@@ -168,8 +118,6 @@ addShortPL clk x y =
 {-# OPAQUE addShortPL #-}
 {-# ANN addShortPL (binaryTopAnn "addShortPL") #-}
 
--- | Uses a ROM like the other tests. Concatenating vectors ('++') in the
--- test bench makes Vivado 2022.1's VHDL elaborator segfault.
 addShortPLTB :: Signal XilinxSystem Bool
 addShortPLTB =
   basicRomTB
@@ -279,19 +227,7 @@ fromUBasic clk x = withClock clk $ withEnable enableGen $ F.fromU32 x
 {-# ANN fromUBasic (unaryTopAnn "fromUBasic") #-}
 
 fromUBasicTB :: Signal XilinxSystem Bool
-fromUBasicTB = done
- where
-  (done0, samples) =
-    playSampleRom clk rst $(memBlobTH Nothing fromUBasicSamples)
-  (input, expectedOutput) = unbundle samples
-  -- Only assert while not finished
-  done = mux done0 done0 $
-    assert clk rst "fromUBasicTB" out expectedOutput done0
-  out = ignoreFor clk rst en (SNat @F.FromU32DefDelay) 0 . toSignal .
-    fromUBasic clk $ fromSignal input
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
+fromUBasicTB = unaryRomTB fromUBasic 0 $(memBlobTH Nothing fromUBasicSamples)
 {-# ANN fromUBasicTB (TestBench 'fromUBasic) #-}
 
 fromUEnable
@@ -337,19 +273,7 @@ fromSBasic clk x = withClock clk $ withEnable enableGen $ F.fromS32 x
 {-# ANN fromSBasic (unaryTopAnn "fromSBasic") #-}
 
 fromSBasicTB :: Signal XilinxSystem Bool
-fromSBasicTB = done
- where
-  (done0, samples) =
-    playSampleRom clk rst $(memBlobTH Nothing fromSBasicSamples)
-  (input, expectedOutput) = unbundle samples
-  -- Only assert while not finished
-  done = mux done0 done0 $
-    assert clk rst "fromSBasicTB" out expectedOutput done0
-  out = ignoreFor clk rst en (SNat @F.FromS32DefDelay) 0 . toSignal .
-    fromSBasic clk $ fromSignal input
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
+fromSBasicTB = unaryRomTB fromSBasic 0 $(memBlobTH Nothing fromSBasicSamples)
 {-# ANN fromSBasicTB (TestBench 'fromSBasic) #-}
 
 fromSEnable
