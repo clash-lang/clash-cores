@@ -34,7 +34,10 @@ De-asserting the 'Enable' signal of a function will stall the whole pipeline.
 The Xilinx IP does not support calculations with subnormal numbers. All
 subnormal numbers are rounded to zero on both input and output. Note that this
 introduces a slight bias as the larger subnormal numbers are closer to the
-smallest normal number, but they are rounded to zero nonetheless!
+smallest normal number, but they are rounded to zero nonetheless! The IP rounds a
+result to 24 significant bits before checking whether it is subnormal, so even a
+result that IEEE rounding would round up to the smallest normal number is
+rounded to zero if it is below it.
 
 For each customizable operation, there also exists a function that uses the
 defaults. These functions use the settings from 'E.defConfig' and the maximum
