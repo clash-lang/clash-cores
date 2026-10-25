@@ -14,15 +14,19 @@
   Differential tests of the simulation models in "Clash.Cores.Xilinx.Floating"
   and "Clash.Cores.Xilinx.Floating.Generic.Explicit" against the bit-accurate C
   model of the Xilinx Floating-Point LogiCORE IP v7.1. Covers addition,
-  subtraction, multiplication, division and comparison (condition code) in
-  half, single and double precision, and conversion from @Unsigned 32@ and
-  @Signed 32@ to single and double precision (the IP cannot convert integers to
-  half precision), all with round to nearest even, the configuration the
-  modules instantiate. The tests run the actual functions in Clash simulation
-  and compare the bits of their output with the output of the C model. Single
-  precision runs the functions from "Clash.Cores.Xilinx.Floating.Explicit", half
-  and double precision the ones from
-  "Clash.Cores.Xilinx.Floating.Generic.Explicit".
+  subtraction, multiplication, division, comparison (condition code), square
+  root, absolute value and conversion to every precision in half, single and
+  double precision, and conversions from @Unsigned 32@, @Signed 32@,
+  @Unsigned 64@ and @Signed 64@ to single and double precision and from those
+  to @Signed 32@ (the IP cannot convert between integers and half precision),
+  all with round to nearest even, the configuration the modules
+  instantiate. The tests run the actual functions in Clash simulation and
+  compare the bits of their output with the output of the C model. Single
+  precision mostly runs the functions from
+  "Clash.Cores.Xilinx.Floating.Explicit", half and double precision the ones
+  from "Clash.Cores.Xilinx.Floating.Generic.Explicit",
+  "Clash.Cores.Xilinx.Floating.Half.Explicit" and
+  "Clash.Cores.Xilinx.Floating.Double.Explicit".
 
   = Locating the C model
 
@@ -111,6 +115,12 @@
   property generates products in this window, including ones exactly at its
   lower bound. Quotients never land in it.
 
+  = Absolute value
+
+  The IP only clears the sign bit, also of subnormal numbers and NaNs (checked
+  in Vivado). The C model's NaNs have no payload, but its functions working on
+  the bits of a @float@ or @double@ keep them, see the C file.
+
   = Inputs
 
   Besides random bit patterns, the binary operations get operands of every
@@ -119,6 +129,18 @@
   or of similar magnitude), and operands whose exact result is close to the
   smallest normal number, close to the overflow threshold (where results round
   to infinity), or (close to) halfway between two representable numbers.
+
+  The operations with one input get inputs of every class too. The square root
+  also gets exact squares and inputs whose square root is very close to halfway
+  between two numbers, see 'genSqrtOperand'. Conversions to a narrower
+  precision get inputs close to halfway between two numbers of that precision,
+  and close to its smallest normal number and its overflow threshold.
+  Conversions to @Signed 32@ get inputs close to halfway between two integers
+  and close to the bounds, and conversions from 64-bit integers get integers
+  just below, at and just above halfway between two numbers.
+
+  Half precision has only 65,536 numbers, so the operations with one input in
+  half precision are also tested on all of them.
 -}
 module Test.Cores.Xilinx.Floating (mkTests) where
 
@@ -126,11 +148,11 @@ import Prelude
 
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (IOException, SomeException, catch, onException, try)
-import Control.Monad (unless, void)
-import Data.Bits (bit, complement, shiftL, shiftR, xor, (.&.), (.|.))
-import Data.Int (Int32)
+import Control.Monad (forM, unless, void, when)
+import Data.Bits (bit, clearBit, complement, shiftL, shiftR, testBit, xor, (.&.), (.|.))
+import Data.Int (Int32, Int64)
 import Data.List (isPrefixOf, nub, subsequences)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Ratio (denominator, numerator)
 import Data.String (fromString)
 import Data.Word (Word32, Word64)
@@ -159,8 +181,10 @@ import qualified Clash.Explicit.Prelude as C
 import Clash.Signal.Delayed (DSignal)
 import qualified Clash.Signal.Delayed as D
 
+import qualified Clash.Cores.Xilinx.Floating.Double.Explicit as DE
 import qualified Clash.Cores.Xilinx.Floating.Explicit as F
 import qualified Clash.Cores.Xilinx.Floating.Generic.Explicit as G
+import qualified Clash.Cores.Xilinx.Floating.Half.Explicit as HE
 
 import Hedgehog (Gen, Property, PropertyT, (===))
 import qualified Hedgehog as H
@@ -168,7 +192,7 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Test.Tasty
 import Test.Tasty.Hedgehog (testPropertyNamed)
-import Test.Tasty.HUnit (testCaseInfo)
+import Test.Tasty.HUnit (assertFailure, testCase, testCaseInfo)
 
 -- | Name of the environment variable pointing at the C model
 cmodelEnvVar :: String
@@ -218,9 +242,9 @@ mkTests = do
     Right path ->
       withResource (prepareDriver path) cleanupDriver $ \getPrepared ->
         testGroup groupName
-          [ precisionTests @Float getPrepared (fromInt32Tests @Float getPrepared)
-          , precisionTests @Half getPrepared []
-          , precisionTests @Double getPrepared (fromInt32Tests @Double getPrepared)
+          [ precisionTests @Float getPrepared (integerTests @Float getPrepared)
+          , precisionTests @Half getPrepared (exhaustiveHalfTests getPrepared)
+          , precisionTests @Double getPrepared (integerTests @Double getPrepared)
           ]
  where
   groupName = "Xilinx floating point vs. C model"
@@ -234,6 +258,11 @@ precisionTests getPrepared extraTests =
     , binaryTest Mul
     , binaryTest Div
     , property "compare" "compare" (prop_compare @a)
+    , property "sqrt" "sqrt" (prop_sqrt @a)
+    , property "abs" "abs" (prop_abs @a)
+    , property "convert to half" "toHalf" (prop_convert @a @Half "tohalf" modelToHalf)
+    , property "convert to single" "toSingle" (prop_convert @a @Float "tosingle" modelToSingle)
+    , property "convert to double" "toDouble" (prop_convert @a @Double "todouble" modelToDouble)
     ]
       <> extraTests
       <> [ property "NaN" "nan" (prop_nan @a)
@@ -278,14 +307,47 @@ precisionTests getPrepared extraTests =
       H.cover 100 "exact result just below smallest normal number, rounds up to it" (is (roundsUpToMinNormal @a))
       H.classify "exact result halfway between two numbers" (is (halfway @a))
 
--- | Tests of conversions from 32-bit integers
-fromInt32Tests :: forall a. TestFromInt32 a => IO Prepared -> [TestTree]
-fromInt32Tests getPrepared =
-  [ withDriver getPrepared $ \getDriver ->
-      testPropertyNamed "fromU32" (propertyName @a "fromU32") (prop_fromU32 @a getDriver)
-  , withDriver getPrepared $ \getDriver ->
-      testPropertyNamed "fromS32" (propertyName @a "fromS32") (prop_fromS32 @a getDriver)
+-- | Tests of conversions from and to integers
+integerTests :: forall a. TestInteger a => IO Prepared -> [TestTree]
+integerTests getPrepared =
+  [ property "fromU32" (prop_fromU32 @a)
+  , property "fromS32" (prop_fromS32 @a)
+  , property "fromU64" (prop_fromU64 @a)
+  , property "fromS64" (prop_fromS64 @a)
+  , property "toS32" (prop_toS32 @a)
   ]
+ where
+  property name prop =
+    withDriver getPrepared $ \getDriver ->
+      testPropertyNamed name (propertyName @a name) (prop getDriver)
+
+{- | Tests of the operations with one input in half precision on every
+possible input. There are only 65,536 of them.
+-}
+exhaustiveHalfTests :: IO Prepared -> [TestTree]
+exhaustiveHalfTests getPrepared =
+  [ exhaustive "sqrt" (toWord . modelSqrt @Half)
+  , exhaustive "abs" (toWord . modelAbs @Half)
+  , exhaustive "tohalf" (toWord . modelToHalf @Half)
+  , exhaustive "tosingle" (toWord . modelToSingle @Half)
+  , exhaustive "todouble" (toWord . modelToDouble @Half)
+  ]
+ where
+  exhaustive op model =
+    withDriver getPrepared $ \getDriver ->
+      testCase (op <> ", every input") $ do
+        driver <- getDriver
+        mismatches <- fmap catMaybes . forM [0 .. wordMask @Half] $ \w -> do
+          (cmodel, _) <- query driver (precisionName @Half) op w 0
+          let haskell = model (fromWord w)
+          pure (if haskell == cmodel then Nothing else Just (w, haskell, cmodel))
+        case mismatches of
+          [] -> pure ()
+          (w, haskell, cmodel) : _ ->
+            assertFailure $
+              show (length mismatches) <> " mismatches. The first: " <> op <> " "
+                <> showBits @Half w <> " gives 0x" <> showHex haskell ""
+                <> " in the model, but 0x" <> showHex cmodel "" <> " in the C model"
 
 -- | Name of a property, to rerun it
 propertyName :: forall a. TestFloat a => String -> H.PropertyName
@@ -486,6 +548,11 @@ class (RealFloat a, Show a) => TestFloat a where
 
   modelBinary :: BinOp -> a -> a -> a
   modelCompare :: a -> a -> G.Ordering
+  modelSqrt :: a -> a
+  modelAbs :: a -> a
+  modelToHalf :: a -> Half
+  modelToSingle :: a -> Float
+  modelToDouble :: a -> Double
 
   -- | The NaN the models produce, @xilinxNaN@
   modelNaN :: a
@@ -493,10 +560,13 @@ class (RealFloat a, Show a) => TestFloat a where
   -- | Prime factors of @2^(p+1) - 1@, see 'minNormalTies'
   minNormalTieFactors :: [Integer]
 
--- | Precisions the IP can convert 32-bit integers to
-class TestFloat a => TestFromInt32 a where
+-- | Precisions the IP can convert integers to and from
+class TestFloat a => TestInteger a where
   modelFromU32 :: Word32 -> a
   modelFromS32 :: Int32 -> a
+  modelFromU64 :: Word64 -> a
+  modelFromS64 :: Int64 -> a
+  modelToS32 :: a -> Int32
 
 -- | Single precision runs the functions from
 -- "Clash.Cores.Xilinx.Floating.Explicit"
@@ -512,12 +582,20 @@ instance TestFloat Float where
     Mul -> afterPipeline (F.mul clk en (constant x) (constant y))
     Div -> afterPipeline (F.div clk en (constant x) (constant y))
   modelCompare x y = afterPipeline (F.compare clk en (constant x) (constant y))
+  modelSqrt x = afterPipeline (F.sqrt clk en (constant x))
+  modelAbs x = afterPipeline (F.abs (constant x))
+  modelToHalf x = afterPipeline (F.toHalf clk en (constant x))
+  modelToSingle x = afterPipeline (F.convert clk en (constant x))
+  modelToDouble x = afterPipeline (F.toDouble clk en (constant x))
   modelNaN = F.xilinxNaN
   minNormalTieFactors = [31, 601, 1801]
 
-instance TestFromInt32 Float where
+instance TestInteger Float where
   modelFromU32 w = afterPipeline (F.fromU32 clk en (constant (fromIntegral w)))
   modelFromS32 i = afterPipeline (F.fromS32 clk en (constant (fromIntegral i)))
+  modelFromU64 w = afterPipeline (F.fromU64 clk en (constant (fromIntegral w)))
+  modelFromS64 i = afterPipeline (F.fromS64 clk en (constant (fromIntegral i)))
+  modelToS32 x = fromIntegral (afterPipeline (F.toS32 clk en (constant x)))
 
 instance TestFloat Half where
   precisionName = "half"
@@ -527,6 +605,11 @@ instance TestFloat Half where
   fromWord = C.unpack . fromIntegral
   modelBinary = genericBinary
   modelCompare = genericCompare
+  modelSqrt x = afterPipeline (HE.sqrt clk en (constant x))
+  modelAbs x = afterPipeline (HE.abs (constant x))
+  modelToHalf x = afterPipeline (HE.convert clk en (constant x))
+  modelToSingle x = afterPipeline (HE.toFloat clk en (constant x))
+  modelToDouble x = afterPipeline (HE.toDouble clk en (constant x))
   modelNaN = G.xilinxNaN
   minNormalTieFactors = [3, 3, 5, 7, 13]
 
@@ -538,12 +621,20 @@ instance TestFloat Double where
   fromWord = castWord64ToDouble
   modelBinary = genericBinary
   modelCompare = genericCompare
+  modelSqrt x = afterPipeline (G.sqrt clk en (constant x))
+  modelAbs x = afterPipeline (G.abs (constant x))
+  modelToHalf x = afterPipeline (DE.toHalf clk en (constant x))
+  modelToSingle x = afterPipeline (DE.toFloat clk en (constant x))
+  modelToDouble x = afterPipeline (G.convert clk en (constant x))
   modelNaN = G.xilinxNaN
   minNormalTieFactors = [3, 3, 3, 3, 7, 19, 73, 87211, 262657]
 
-instance TestFromInt32 Double where
+instance TestInteger Double where
   modelFromU32 w = afterPipeline (G.fromU32 clk en (constant (fromIntegral w)))
   modelFromS32 i = afterPipeline (G.fromS32 clk en (constant (fromIntegral i)))
+  modelFromU64 w = afterPipeline (DE.fromU64 clk en (constant (fromIntegral w)))
+  modelFromS64 i = afterPipeline (G.fromS64 clk en (constant (fromIntegral i)))
+  modelToS32 x = fromIntegral (afterPipeline (DE.toS32 clk en (constant x)))
 
 -- | Binary operations from "Clash.Cores.Xilinx.Floating.Generic.Explicit"
 genericBinary ::
@@ -832,19 +923,176 @@ prop_nan getDriver = H.withTests nTestsTargeted $ H.property $ do
   FloatBits cBits === floatBits (modelNaN @a)
   floatBits (modelBinary op x y) === FloatBits cBits
 
-prop_fromU32 :: forall a. TestFromInt32 a => IO Driver -> Property
+prop_fromU32 :: forall a. TestInteger a => IO Driver -> Property
 prop_fromU32 getDriver = H.withTests nTests $ H.property $ do
   driver <- H.evalIO getDriver
   w <- H.forAll genWord32
   (cmodel, _) <- H.evalIO (query driver (precisionName @a) "u32" (fromIntegral w) 0)
   floatBits (modelFromU32 @a w) === FloatBits cmodel
 
-prop_fromS32 :: forall a. TestFromInt32 a => IO Driver -> Property
+prop_fromS32 :: forall a. TestInteger a => IO Driver -> Property
 prop_fromS32 getDriver = H.withTests nTests $ H.property $ do
   driver <- H.evalIO getDriver
   i <- H.forAll genInt32
   (cmodel, _) <- H.evalIO (query driver (precisionName @a) "s32" (fromIntegral (fromIntegral i :: Word32)) 0)
   floatBits (modelFromS32 @a i) === FloatBits cmodel
+
+prop_fromU64 :: forall a. TestInteger a => IO Driver -> Property
+prop_fromU64 getDriver = H.withTests nTests $ H.property $ do
+  driver <- H.evalIO getDriver
+  w <- H.forAll genWord64
+  (cmodel, _) <- H.evalIO (query driver (precisionName @a) "u64" w 0)
+  floatBits (modelFromU64 @a w) === FloatBits cmodel
+
+prop_fromS64 :: forall a. TestInteger a => IO Driver -> Property
+prop_fromS64 getDriver = H.withTests nTests $ H.property $ do
+  driver <- H.evalIO getDriver
+  i <- H.forAll genInt64
+  (cmodel, _) <- H.evalIO (query driver (precisionName @a) "s64" (fromIntegral i) 0)
+  floatBits (modelFromS64 @a i) === FloatBits cmodel
+
+prop_toS32 :: forall a. TestInteger a => IO Driver -> Property
+prop_toS32 getDriver =
+  H.withTests nTests $
+    prop_unary @a getDriver "tos32" genToS32Operand labels model intResult
+ where
+  model x = fromIntegral (fromIntegral (modelToS32 x) :: Word32)
+  intResult w = Result w (show (fromIntegral w :: Int32))
+  labels x = do
+    let r = toRational x
+        fraction = r - fromInteger (floor r)
+    H.classify "in range" (not (isNaN x) && r >= -(2 ^ (31 :: Int)) && r < 2 ^ (31 :: Int))
+    H.classify "out of range" (not (isNaN x || isInfinite x) && (r < -(2 ^ (31 :: Int)) || r >= 2 ^ (31 :: Int)))
+    H.classify "halfway between two integers" (not (isNaN x || isInfinite x) && fraction == 1 / 2)
+
+prop_sqrt :: forall a. TestFloat a => IO Driver -> Property
+prop_sqrt getDriver =
+  H.withTests nTests $
+    prop_unary @a getDriver "sqrt" genSqrtOperand labels (toWord . modelSqrt) (floatResult @a)
+ where
+  labels x = do
+    H.classify "square root very close to halfway between two numbers" (sqrtNearHalfway x)
+    H.classify "square root exact" (sqrtExact x)
+
+prop_abs :: forall a. TestFloat a => IO Driver -> Property
+prop_abs getDriver =
+  H.withTests nTests $
+    prop_unary @a getDriver "abs" genFloat (\_ -> pure ()) (toWord . modelAbs) (floatResult @a)
+
+{- | Conversion from precision @a@ to precision @b@. The arguments are the name
+of the operation, as understood by the C driver, and the model.
+-}
+prop_convert ::
+  forall a b. (TestFloat a, TestFloat b) => String -> (a -> b) -> IO Driver -> Property
+prop_convert op model getDriver =
+  H.withTests nTests $
+    prop_unary @a getDriver op (genConvertOperand @a @b) labels (toWord . model) (floatResult @b)
+ where
+  labels x = when (significandWidth @b < significandWidth @a) $ do
+    let
+      exact = toRational x
+      finite = not (isNaN x || isInfinite x || isDenormalized x || x == 0)
+      is f = finite && f exact
+    H.classify "halfway between two numbers of the target precision" (is (halfway @b))
+    H.classify "very close to halfway between two numbers of the target precision" (is (nearHalfway @b))
+    H.classify "just below the smallest normal number of the target precision" (is (justBelowMinNormal @b))
+    H.classify "rounds up to the smallest normal number of the target precision" (is (roundsUpToMinNormal @b))
+    H.classify "rounds to infinity in the target precision" (is (roundsToInfinity @b))
+    H.classify "below the smallest normal number of the target precision" (is (\r -> abs r < 2 ^^ minExponent @b))
+
+-- | Result of an operation, compared by its bit pattern and shown as text
+data Result = Result Word64 String
+
+instance Eq Result where
+  Result x _ == Result y _ = x == y
+
+instance Show Result where
+  show (Result _ s) = s
+
+-- | A floating point result of precision @b@, from its bit pattern
+floatResult :: forall b. TestFloat b => Word64 -> Result
+floatResult w = Result w (show (FloatBits w :: FloatBits b))
+
+-- | Compare an operation with one floating point input with the C model
+prop_unary ::
+  forall a.
+  TestFloat a =>
+  IO Driver ->
+  -- | Name of the operation, as understood by the C driver
+  String ->
+  -- | Inputs
+  Gen (FloatBits a) ->
+  -- | Labels for the coverage report, given the input
+  (a -> PropertyT IO ()) ->
+  -- | The model, giving the bit pattern the C driver would give
+  (a -> Word64) ->
+  -- | Interpret a bit pattern returned by the C driver or the model
+  (Word64 -> Result) ->
+  Property
+prop_unary getDriver op genInput labels model result = H.property $ do
+  driver <- H.evalIO getDriver
+  a <- H.forAll genInput
+  let x = bitsFloat a
+  classifyOperand x
+  labels x
+  (cmodel, exceptions) <- H.evalIO (query driver (precisionName @a) op (toWord x) 0)
+  H.footnote ("C model exception flags: " <> show exceptions)
+  result (model x) === result cmodel
+
+-- | Labels for the coverage report of operations with one input
+classifyOperand :: forall a m. (TestFloat a, Monad m) => a -> PropertyT m ()
+classifyOperand x = do
+  H.classify "zero" (x == 0)
+  H.classify "subnormal" (isDenormalized x)
+  H.classify "normal" (not (x == 0 || isDenormalized x || isInfinite x || isNaN x))
+  H.classify "infinite" (isInfinite x)
+  H.classify "NaN" (isNaN x)
+  H.classify "sign bit set" (testBit (toWord x) (totalWidth @a - 1))
+
+-- | Integer square root: the largest integer whose square is at most @n@
+isqrt :: Integer -> Integer
+isqrt n
+  | n < 2 = n
+  | otherwise = go (bit ((bitLength n + 1) `div` 2))
+ where
+  -- Newton's iteration from above
+  go x =
+    let y = (x + n `div` x) `div` 2
+     in if y >= x then x else go y
+  bitLength :: Integer -> Int
+  bitLength = length . takeWhile (> 0) . iterate (`shiftR` 1)
+
+-- | Whether the square root of a positive normal number is exact: whether it
+-- has at most @p@ significant bits
+sqrtExact :: forall a. TestFloat a => a -> Bool
+sqrtExact x
+  | not (x > 0) || isInfinite x || isDenormalized x = False
+  | otherwise = even e && isqrt m * isqrt m == m
+ where
+  (m0, e0) = decodeFloat x
+  -- Make the exponent even
+  (m, e) = if even e0 then (m0, e0) else (2 * m0, e0 - 1)
+
+{- | Whether the square root of a positive normal number is very close to
+halfway between two numbers of the precision: within @2^(4-p)@ units in the
+last place.
+-}
+sqrtNearHalfway :: forall a. TestFloat a => a -> Bool
+sqrtNearHalfway x
+  | not (x > 0) || isInfinite x || isDenormalized x = False
+  | otherwise = abs (r - midpoint * midpoint) < 2 * midpoint * delta
+ where
+  p = significandWidth @a
+  r = toRational x
+  -- Units in the last place of the square root
+  ulpExponent = exponentOf r `div` 2 - (p - 1)
+  ulp = 2 ^^ ulpExponent :: Rational
+  -- The square root lies between @scaled * ulp@ and @(scaled + 1) * ulp@, so
+  -- the nearest midpoint is halfway between those.
+  scaled = isqrt (floor (r / (ulp * ulp)))
+  midpoint = (fromInteger scaled + 1 / 2) * ulp
+  -- sqrt(r) - midpoint is about (r - midpoint^2) / (2 midpoint)
+  delta = ulp * 2 ^^ (4 - p)
 
 ------------------------------------------------------------------------------
 -- Generators
@@ -1305,3 +1553,190 @@ genInt32 = do
     , negate (fromIntegral (w `shiftR` 1))
     , fromIntegral (complement w)
     ]
+
+-- | 64-bit integers, biased towards rounding edge cases in single and double
+-- precision: values just below, at and just above halfway between two
+-- numbers.
+genWord64 :: Gen Word64
+genWord64 =
+  Gen.frequency
+    [ (3, Gen.word64 Range.constantBounded)
+    , (2, Gen.word64 Range.exponentialBounded)
+    , (3, genRoundingCase 24)
+    , (3, genRoundingCase 53)
+    , ( 1
+      , Gen.element
+          [ 0, 1, 2 ^ (24 :: Int), 2 ^ (24 :: Int) + 1, 2 ^ (53 :: Int)
+          , 2 ^ (53 :: Int) + 1, 2 ^ (63 :: Int), 2 ^ (63 :: Int) + 1
+          , maxBound, maxBound - 1 ]
+      )
+    ]
+ where
+  -- A significand of p bits, shifted left by k bits, plus a remainder of k bits
+  genRoundingCase p = do
+    k <- Gen.int (Range.constant 1 (64 - p))
+    m <- Gen.word64 (Range.constant (2 ^ (p - 1)) (2 ^ p - 1))
+    let half = 2 ^ (k - 1)
+    r <- Gen.element [half - 1, half, half + 1, 0, 1, 2 * half - 1]
+    pure ((m `shiftL` k) + r)
+
+genInt64 :: Gen Int64
+genInt64 = do
+  w <- genWord64
+  Gen.element
+    [ fromIntegral w
+    , fromIntegral (w `shiftR` 1)
+    , negate (fromIntegral (w `shiftR` 1))
+    , fromIntegral (complement w)
+    , minBound
+    ]
+
+{- | Inputs of the square root. Besides numbers of all classes, these are
+positive normal numbers, exact squares, and numbers whose square root is very
+close to halfway between two numbers of the precision.
+
+Square roots are never exactly halfway. To get very close, pick an odd
+significand @s@ of @p+1@ bits, the significand of a number halfway between
+two numbers of the precision, and a small @c = 1 (mod 8)@. If @s^2 = c (mod
+2^t)@, where @t@ is the number of bits of @s^2@ beyond @p@, then @s^2 - c@ has
+at most @p@ significant bits, and its square root is within about @c / (2s)@ of
+@s@: very close to halfway. Such an @s@ is a square root of @c@ modulo @2^t@.
+-}
+genSqrtOperand :: forall a. TestFloat a => Gen (FloatBits a)
+genSqrtOperand =
+  Gen.frequency
+    [ (4, genFloat)
+    , (3, positive <$> genNormal)
+    , (1, genSquare)
+    , (3, genNearHalfway)
+    ]
+ where
+  p = significandWidth @a
+  positive :: FloatBits a -> FloatBits a
+  positive (FloatBits w) = FloatBits (clearBit w (totalWidth @a - 1))
+
+  -- A number with an even exponent, so that its square root is a power of two
+  -- times the square root of the integer. The integer must have at most 'p'
+  -- significant bits.
+  withEvenExponent :: Integer -> Gen (FloatBits a)
+  withEvenExponent m = do
+    let n = bitLength m
+    -- The unbiased exponent of the result is about n - 1 + 2k
+    k <- Gen.int (Range.constant ((minExponent @a - n + 2) `div` 2) ((maxExponent @a - n) `div` 2))
+    pure (floatBits (encodeFloat m (2 * k)))
+
+  genSquare = do
+    -- Squares of odd numbers of at most (p - 2) / 2 + 1 bits have at most p
+    -- bits
+    m <- genOdd =<< Gen.int (Range.constant 0 ((p - 2) `div` 2))
+    withEvenExponent (m * m)
+
+  genNearHalfway = do
+    (s, c) <- Gen.just $ do
+      t <- Gen.element [p + 1, p + 2]
+      j <- Gen.integral (Range.constant (-4) 4)
+      let c = 8 * j + 1
+      root <- Gen.element (sqrtsMod2 c t)
+      pure $
+        if root >= 2 ^ p && root < 2 ^ (p + 1) && bitLength (root * root - c) <= p + t
+          then Just (root, c)
+          else Nothing
+    withEvenExponent (s * s - c)
+
+  bitLength :: Integer -> Int
+  bitLength = length . takeWhile (> 0) . iterate (`shiftR` 1)
+
+{- | All square roots of @c@ modulo @2^t@, for @c = 1 (mod 8)@ and @t >= 3@.
+Starts with a square root modulo 8 and adds one bit at a time: if @r^2 = c
+(mod 2^k)@ for @k >= 3@, then @r@ or @r + 2^(k-1)@ is a square root modulo
+@2^(k+1)@.
+-}
+sqrtsMod2 :: Integer -> Int -> [Integer]
+sqrtsMod2 c t = nub [x `mod` modulus | x <- [r, negate r, r + half, half - r]]
+ where
+  modulus = 2 ^ t
+  half = 2 ^ (t - 1)
+  r = foldl lift 1 [3 .. t - 1]
+  lift x k
+    | (x * x - c) `mod` (2 ^ (k + 1)) == 0 = x
+    | otherwise = x + 2 ^ (k - 1)
+
+{- | Inputs of the conversion from precision @a@ to precision @b@. Besides
+numbers of all classes, conversions to a narrower precision get numbers close
+to halfway between two numbers of precision @b@: anywhere in the range of @b@,
+near and below its smallest normal number, and near its overflow threshold.
+-}
+genConvertOperand :: forall a b. (TestFloat a, TestFloat b) => Gen (FloatBits a)
+genConvertOperand
+  | pb < significandWidth @a =
+      Gen.frequency
+        [ (4, genFloat)
+        , (4, genNearTie (minExponent @b - pb - 2) (maxExponent @b + 1))
+        , (2, genNearTie (minExponent @b - 2) (minExponent @b + 1))
+        , (2, genNearTie (maxExponent @b - 1) (maxExponent @b + 1))
+        , (3, genNearBoundary)
+        , (1, genNormalWithExponent (minExponent @b - 3) (maxExponent @b + 3))
+        ]
+  | otherwise = genFloat
+ where
+  pb = significandWidth @b
+  eMin = minExponent @b
+  eMax = maxExponent @b
+
+  -- Within a few units in the last place of the boundaries of the windows
+  -- near the smallest normal number of precision b (see 'justBelowMinNormal'
+  -- and 'roundsUpToMinNormal'), of the smallest normal number itself, and of
+  -- the largest finite number of precision b and the threshold above which
+  -- numbers round to infinity
+  genNearBoundary = do
+    t <-
+      Gen.element
+        [ 2 ^^ eMin - 2 ^^ (eMin - pb)
+        , 2 ^^ eMin - 2 ^^ (eMin - pb - 1)
+        , 2 ^^ eMin
+        , 2 ^^ (eMax + 1) - 2 ^^ (eMax + 1 - pb)
+        , 2 ^^ (eMax + 1) - 2 ^^ (eMax - pb)
+        ]
+    negative <- Gen.bool
+    d <- Gen.integral (Range.constant (-3) 3)
+    pure (nudge d (approx (if negative then negate t else t)))
+
+  -- A number of precision a, with an unbiased exponent in the given range,
+  -- within a few units in the last place of halfway between two numbers of
+  -- precision b (as if its exponent were unbounded)
+  genNearTie lo hi = do
+    e <- Gen.int (Range.constant (max lo (minExponent @a)) (min hi (maxExponent @a)))
+    m <-
+      Gen.frequency
+        [ (3, Gen.integral (Range.constant (2 ^ (pb - 1)) (2 ^ pb - 1)))
+        , (1, Gen.element [2 ^ (pb - 1), 2 ^ (pb - 1) + 1, 2 ^ pb - 2, 2 ^ pb - 1])
+        ]
+    x <- signed (2 * m + 1) (e - pb)
+    d <- Gen.integral (Range.constant (-3) 3)
+    pure (nudge d x)
+
+-- | Inputs of the conversion to @Signed 32@: numbers of all classes, numbers
+-- close to halfway between two integers, and numbers close to the bounds.
+genToS32Operand :: forall a. TestInteger a => Gen (FloatBits a)
+genToS32Operand =
+  Gen.frequency
+    [ (3, genFloat)
+    , (3, genNormalWithExponent (-3) 33)
+    , (3, genNearHalfInteger)
+    , (2, genNearBound)
+    ]
+ where
+  p = significandWidth @a
+  -- Close to @k + 1/2@, for an integer @k@ of fewer than 'p' bits
+  genNearHalfInteger = do
+    n <- Gen.int (Range.constant 0 (min 31 (p - 1)))
+    k <- Gen.integral (Range.constant 0 (2 ^ n - 1 :: Integer))
+    x <- signed (2 * k + 1) (-1)
+    d <- Gen.integral (Range.constant (-2) 2)
+    pure (nudge d x)
+  -- Close to the bounds of @Signed 32@
+  genNearBound = do
+    t <- Gen.element [2 ^ (31 :: Int), 2 ^ (31 :: Int) - 1 / 2, 2 ^ (31 :: Int) - 1, 2 ^ (31 :: Int) + 1 / 2, 2 ^ (31 :: Int) + 1]
+    negative <- Gen.bool
+    d <- Gen.integral (Range.constant (-3) 3)
+    pure (nudge d (approx (if negative then negate t else t)))
