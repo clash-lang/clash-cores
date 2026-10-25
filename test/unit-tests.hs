@@ -32,9 +32,10 @@ import qualified Test.Cores.Xilinx.BlockRam
 import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
 import qualified Test.Cores.Xilinx.Ethernet.Gmii
+import qualified Test.Cores.Xilinx.Floating
 
-tests :: TestTree
-tests = testGroup "Unittests" $
+tests :: TestTree -> TestTree
+tests xilinxFloating = testGroup "Unittests" $
   [ Test.Cores.Crc.tests
   , Test.Cores.Etherbone.tests
   , Test.Cores.Ethernet.tests
@@ -47,6 +48,7 @@ tests = testGroup "Unittests" $
   , Test.Cores.Xilinx.DcFifo.tests
   , Test.Cores.Xilinx.DnaPortE2.tests
   , Test.Cores.Xilinx.Ethernet.Gmii.tests
+  , xilinxFloating
   ] ++ tests_modern
 
 tests_modern :: [TestTree]
@@ -63,4 +65,7 @@ tests_modern = []
 #endif
 
 main :: IO ()
-main = defaultMain tests
+main = do
+  -- Needs IO to find out whether the Xilinx floating point C model is available
+  xilinxFloating <- Test.Cores.Xilinx.Floating.mkTests
+  defaultMain (tests xilinxFloating)
