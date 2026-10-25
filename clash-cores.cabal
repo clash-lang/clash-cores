@@ -16,7 +16,10 @@ category:            Hardware
 --
 --   https://github.com/clash-lang/clash-compiler/pull/2665#issuecomment-1939044550
 build-type:          Custom
-extra-source-files:  CHANGELOG.md
+extra-source-files:
+  CHANGELOG.md
+  -- Embedded into the unit tests by Template Haskell
+  test/Test/Cores/Xilinx/Floating/CModelDriver.c
 
 flag doctests
   description:
@@ -247,17 +250,22 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
+    Test.Cores.Xilinx.Floating
 
   build-depends:
     clash-cores,
     clash-prelude-hedgehog,
+    directory,
+    filepath,
     hedgehog,
     infinite-list,
+    process,
     tasty                   >= 1.2 && < 1.6,
     tasty-hedgehog          >= 1.2.0,
     tasty-hunit,
     tasty-quickcheck,
     tasty-th,
+    temporary,
 
 test-suite doctests
   type:             exitcode-stdio-1.0
