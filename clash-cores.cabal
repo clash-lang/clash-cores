@@ -84,6 +84,7 @@ common basic-config
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
+    half                      >= 0.3.1 && < 1.0,
     infinite-list             ^>= 0.1,
     lens,
     QuickCheck,
@@ -161,7 +162,11 @@ library
     Clash.Cores.Xilinx.Ethernet.Gmii
     Clash.Cores.Xilinx.Ethernet.Gmii.Internal
     Clash.Cores.Xilinx.Floating
+    Clash.Cores.Xilinx.Floating.Double
+    Clash.Cores.Xilinx.Floating.Double.Explicit
     Clash.Cores.Xilinx.Floating.Explicit
+    Clash.Cores.Xilinx.Floating.Half
+    Clash.Cores.Xilinx.Floating.Half.Explicit
     Clash.Cores.Xilinx.Floating.Internal
     Clash.Cores.Xilinx.Ibufds
     Clash.Cores.Xilinx.Ila

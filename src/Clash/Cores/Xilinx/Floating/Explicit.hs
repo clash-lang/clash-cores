@@ -4,51 +4,21 @@ Copyright  :  (C) 2021,      QBayLogic B.V.,
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
-Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point).
+Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point)
+in single precision ('Float'), with explicit clock and enable arguments.
 
-The functions in this module make it possible to use the Xilinx IP in Clash.
-Compilation will instantiate the Xilinx IP. Clash will output a TCL script
-named @floating_point@/.../@.clash.tcl@ which needs to be executed in the Vivado
-project to create the proper entity. Simulation in Clash produces bit-identical
-results to synthesis.
+"Clash.Cores.Xilinx.Floating" has the same functions with a hidden clock and
+enable. See there for how the functions instantiate the IP, how they behave and
+the maximum latency of each operation.
 
-Most functions allow customization of the Xilinx IP. Valid combinations will
-need to be gleaned from, e.g., the Vivado wizard (IP Catalog -> Floating-point).
-All IP instantiated by this module always has the following properties:
+Related modules:
 
-* Single precision
-* Non-blocking
-* No reset input
-* No optional output fields, no @TLAST@, no @TUSER@
-* @TVALID@ on the inputs is always asserted, @TVALID@ on the output is ignored.
-Note that it would appear the Xilinx IP does not use these signals in
-non-blocking mode anyway.
-* 1 cycle per operation (meaning there need not be any dummy cycles between
-consecutive inputs)
-
-The latency of the IP is set through the delay argument of the 'DSignal'. Other
-customization is done through the 'Config' argument of customizable functions.
-
-De-asserting the 'Enable' signal of a function will stall the whole pipeline.
-
-The Xilinx IP does not support calculations with subnormal numbers. All
-subnormal numbers are rounded to zero on both input and output. Note that this
-introduces a slight bias as the larger subnormal numbers are closer to the
-smallest normal number, but they are rounded to zero nonetheless! The IP rounds a
-result to 24 significant bits before checking whether it is subnormal, so even a
-result that IEEE rounding would round up to the smallest normal number is
-rounded to zero if it is below it.
-
-For each customizable operation, there also exists a function that uses the
-defaults. These functions use the settings from 'defConfig' and the maximum
-delay for the Xilinx IP with that configuration. That delay is also defined as a
-type variable for delay annotation in circuits.
+* "Clash.Cores.Xilinx.Floating.Half.Explicit" and
+  "Clash.Cores.Xilinx.Floating.Double.Explicit" are the same for half and
+  double precision.
 -}
 
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
-
-{-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Clash.Cores.Xilinx.Floating.Explicit
@@ -116,8 +86,9 @@ addWith Config{archOpt, dspUsage} clk en x y
        ("CONFIG.Add_Sub_Value",  StrOpt "Add")
     :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
     :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
-    :> Nil
-  synth = binaryInst "add" "Add_Subtract" extraOpts  clk en x y
+    :> precisionOpts "Single"
+  synth = binaryInst "add" "Add_Subtract" extraOpts clk en x y
+{-# INLINE addWith #-}
 
 -- | Floating point addition with default settings.
 add
@@ -159,8 +130,8 @@ subWith Config{archOpt, dspUsage} clk en x y
        ("CONFIG.Add_Sub_Value",  StrOpt "Subtract")
     :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
     :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
-    :> Nil
-  synth = binaryInst "sub" "Add_Subtract" extraOpts  clk en x y
+    :> precisionOpts "Single"
+  synth = binaryInst "sub" "Add_Subtract" extraOpts clk en x y
 {-# INLINE subWith #-}
 
 -- | Floating point subtraction with default settings.
@@ -200,8 +171,10 @@ mulWith Config{dspUsage} clk en x y
  where
   und = withFrozenCallStack $ deepErrorX "Initial values of mul undefined"
   sim = delayI und en clk (xilinxBinary (*) <$> x <*> y)
-  extraOpts = ("CONFIG.C_Mult_Usage", StrOpt $ dspUsageToTcl dspUsage) :> Nil
-  synth = binaryInst "mul" "Multiply" extraOpts  clk en x y
+  extraOpts =
+       ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dspUsage))
+    :> precisionOpts "Single"
+  synth = binaryInst "mul" "Multiply" extraOpts clk en x y
 {-# INLINE mulWith #-}
 
 -- | Floating point multiplication with default settings.
@@ -241,7 +214,7 @@ divWith !_ clk en x y
  where
   sim = delayI und en clk (xilinxBinary (/) <$> x <*> y)
   und = withFrozenCallStack $ deepErrorX "Initial values of div undefined"
-  synth = binaryInst "div" "Divide" Nil clk en x y
+  synth = binaryInst "div" "Divide" (precisionOpts "Single") clk en x y
 {-# INLINE divWith #-}
 
 -- | Floating point division with default settings.
@@ -282,10 +255,11 @@ fromU32With clk en inp
   sim = delayI und en clk $ fmap fromIntegral inp
   und = withFrozenCallStack $ errorX "Initial values of fromU32 undefined"
   extraOpts =
-       ("CONFIG.A_Precision_Type",   StrOpt "Uint32")
-    :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
-    :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
-    :> ("CONFIG.C_Rate",             IntegerOpt 1)
+       ("CONFIG.A_Precision_Type",      StrOpt "Uint32")
+    :> ("CONFIG.C_A_Exponent_Width",    IntegerOpt 32)
+    :> ("CONFIG.C_A_Fraction_Width",    IntegerOpt 0)
+    :> ("CONFIG.C_Rate",                IntegerOpt 1)
+    :> ("CONFIG.Result_Precision_Type", StrOpt "Single")
     :> Nil
   synth = unaryInst "fromU32" "Fixed_to_float" extraOpts clk en inp
 {-# INLINE fromU32With #-}
@@ -327,10 +301,11 @@ fromS32With clk en inp
   sim = delayI und en clk $ fmap fromIntegral inp
   und = withFrozenCallStack $ errorX "Initial values of fromS32 undefined"
   extraOpts =
-       ("CONFIG.A_Precision_Type",   StrOpt "Int32")
-    :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
-    :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
-    :> ("CONFIG.C_Rate",             IntegerOpt 1)
+       ("CONFIG.A_Precision_Type",      StrOpt "Int32")
+    :> ("CONFIG.C_A_Exponent_Width",    IntegerOpt 32)
+    :> ("CONFIG.C_A_Fraction_Width",    IntegerOpt 0)
+    :> ("CONFIG.C_Rate",                IntegerOpt 1)
+    :> ("CONFIG.Result_Precision_Type", StrOpt "Single")
     :> Nil
   synth = unaryInst "fromS32" "Fixed_to_float" extraOpts clk en inp
 {-# INLINE fromS32With #-}
@@ -354,7 +329,7 @@ type FromS32DefDelay = 6
 -- | Customizable floating point comparison
 --
 -- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
 --
 -- Only the delay is configurable, so this function does not take a @Config@
 -- argument.
@@ -392,7 +367,7 @@ compareWith clk ena a b
 -- | Floating point comparison, with default delay
 --
 -- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
 compare
   :: forall dom n
    . ( KnownDomain dom
@@ -408,17 +383,3 @@ compare = compareWith
 
 -- | The default delay for @Float@ comparison
 type CompareDefDelay = 2
-
--- | Default customization options.
---
--- For those operations that support it, the default options are:
---
--- * Speed-optimized architecture ('SpeedArch')
--- * Full DSP slice usage ('FullDspUsage')
--- * Exponential operator does not use block memory ('NoBMemUsage')
-defConfig :: Config
-defConfig = Config
-  { archOpt = SpeedArch
-  , dspUsage = FullDspUsage
-  , bMemUsage = NoBMemUsage
-  }

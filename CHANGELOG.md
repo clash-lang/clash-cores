@@ -7,3 +7,6 @@
 * Add UART core
 * Add CRC core
 * Add I2C controller core, ported from the `clash-compiler` examples
+* Add half and double precision to the Xilinx Floating-Point core:
+  `Clash.Cores.Xilinx.Floating.Half` and `Clash.Cores.Xilinx.Floating.Double`,
+  each with an `.Explicit` variant
