@@ -45,6 +45,25 @@ module Clash.Cores.Xilinx.Floating.Double.Explicit
   , fromS32With
   , fromS32
   , FromS32DefDelay
+  , sqrtWith
+  , sqrt
+  , SqrtDefDelay
+  , abs
+  , fromU64With
+  , fromU64
+  , FromU64DefDelay
+  , fromS64With
+  , fromS64
+  , FromS64DefDelay
+  , toS32With
+  , toS32
+  , ToS32DefDelay
+  , toHalfWith
+  , toHalf
+  , ToHalfDefDelay
+  , toFloatWith
+  , toFloat
+  , ToFloatDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -55,9 +74,11 @@ module Clash.Cores.Xilinx.Floating.Double.Explicit
   , xilinxNaN
   ) where
 
-import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Explicit.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
+import Numeric.Half (Half)
 
 import Clash.Cores.Xilinx.Floating.Internal hiding (xilinxNaN)
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
@@ -255,20 +276,8 @@ fromU32With
   -> Enable dom
   -> DSignal dom n (Unsigned 32)
   -> DSignal dom (n + d) Double
-fromU32With clk en inp
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk $ fmap fromIntegral inp
-  und = withFrozenCallStack $ errorX "Initial values of fromU32 undefined"
-  extraOpts =
-       ("CONFIG.A_Precision_Type",      StrOpt "Uint32")
-    :> ("CONFIG.C_A_Exponent_Width",    IntegerOpt 32)
-    :> ("CONFIG.C_A_Fraction_Width",    IntegerOpt 0)
-    :> ("CONFIG.C_Rate",                IntegerOpt 1)
-    :> ("CONFIG.Result_Precision_Type", StrOpt "Double")
-    :> Nil
-  synth = unaryInst "fromU32" "Fixed_to_float" extraOpts clk en inp
+fromU32With =
+  withFrozenCallStack $ fixedToFloatWith "fromU32" "Uint32" "Double"
 {-# INLINE fromU32With #-}
 
 -- | Conversion of @Unsigned 32@ to @Double@, with default delay
@@ -301,20 +310,8 @@ fromS32With
   -> Enable dom
   -> DSignal dom n (Signed 32)
   -> DSignal dom (n + d) Double
-fromS32With clk en inp
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk $ fmap fromIntegral inp
-  und = withFrozenCallStack $ errorX "Initial values of fromS32 undefined"
-  extraOpts =
-       ("CONFIG.A_Precision_Type",      StrOpt "Int32")
-    :> ("CONFIG.C_A_Exponent_Width",    IntegerOpt 32)
-    :> ("CONFIG.C_A_Fraction_Width",    IntegerOpt 0)
-    :> ("CONFIG.C_Rate",                IntegerOpt 1)
-    :> ("CONFIG.Result_Precision_Type", StrOpt "Double")
-    :> Nil
-  synth = unaryInst "fromS32" "Fixed_to_float" extraOpts clk en inp
+fromS32With =
+  withFrozenCallStack $ fixedToFloatWith "fromS32" "Int32" "Double"
 {-# INLINE fromS32With #-}
 
 -- | Conversion of @Signed 32@ to @Double@, with default delay
@@ -390,3 +387,318 @@ compare = compareWith
 
 -- | The default delay for @Double@ comparison
 type CompareDefDelay = 2
+
+-- | Customizable floating point square root.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+--
+-- The t'Config' makes no difference in double precision: only the square root
+-- in half precision uses it (@bMemUsage@).
+sqrtWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+sqrtWith Config{bMemUsage} clk en x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (xilinxSqrt <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of sqrt undefined"
+  -- In double precision, Vivado ignores this setting, with a warning if it is
+  -- 'FullBMemUsage'
+  extraOpts =
+       ("CONFIG.C_BRAM_Usage", StrOpt (bMemUsageToTcl bMemUsage))
+    :> precisionOpts "Double"
+  synth = unaryInst "sqrt" "Square_root" extraOpts clk en x
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root with default settings.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+sqrt
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + SqrtDefDelay) Double
+sqrt = withFrozenCallStack $ sqrtWith defConfig
+{-# INLINE sqrt #-}
+
+-- | The default delay for floating point square root with default
+-- customization.
+type SqrtDefDelay = 57
+
+-- | Floating point absolute value.
+--
+-- The IP only clears the sign bit. Unlike the other operations, it leaves
+-- subnormal numbers and the payloads of NaNs alone.
+--
+-- The IP only supports a latency of zero, so the result has the same delay as
+-- the input. The IP is then combinational, without a clock or clock enable,
+-- so this function does not take them either.
+abs
+  :: forall dom n
+   . KnownDomain dom
+  => DSignal dom n Double
+  -> DSignal dom n Double
+abs x
+  | clashSimulation = xilinxAbs <$> x
+  | otherwise =
+      unaryCombinationalInst "abs" "Absolute" (precisionOpts "Double") x
+{-# INLINE abs #-}
+
+-- | Customizable conversion of @Unsigned 64@ to @Double@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromU64With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + d) Double
+fromU64With =
+  withFrozenCallStack $ fixedToFloatWith "fromU64" "Uint64" "Double"
+{-# INLINE fromU64With #-}
+
+-- | Conversion of @Unsigned 64@ to @Double@, with default delay. It rounds to
+-- nearest, ties to even.
+fromU64
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + FromU64DefDelay) Double
+fromU64 = withFrozenCallStack fromU64With
+{-# INLINE fromU64 #-}
+
+-- | The default delay for conversion of @Unsigned 64@ to @Double@
+type FromU64DefDelay = 6
+
+-- | Customizable conversion of @Signed 64@ to @Double@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromS64With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Signed 64)
+  -> DSignal dom (n + d) Double
+fromS64With =
+  withFrozenCallStack $ fixedToFloatWith "fromS64" "Int64" "Double"
+{-# INLINE fromS64With #-}
+
+-- | Conversion of @Signed 64@ to @Double@, with default delay. It rounds to
+-- nearest, ties to even.
+fromS64
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Signed 64)
+  -> DSignal dom (n + FromS64DefDelay) Double
+fromS64 = withFrozenCallStack fromS64With
+{-# INLINE fromS64 #-}
+
+-- | The default delay for conversion of @Signed 64@ to @Double@
+type FromS64DefDelay = 7
+
+-- | Customizable conversion of @Double@ to @Signed 32@.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toS32With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) (Signed 32)
+toS32With clk en inp
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk $ fmap xilinxToS32 inp
+  und = withFrozenCallStack $ errorX "Initial values of toS32 undefined"
+  extraOpts =
+       ("CONFIG.A_Precision_Type",        StrOpt "Double")
+    :> ("CONFIG.Result_Precision_Type",   StrOpt "Int32")
+    :> ("CONFIG.C_Result_Exponent_Width", IntegerOpt 32)
+    :> ("CONFIG.C_Result_Fraction_Width", IntegerOpt 0)
+    :> ("CONFIG.C_Rate",                  IntegerOpt 1)
+    :> Nil
+  synth = unaryInst "toS32" "Float_to_fixed" extraOpts clk en inp
+{-# INLINE toS32With #-}
+
+-- | Conversion of @Double@ to @Signed 32@, with default delay.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+toS32
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + ToS32DefDelay) (Signed 32)
+toS32 = withFrozenCallStack toS32With
+{-# INLINE toS32 #-}
+
+-- | The default delay for conversion of @Double@ to @Signed 32@
+type ToS32DefDelay = 6
+
+-- | Customizable conversion of @Double@ to @Half@.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toHalfWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Half
+toHalfWith clk en inp
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk $ fmap xilinxConvert inp
+  und = withFrozenCallStack $ deepErrorX "Initial values of toHalf undefined"
+  extraOpts =
+       ("CONFIG.A_Precision_Type",      StrOpt "Double")
+    :> ("CONFIG.Result_Precision_Type", StrOpt "Half")
+    :> Nil
+  synth = unaryInst "toHalf" "Float_to_float" extraOpts clk en inp
+{-# INLINE toHalfWith #-}
+
+-- | Conversion of @Double@ to @Half@, with default delay.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+toHalf
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + ToHalfDefDelay) Half
+toHalf = withFrozenCallStack toHalfWith
+{-# INLINE toHalf #-}
+
+-- | The default delay for conversion of @Double@ to @Half@
+type ToHalfDefDelay = 3
+
+-- | Customizable conversion of @Double@ to @Float@.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toFloatWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Float
+toFloatWith clk en inp
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk $ fmap xilinxConvert inp
+  und = withFrozenCallStack $ deepErrorX "Initial values of toFloat undefined"
+  extraOpts =
+       ("CONFIG.A_Precision_Type",      StrOpt "Double")
+    :> ("CONFIG.Result_Precision_Type", StrOpt "Single")
+    :> Nil
+  synth = unaryInst "toFloat" "Float_to_float" extraOpts clk en inp
+{-# INLINE toFloatWith #-}
+
+-- | Conversion of @Double@ to @Float@, with default delay.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+toFloat
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + ToFloatDefDelay) Float
+toFloat = withFrozenCallStack toFloatWith
+{-# INLINE toFloat #-}
+
+-- | The default delay for conversion of @Double@ to @Float@
+type ToFloatDefDelay = 3

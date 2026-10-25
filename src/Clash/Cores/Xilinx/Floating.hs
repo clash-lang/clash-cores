@@ -16,7 +16,8 @@ Most functions allow customization of the Xilinx IP. Valid combinations will
 need to be gleaned from, e.g., the Vivado wizard (IP Catalog -> Floating-point).
 All IP instantiated by this module always has the following properties:
 
-* Single precision
+* Single precision, apart from the integers and other precisions that
+  conversions take or produce
 * Non-blocking
 * No reset input
 * No optional output fields, no @TLAST@, no @TUSER@
@@ -32,13 +33,39 @@ argument of customizable functions.
 
 De-asserting the 'Enable' signal of a function will stall the whole pipeline.
 
+'abs' takes no clock or enable: the IP only supports a latency of zero for it,
+so its result has the same delay as its input.
+
 The Xilinx IP does not support calculations with subnormal numbers. All
 subnormal numbers are rounded to zero on both input and output. Note that this
 introduces a slight bias as the larger subnormal numbers are closer to the
-smallest normal number, but they are rounded to zero nonetheless! The IP rounds a
-result to 24 significant bits before checking whether it is subnormal, so even a
-result that IEEE rounding would round up to the smallest normal number is
-rounded to zero if it is below it.
+smallest normal number, but they are rounded to zero nonetheless! The IP
+rounds a result to 24 significant bits before checking whether it is
+subnormal, so some results that IEEE rounding would round up to the smallest
+normal number become zero: those still below it after rounding to 24 bits.
+Zeros keep their sign: a negative subnormal number becomes a negative zero.
+Every NaN becomes the NaN the IP generates,
+'Clash.Cores.Xilinx.Floating.xilinxNaN'.
+
+The operations round to nearest, ties to even. Some have further details:
+
+* 'sqrt': the square root of a negative zero is a negative zero, so that of a
+  negative subnormal number is too. The square root of any other negative
+  number, including negative infinity, is NaN.
+
+* 'abs' only clears the sign bit. Unlike the other operations, it leaves
+  subnormal numbers alone, and NaNs keep their payload.
+
+* 'toS32' rounds to nearest, ties to even, and saturates numbers that are out
+  of range after rounding, including infinities, to 'minBound' or 'maxBound'.
+  Every NaN becomes 'minBound'.
+
+* 'toHalf' and the other conversions to a narrower precision round like the
+  arithmetic operations, including the treatment of results below the smallest
+  normal number. Numbers beyond the largest finite number of the narrower
+  precision become an infinity. Conversions to a wider precision, like
+  'toDouble', are exact, apart from the treatment of subnormal numbers and
+  NaNs.
 
 For each customizable operation, there also exists a function that uses the
 defaults. These functions use the settings from
@@ -92,13 +119,29 @@ The maximum latencies in single precision, as reported by Vivado 2022.1:
 +----------------------+---------------------------------------+-----------------+
 | 'fromS32With'        |                                       | 6               |
 +----------------------+---------------------------------------+-----------------+
+| 'sqrtWith'           | any                                   | 28              |
++----------------------+---------------------------------------+-----------------+
+| 'abs'                |                                       | 0 (only)        |
++----------------------+---------------------------------------+-----------------+
+| 'fromU64With'        |                                       | 6               |
++----------------------+---------------------------------------+-----------------+
+| 'fromS64With'        |                                       | 7               |
++----------------------+---------------------------------------+-----------------+
+| 'toS32With'          |                                       | 6               |
++----------------------+---------------------------------------+-----------------+
+| 'toHalfWith'         |                                       | 3               |
++----------------------+---------------------------------------+-----------------+
+| 'toDoubleWith'       |                                       | 2               |
++----------------------+---------------------------------------+-----------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
-ignores the @dspUsage@ setting of 'addWith' and 'subWith'. These maximum
-latencies are the same on all measured devices: 7-series (Artix-7, Kintex-7 and
-Spartan-7), UltraScale (Kintex UltraScale) and UltraScale+ (Kintex UltraScale+
-and Zynq UltraScale+). Other versions of Vivado might accept other latencies.
+ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only
+uses the @bMemUsage@ setting in half precision. The IP only supports a latency
+of zero for 'abs'. These maximum latencies are the same on all measured
+devices: 7-series (Artix-7, Kintex-7 and Spartan-7), UltraScale (Kintex
+UltraScale) and UltraScale+ (Kintex UltraScale+ and Zynq UltraScale+). Other
+versions of Vivado might accept other latencies.
 
 When changing the configuration, note that the maximum latency can be lower
 than the default delay, for example for 'mulWith' with @MaxDspUsage@.
@@ -129,6 +172,25 @@ module Clash.Cores.Xilinx.Floating
   , fromS32With
   , fromS32
   , E.FromS32DefDelay
+  , sqrtWith
+  , sqrt
+  , E.SqrtDefDelay
+  , abs
+  , fromU64With
+  , fromU64
+  , E.FromU64DefDelay
+  , fromS64With
+  , fromS64
+  , E.FromS64DefDelay
+  , toS32With
+  , toS32
+  , E.ToS32DefDelay
+  , toHalfWith
+  , toHalf
+  , E.ToHalfDefDelay
+  , toDoubleWith
+  , toDouble
+  , E.ToDoubleDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -139,9 +201,11 @@ module Clash.Cores.Xilinx.Floating
   , E.xilinxNaN
   ) where
 
-import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
+import Numeric.Half (Half)
 
 import qualified Clash.Cores.Xilinx.Floating.Explicit as E
 
@@ -336,3 +400,221 @@ fromS32
   -> DSignal dom (n + E.FromS32DefDelay) Float
 fromS32 = withFrozenCallStack $ hideEnable $ hideClock E.fromS32
 {-# INLINE fromS32 #-}
+
+-- | Customizable floating point square root.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+--
+-- The t'Clash.Cores.Xilinx.Floating.Config' makes no difference in single
+-- precision: only the square root in half precision uses it (@bMemUsage@).
+sqrtWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.sqrtWith cfg
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root with default settings.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+sqrt
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.SqrtDefDelay) Float
+sqrt = withFrozenCallStack $ hideEnable $ hideClock E.sqrt
+{-# INLINE sqrt #-}
+
+-- | Floating point absolute value.
+--
+-- The IP only clears the sign bit. Unlike the other operations, it leaves
+-- subnormal numbers and the payloads of NaNs alone.
+--
+-- The IP only supports a latency of zero, so the result has the same delay as
+-- the input. The IP is then combinational, without a clock or clock enable,
+-- so this function does not take them either.
+abs
+  :: KnownDomain dom
+  => DSignal dom n Float
+  -> DSignal dom n Float
+abs = E.abs
+{-# INLINE abs #-}
+
+-- | Customizable conversion of @Unsigned 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromU64With
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + d) Float
+fromU64With = withFrozenCallStack $ hideEnable $ hideClock E.fromU64With
+{-# INLINE fromU64With #-}
+
+-- | Conversion of @Unsigned 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromU64
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + E.FromU64DefDelay) Float
+fromU64 = withFrozenCallStack $ hideEnable $ hideClock E.fromU64
+{-# INLINE fromU64 #-}
+
+-- | Customizable conversion of @Signed 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromS64With
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n (Signed 64)
+  -> DSignal dom (n + d) Float
+fromS64With = withFrozenCallStack $ hideEnable $ hideClock E.fromS64With
+{-# INLINE fromS64With #-}
+
+-- | Conversion of @Signed 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromS64
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Signed 64)
+  -> DSignal dom (n + E.FromS64DefDelay) Float
+fromS64 = withFrozenCallStack $ hideEnable $ hideClock E.fromS64
+{-# INLINE fromS64 #-}
+
+-- | Customizable conversion of @Float@ to @Signed 32@.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toS32With
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + d) (Signed 32)
+toS32With = withFrozenCallStack $ hideEnable $ hideClock E.toS32With
+{-# INLINE toS32With #-}
+
+-- | Conversion of @Float@ to @Signed 32@, with default delay.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+toS32
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToS32DefDelay) (Signed 32)
+toS32 = withFrozenCallStack $ hideEnable $ hideClock E.toS32
+{-# INLINE toS32 #-}
+
+-- | Customizable conversion of @Float@ to @Half@.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toHalfWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + d) Half
+toHalfWith = withFrozenCallStack $ hideEnable $ hideClock E.toHalfWith
+{-# INLINE toHalfWith #-}
+
+-- | Conversion of @Float@ to @Half@, with default delay.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+toHalf
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToHalfDefDelay) Half
+toHalf = withFrozenCallStack $ hideEnable $ hideClock E.toHalf
+{-# INLINE toHalf #-}
+
+-- | Customizable conversion of @Float@ to @Double@.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toDoubleWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + d) Double
+toDoubleWith = withFrozenCallStack $ hideEnable $ hideClock E.toDoubleWith
+{-# INLINE toDoubleWith #-}
+
+-- | Conversion of @Float@ to @Double@, with default delay.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+toDouble
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToDoubleDefDelay) Double
+toDouble = withFrozenCallStack $ hideEnable $ hideClock E.toDouble
+{-# INLINE toDouble #-}

@@ -11,7 +11,7 @@ and enable. See there for how the functions instantiate the IP, how they behave
 and the maximum latency of each operation.
 
 The IP does not support conversions between integers and half precision, so
-this module has no @fromU32@ and @fromS32@.
+this module has no @fromU32@, @fromS32@, @fromU64@, @fromS64@ and @toS32@.
 
 Related modules:
 
@@ -42,6 +42,16 @@ module Clash.Cores.Xilinx.Floating.Half.Explicit
   , compare
   , compareWith
   , CompareDefDelay
+  , sqrtWith
+  , sqrt
+  , SqrtDefDelay
+  , abs
+  , toFloatWith
+  , toFloat
+  , ToFloatDefDelay
+  , toDoubleWith
+  , toDouble
+  , ToDoubleDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -52,7 +62,8 @@ module Clash.Cores.Xilinx.Floating.Half.Explicit
   , xilinxNaN
   ) where
 
-import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Explicit.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -292,3 +303,181 @@ compare = compareWith
 
 -- | The default delay for @Half@ comparison
 type CompareDefDelay = 2
+
+-- | Customizable floating point square root.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+--
+-- With @bMemUsage = 'FullBMemUsage'@, the IP uses block memory, which lowers
+-- its maximum latency but needs a latency of at least one. The IP ignores the
+-- other settings.
+sqrtWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+sqrtWith Config{bMemUsage} clk en x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (xilinxSqrt <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of sqrt undefined"
+  extraOpts =
+       ("CONFIG.C_BRAM_Usage", StrOpt (bMemUsageToTcl bMemUsage))
+    :> precisionOpts "Half"
+  synth = unaryInst "sqrt" "Square_root" extraOpts clk en x
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root with default settings.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+sqrt
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + SqrtDefDelay) Half
+sqrt = withFrozenCallStack $ sqrtWith defConfig
+{-# INLINE sqrt #-}
+
+-- | The default delay for floating point square root with default
+-- customization.
+type SqrtDefDelay = 15
+
+-- | Floating point absolute value.
+--
+-- The IP only clears the sign bit. Unlike the other operations, it leaves
+-- subnormal numbers and the payloads of NaNs alone.
+--
+-- The IP only supports a latency of zero, so the result has the same delay as
+-- the input. The IP is then combinational, without a clock or clock enable,
+-- so this function does not take them either.
+abs
+  :: forall dom n
+   . KnownDomain dom
+  => DSignal dom n Half
+  -> DSignal dom n Half
+abs x
+  | clashSimulation = xilinxAbs <$> x
+  | otherwise =
+      unaryCombinationalInst "abs" "Absolute" (precisionOpts "Half") x
+{-# INLINE abs #-}
+
+-- | Customizable conversion of @Half@ to @Float@.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toFloatWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Float
+toFloatWith clk en inp
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk $ fmap xilinxConvert inp
+  und = withFrozenCallStack $ deepErrorX "Initial values of toFloat undefined"
+  extraOpts =
+       ("CONFIG.A_Precision_Type",      StrOpt "Half")
+    :> ("CONFIG.Result_Precision_Type", StrOpt "Single")
+    :> Nil
+  synth = unaryInst "toFloat" "Float_to_float" extraOpts clk en inp
+{-# INLINE toFloatWith #-}
+
+-- | Conversion of @Half@ to @Float@, with default delay.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+toFloat
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + ToFloatDefDelay) Float
+toFloat = withFrozenCallStack toFloatWith
+{-# INLINE toFloat #-}
+
+-- | The default delay for conversion of @Half@ to @Float@
+type ToFloatDefDelay = 2
+
+-- | Customizable conversion of @Half@ to @Double@.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toDoubleWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Double
+toDoubleWith clk en inp
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk $ fmap xilinxConvert inp
+  und = withFrozenCallStack $ deepErrorX "Initial values of toDouble undefined"
+  extraOpts =
+       ("CONFIG.A_Precision_Type",      StrOpt "Half")
+    :> ("CONFIG.Result_Precision_Type", StrOpt "Double")
+    :> Nil
+  synth = unaryInst "toDouble" "Float_to_float" extraOpts clk en inp
+{-# INLINE toDoubleWith #-}
+
+-- | Conversion of @Half@ to @Double@, with default delay.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+toDouble
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + ToDoubleDefDelay) Double
+toDouble = withFrozenCallStack toDoubleWith
+{-# INLINE toDouble #-}
+
+-- | The default delay for conversion of @Half@ to @Double@
+type ToDoubleDefDelay = 2

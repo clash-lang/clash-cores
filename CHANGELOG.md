@@ -10,3 +10,7 @@
 * Add half and double precision to the Xilinx Floating-Point core:
   `Clash.Cores.Xilinx.Floating.Half` and `Clash.Cores.Xilinx.Floating.Double`,
   each with an `.Explicit` variant
+* Add square root (`sqrt`), absolute value (`abs`), conversions from 64-bit
+  integers (`fromU64`, `fromS64`), conversion to `Signed 32` (`toS32`) and
+  conversions between precisions (`toHalf`, `toFloat` and `toDouble`) to the
+  Xilinx Floating-Point core
