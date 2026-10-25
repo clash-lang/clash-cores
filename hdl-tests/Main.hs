@@ -234,6 +234,12 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..6]]
             }
+        , runTest "XpmCdcLowLatencyHandshake" $ def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..5]]
+            }
 
 -- "Unmatchable constant as case subject"
 -- https://github.com/clash-lang/clash-compiler/issues/2806

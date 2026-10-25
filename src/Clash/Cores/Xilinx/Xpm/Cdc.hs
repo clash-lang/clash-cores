@@ -20,6 +20,7 @@ module Clash.Cores.Xilinx.Xpm.Cdc
   , xpmCdcAsyncRst
   , xpmCdcGray
   , xpmCdcHandshake
+  , xpmCdcLowLatencyHandshake
   , xpmCdcPulse
   , xpmCdcSingle
   , xpmCdcSyncRst
@@ -29,6 +30,7 @@ import Clash.Cores.Xilinx.Xpm.Cdc.ArraySingle
 import Clash.Cores.Xilinx.Xpm.Cdc.AsyncRst
 import Clash.Cores.Xilinx.Xpm.Cdc.Gray
 import Clash.Cores.Xilinx.Xpm.Cdc.Handshake
+import Clash.Cores.Xilinx.Xpm.Cdc.LowLatencyHandshake
 import Clash.Cores.Xilinx.Xpm.Cdc.Pulse
 import Clash.Cores.Xilinx.Xpm.Cdc.Single
 import Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
