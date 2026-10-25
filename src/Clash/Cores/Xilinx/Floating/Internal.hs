@@ -273,8 +273,8 @@ xilinxRoundExact r
   emin = fst (floatRange (undefined :: a))
   minNormal = 2 ^^ (emin - 1) :: Rational
 
--- | One-hot encoded version of 'P.Ordering'. The order of fields is chosen to
--- match the ordering picked by Xilinx's Floating Point comparison IP.
+-- | One-hot encoded version of t'Prelude.Ordering'. The order of fields is
+-- chosen to match the ordering picked by Xilinx's Floating Point comparison IP.
 data Ordering
   = EQ
   | LT
@@ -284,8 +284,8 @@ data Ordering
 deriveAnnotation (simpleDerivator OneHot Wide) [t| Ordering |]
 deriveBitPack [t| Ordering |]
 
--- | Converts 'Ordering' to Prelude's 'P.Ordering'. If the given ordering is
--- 'NaN', 'Nothing' is returned.
+-- | Converts t'Ordering' to Prelude's t'Prelude.Ordering'. If the given
+-- ordering is 'NaN', 'Nothing' is returned.
 toMaybeOrdering :: Ordering -> Maybe P.Ordering
 toMaybeOrdering = \case
   EQ -> Just P.EQ
@@ -294,8 +294,8 @@ toMaybeOrdering = \case
   NaN -> Nothing
 
 -- | Perform comparison on two floating point numbers. The type returned is a
--- locally defined version of 'Ordering'. If you want prelude's 'P.Ordering',
--- see 'toMaybeOrdering'.
+-- locally defined version of t'Ordering'. If you want prelude's
+-- t'Prelude.Ordering', see 'toMaybeOrdering'.
 xilinxCompare :: XilinxFloat a => a -> a -> Ordering
 xilinxCompare x y
   | isNaN x = NaN

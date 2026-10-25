@@ -27,7 +27,8 @@ non-blocking mode anyway.
 consecutive inputs)
 
 The latency of the IP is set through the delay argument of the 'DSignal'. Other
-customization is done through the 'E.Config' argument of customizable functions.
+customization is done through the t'Clash.Cores.Xilinx.Floating.Config'
+argument of customizable functions.
 
 De-asserting the 'Enable' signal of a function will stall the whole pipeline.
 
@@ -40,9 +41,70 @@ result that IEEE rounding would round up to the smallest normal number is
 rounded to zero if it is below it.
 
 For each customizable operation, there also exists a function that uses the
-defaults. These functions use the settings from 'E.defConfig' and the maximum
-delay for the Xilinx IP with that configuration. That delay is also defined as a
-type variable for delay annotation in circuits.
+defaults. These functions use the settings from
+'Clash.Cores.Xilinx.Floating.defConfig' and the maximum delay for the Xilinx IP
+with that configuration. That delay is also defined as a type variable for
+delay annotation in circuits.
+
+Related modules:
+
+* "Clash.Cores.Xilinx.Floating.Explicit" has the same functions with explicit
+  clock and enable arguments.
+
+* "Clash.Cores.Xilinx.Floating.Half" and "Clash.Cores.Xilinx.Floating.Double"
+  are the same for half and double precision.
+
+* "Clash.Cores.Xilinx.Floating.Generic" has the same functions, generic in the
+  precision.
+
+= Maximum latency
+
+The latency of an operation can be anything from zero up to a maximum, which
+depends on the operation and its configuration. Vivado reports an error when it
+generates the IP for a higher latency. A lower latency means fewer pipeline
+stages, which can lower the maximum clock frequency.
+
+The maximum latencies in single precision, as reported by Vivado 2022.1:
+
++----------------------+---------------------------------------+-----------------+
+| Function             | Configuration                         | Maximum latency |
++======================+=======================================+=================+
+| 'addWith', 'subWith' | @SpeedArch@, @NoDspUsage@             | 12              |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @SpeedArch@, @MediumDspUsage@         | 11              |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @SpeedArch@, @FullDspUsage@ (default) | 11              |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @SpeedArch@, @MaxDspUsage@            | /rejected/      |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @LatencyArch@, any @DspUsage@         | 8               |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @NoDspUsage@                          | 8               |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @MediumDspUsage@                      | 8               |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @FullDspUsage@ (default)              | 8               |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @MaxDspUsage@                         | 6               |
++----------------------+---------------------------------------+-----------------+
+| 'divWith'            | any                                   | 28              |
++----------------------+---------------------------------------+-----------------+
+| 'compareWith'        |                                       | 2               |
++----------------------+---------------------------------------+-----------------+
+| 'fromU32With'        |                                       | 5               |
++----------------------+---------------------------------------+-----------------+
+| 'fromS32With'        |                                       | 6               |
++----------------------+---------------------------------------+-----------------+
+
+/rejected/ means that Vivado rejects the configuration itself, whatever the
+latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
+ignores the @dspUsage@ setting of 'addWith' and 'subWith'. These maximum
+latencies are the same on all measured devices: 7-series (Artix-7, Kintex-7 and
+Spartan-7), UltraScale (Kintex UltraScale) and UltraScale+ (Kintex UltraScale+
+and Zynq UltraScale+). Other versions of Vivado might accept other latencies.
+
+When changing the configuration, note that the maximum latency can be lower
+than the default delay, for example for 'mulWith' with @MaxDspUsage@.
 -}
 
 module Clash.Cores.Xilinx.Floating
@@ -76,6 +138,8 @@ module Clash.Cores.Xilinx.Floating
   , E.ArchOpt(..)
   , E.DspUsage(..)
   , E.BMemUsage(..)
+    -- * Additional functions
+  , E.xilinxNaN
   ) where
 
 import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
@@ -190,8 +254,8 @@ div = withFrozenCallStack $ hideEnable $ hideClock E.div
 
 -- | Customizable floating point comparison
 --
--- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN. Otherwise,
--- it behaves like Haskell's 'P.compare'.
+-- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN.
+-- Otherwise, it behaves like Haskell's 'Prelude.compare'.
 --
 -- Only the delay is configurable, so this function does not take a @Config@
 -- argument.
@@ -210,8 +274,8 @@ compareWith = E.compareWith hasClock hasEnable
 
 -- | Floating point comparison, with default delay
 --
--- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN. Otherwise,
--- it behaves like Haskell's 'P.compare'.
+-- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN.
+-- Otherwise, it behaves like Haskell's 'Prelude.compare'.
 compare
   :: forall dom n
    . ( HiddenClock dom

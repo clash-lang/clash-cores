@@ -162,8 +162,13 @@ library
     Clash.Cores.Xilinx.Ethernet.Gmii
     Clash.Cores.Xilinx.Ethernet.Gmii.Internal
     Clash.Cores.Xilinx.Floating
+    Clash.Cores.Xilinx.Floating.Double
+    Clash.Cores.Xilinx.Floating.Double.Explicit
     Clash.Cores.Xilinx.Floating.Explicit
+    Clash.Cores.Xilinx.Floating.Generic
     Clash.Cores.Xilinx.Floating.Generic.Explicit
+    Clash.Cores.Xilinx.Floating.Half
+    Clash.Cores.Xilinx.Floating.Half.Explicit
     Clash.Cores.Xilinx.Floating.Internal
     Clash.Cores.Xilinx.Ibufds
     Clash.Cores.Xilinx.Ila

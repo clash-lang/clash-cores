@@ -5,13 +5,26 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point),
 for every precision it supports: 'Half', 'Float' (single precision) and
-'Double'. See "Clash.Cores.Xilinx.Floating" for how the functions in this module
-instantiate the IP and how they behave. The functions here work the same, but
-are generic in the precision, see 'XilinxFloat'. The default delays depend on
-the precision, so they are type families.
+'Double', with explicit clock and enable arguments. See
+"Clash.Cores.Xilinx.Floating" for how the functions in this module instantiate
+the IP and how they behave. The functions here work the same, but are generic
+in the precision, see 'XilinxFloat'. The default delays depend on the
+precision, so they are type families.
 
 The Xilinx IP does not support conversions between integers and half precision,
 so 'fromU32' and 'fromS32' only produce 'Float' and 'Double', see 'FromInt32'.
+
+Related modules:
+
+* "Clash.Cores.Xilinx.Floating.Generic" has the same functions with a hidden
+  clock and enable. See there for the maximum latency of each operation in each
+  precision.
+
+* "Clash.Cores.Xilinx.Floating.Half.Explicit",
+  "Clash.Cores.Xilinx.Floating.Explicit" and
+  "Clash.Cores.Xilinx.Floating.Double.Explicit" have the same functions for
+  one fixed precision each, which avoids type annotations and type
+  applications.
 -}
 
 {-# LANGUAGE BangPatterns #-}
@@ -229,9 +242,11 @@ mul = withFrozenCallStack $ mulWith defConfig
 -- | The default delay for floating point multiplication with default
 -- customization.
 --
--- For 'Double', the IP needs 15 cycles to be fully pipelined on 7-series
--- devices, but only accepts up to 12 on UltraScale and UltraScale+ devices.
--- The default is 12, which works on all of them.
+-- For 'Double', the IP accepts up to 15 cycles on 7-series devices, but only
+-- up to 12 on UltraScale and UltraScale+ devices. The default is 12, which
+-- works on all of them. See
+-- "Clash.Cores.Xilinx.Floating.Generic" for the maximum latencies of all
+-- operations.
 type family MulDefDelay a :: Nat where
   MulDefDelay Half = 6
   MulDefDelay Float = 8

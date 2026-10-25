@@ -4,48 +4,22 @@ Copyright  :  (C) 2021,      QBayLogic B.V.,
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
-Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point).
+Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point)
+in single precision ('Float'), with explicit clock and enable arguments.
 
-The functions in this module make it possible to use the Xilinx IP in Clash.
-Compilation will instantiate the Xilinx IP. Clash will output a TCL script
-named @floating_point@/.../@.clash.tcl@ which needs to be executed in the Vivado
-project to create the proper entity. Simulation in Clash produces bit-identical
-results to synthesis.
+"Clash.Cores.Xilinx.Floating" has the same functions with a hidden clock and
+enable. See there for how the functions instantiate the IP, how they behave and
+the maximum latency of each operation.
 
-Most functions allow customization of the Xilinx IP. Valid combinations will
-need to be gleaned from, e.g., the Vivado wizard (IP Catalog -> Floating-point).
-All IP instantiated by this module always has the following properties:
+Related modules:
 
-* Single precision
-* Non-blocking
-* No reset input
-* No optional output fields, no @TLAST@, no @TUSER@
-* @TVALID@ on the inputs is always asserted, @TVALID@ on the output is ignored.
-Note that it would appear the Xilinx IP does not use these signals in
-non-blocking mode anyway.
-* 1 cycle per operation (meaning there need not be any dummy cycles between
-consecutive inputs)
+* "Clash.Cores.Xilinx.Floating.Half.Explicit" and
+  "Clash.Cores.Xilinx.Floating.Double.Explicit" are the same for half and
+  double precision.
 
-The latency of the IP is set through the delay argument of the 'DSignal'. Other
-customization is done through the 'Config' argument of customizable functions.
-
-De-asserting the 'Enable' signal of a function will stall the whole pipeline.
-
-The Xilinx IP does not support calculations with subnormal numbers. All
-subnormal numbers are rounded to zero on both input and output. Note that this
-introduces a slight bias as the larger subnormal numbers are closer to the
-smallest normal number, but they are rounded to zero nonetheless! The IP rounds a
-result to 24 significant bits before checking whether it is subnormal, so even a
-result that IEEE rounding would round up to the smallest normal number is
-rounded to zero if it is below it.
-
-For each customizable operation, there also exists a function that uses the
-defaults. These functions use the settings from 'defConfig' and the maximum
-delay for the Xilinx IP with that configuration. That delay is also defined as a
-type variable for delay annotation in circuits.
+* "Clash.Cores.Xilinx.Floating.Generic.Explicit" has the same functions,
+  generic in the precision.
 -}
-
-{-# OPTIONS_HADDOCK hide #-}
 
 module Clash.Cores.Xilinx.Floating.Explicit
   ( -- * Instantiating IP

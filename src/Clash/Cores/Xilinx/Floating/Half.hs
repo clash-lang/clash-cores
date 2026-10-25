@@ -1,0 +1,251 @@
+{-|
+Copyright  :  (C) 2026, QBayLogic B.V.
+License    :  BSD2 (see the file LICENSE)
+Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point)
+in half precision ('Half').
+
+This module has the same functions as "Clash.Cores.Xilinx.Floating", but for
+'Half' instead of 'Float'. See there for how the functions instantiate the IP
+and how they behave. The differences follow from the precision: the IP rounds a
+result to 11 significant bits before checking whether it is subnormal, and the
+maximum latencies are different (see below). The IP does not support
+conversions between integers and half precision, so this module has no
+@fromU32@ and @fromS32@.
+
+Related modules:
+
+* "Clash.Cores.Xilinx.Floating.Half.Explicit" has the same functions with
+  explicit clock and enable arguments.
+
+* "Clash.Cores.Xilinx.Floating" and "Clash.Cores.Xilinx.Floating.Double" are
+  the same for single and double precision.
+
+* "Clash.Cores.Xilinx.Floating.Generic" has the same functions, generic in the
+  precision.
+
+= Maximum latency
+
+The latency of an operation can be anything from zero up to a maximum, which
+depends on the operation and its configuration. Vivado reports an error when it
+generates the IP for a higher latency. A lower latency means fewer pipeline
+stages, which can lower the maximum clock frequency.
+
+The maximum latencies in half precision, as reported by Vivado 2022.1:
+
++----------------------+---------------------------------------+-----------------+
+| Function             | Configuration                         | Maximum latency |
++======================+=======================================+=================+
+| 'addWith', 'subWith' | @SpeedArch@, @NoDspUsage@             | 8               |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @SpeedArch@, @MediumDspUsage@         | 11              |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @SpeedArch@, @FullDspUsage@ (default) | 11              |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @SpeedArch@, @MaxDspUsage@            | /rejected/      |
++----------------------+---------------------------------------+-----------------+
+| 'addWith', 'subWith' | @LatencyArch@, any @DspUsage@         | 7               |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @NoDspUsage@                          | 6               |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @MediumDspUsage@                      | /rejected/      |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @FullDspUsage@ (default)              | 6               |
++----------------------+---------------------------------------+-----------------+
+| 'mulWith'            | @MaxDspUsage@                         | 8               |
++----------------------+---------------------------------------+-----------------+
+| 'divWith'            | any                                   | 15              |
++----------------------+---------------------------------------+-----------------+
+| 'compareWith'        |                                       | 2               |
++----------------------+---------------------------------------+-----------------+
+
+/rejected/ means that Vivado rejects the configuration itself, whatever the
+latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
+ignores the @dspUsage@ setting of 'addWith' and 'subWith'. These maximum
+latencies are the same on all measured devices: 7-series (Artix-7, Kintex-7 and
+Spartan-7), UltraScale (Kintex UltraScale) and UltraScale+ (Kintex UltraScale+
+and Zynq UltraScale+). Other versions of Vivado might accept other latencies.
+
+The functions without @With@ use 'Clash.Cores.Xilinx.Floating.Half.defConfig'
+and the default delays (t'Clash.Cores.Xilinx.Floating.Half.AddDefDelay' and so
+on). These are the maximum latencies for that configuration. With another
+configuration, the maximum latency can be lower than the default delay, for
+example for 'addWith' with @NoDspUsage@.
+-}
+
+module Clash.Cores.Xilinx.Floating.Half
+  ( -- * Instantiating IP
+    addWith
+  , add
+  , E.AddDefDelay
+  , subWith
+  , sub
+  , E.SubDefDelay
+  , mulWith
+  , mul
+  , E.MulDefDelay
+  , divWith
+  , div
+  , E.DivDefDelay
+  , E.Ordering(..)
+  , E.toMaybeOrdering
+  , compare
+  , compareWith
+  , E.CompareDefDelay
+    -- * Customizing IP
+  , E.Config(..)
+  , E.defConfig
+  , E.ArchOpt(..)
+  , E.DspUsage(..)
+  , E.BMemUsage(..)
+    -- * Additional functions
+  , E.xilinxNaN
+  ) where
+
+import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+
+import GHC.Stack (HasCallStack, withFrozenCallStack)
+import Numeric.Half (Half)
+
+import qualified Clash.Cores.Xilinx.Floating.Half.Explicit as E
+
+-- | Customizable floating point addition.
+addWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+addWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.addWith cfg
+{-# INLINE addWith #-}
+
+-- | Floating point addition with default settings.
+add
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AddDefDelay) Half
+add = withFrozenCallStack $ hideEnable $ hideClock E.add
+{-# INLINE add #-}
+
+-- | Customizable floating point subtraction.
+subWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+subWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.subWith cfg
+{-# INLINE subWith #-}
+
+-- | Floating point subtraction with default settings.
+sub
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.SubDefDelay) Half
+sub = withFrozenCallStack $ hideEnable $ hideClock E.sub
+{-# INLINE sub #-}
+
+-- | Customizable floating point multiplication.
+mulWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+mulWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.mulWith cfg
+{-# INLINE mulWith #-}
+
+-- | Floating point multiplication with default settings.
+mul
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.MulDefDelay) Half
+mul = withFrozenCallStack $ hideEnable $ hideClock E.mul
+{-# INLINE mul #-}
+
+-- | Customizable floating point division.
+divWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+divWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.divWith cfg
+{-# INLINE divWith #-}
+
+-- | Floating point division with default settings.
+div
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.DivDefDelay) Half
+div = withFrozenCallStack $ hideEnable $ hideClock E.div
+{-# INLINE div #-}
+
+-- | Customizable floating point comparison
+--
+-- Produces 'Clash.Cores.Xilinx.Floating.Half.NaN' if any of the inputs is
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+compareWith
+  :: forall d dom n
+   . ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) E.Ordering
+compareWith = E.compareWith hasClock hasEnable
+{-# INLINE compareWith #-}
+
+-- | Floating point comparison, with default delay
+--
+-- Produces 'Clash.Cores.Xilinx.Floating.Half.NaN' if any of the inputs is
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
+compare
+  :: forall dom n
+   . ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.CompareDefDelay) E.Ordering
+compare = compareWith
+{-# INLINE compare #-}
