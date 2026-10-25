@@ -25,6 +25,7 @@ module Clash.Cores.Xilinx.Floating.Internal
   , conditionFloatF
   , xilinxCompare
   , toMaybeOrdering
+  , unaryInst
   , binaryInst
   ) where
 
@@ -166,9 +167,85 @@ xilinxCompare x y
         P.EQ -> EQ
         P.GT -> GT
 
+-- | Width of an AXI4-Stream @TDATA@ field carrying @n@ bits: @n@ rounded up to
+-- a whole number of bytes. Inputs are padded with zeros; the padding bits of
+-- outputs are dropped.
+type AxiWidth n = 8 * DivRU n 8
+
+-- | Wizard settings for the Floating-Point IP: the settings every instance in
+-- this module shares, followed by the given extra options.
+floatingWizard ::
+  forall d nExtraOpts .
+  -- | Latency
+  SNat d ->
+  -- | @CONFIG.Operation_Type@. E.g., @Divide@.
+  String ->
+  -- | Extra Wizard options (will be added to the default ones)
+  Vec nExtraOpts (OptionName, XilinxWizardOption) ->
+  XilinxWizard (6 + nExtraOpts)
+floatingWizard SNat operType extraOptions =
+  XilinxWizard
+    { wiz_name = "floating_point"
+    , wiz_vendor = "xilinx.com"
+    , wiz_library = "ip"
+    , wiz_version = "7.1"
+    , wiz_options =
+         ("CONFIG.Operation_Type",     StrOpt operType)
+      :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
+      :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
+      :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
+      :> ("CONFIG.Maximum_Latency",    BoolOpt False)
+      :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
+      :> extraOptions
+    }
+{-# INLINE floatingWizard #-}
+
+-- | Instantiate the Floating-Point IP for an operation with one input
+unaryInst ::
+  forall d nExtraOpts n dom a b .
+  ( KnownNat nExtraOpts
+  , KnownDomain dom
+  , KnownNat d
+  , BitPack a
+  , BitPack b
+  ) =>
+  -- | Instantiation type hint
+  String ->
+  -- | @CONFIG.Operation_Type@. E.g., @Fixed_to_float@.
+  String ->
+  -- | Extra Wizard options (will be added to the default ones)
+  Vec nExtraOpts (OptionName, XilinxWizardOption) ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n a ->
+  DSignal dom (n + d) b
+unaryInst nm operType extraOptions clk ena a =
+  D.unsafeFromSignal $ unpack . resize <$> unPort (snd go)
+ where
+  go ::
+    ( Port "m_axis_result_tvalid" dom Bit
+    , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize b)))
+    )
+  go =
+    instWithXilinxWizard
+      (instConfig nm)
+      (floatingWizard (SNat @d) operType extraOptions)
+      (ClockPort @"aclk" clk)
+      (Port @"aclken" (boolToBit <$> fromEnable ena))
+      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE unaryInst #-}
+
+-- | Instantiate the Floating-Point IP for an operation with two inputs
 binaryInst ::
-  forall d nExtraOpts n dom .
-  (KnownNat nExtraOpts, KnownDomain dom, KnownNat d) =>
+  forall d nExtraOpts n dom a b c .
+  ( KnownNat nExtraOpts
+  , KnownDomain dom
+  , KnownNat d
+  , BitPack a
+  , BitPack b
+  , BitPack c
+  ) =>
   -- | Instantiation type hint
   String ->
   -- | @CONFIG.Operation_Type@. E.g., @Divide@.
@@ -177,37 +254,29 @@ binaryInst ::
   Vec nExtraOpts (OptionName, XilinxWizardOption) ->
   Clock dom ->
   Enable dom ->
-  DSignal dom n Float ->
-  DSignal dom n Float ->
-  DSignal dom (n + d) Float
+  DSignal dom n a ->
+  DSignal dom n b ->
+  DSignal dom (n + d) c
 binaryInst nm operType extraOptions clk ena a b =
-  D.unsafeFromSignal $ unpack <$> unPort (snd go)
+  D.unsafeFromSignal $ unpack . resize <$> unPort (snd go)
  where
   go ::
     ( Port "m_axis_result_tvalid" dom Bit
-    , Port "m_axis_result_tdata" dom (BitVector 32)
+    , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize c)))
     )
   go =
     instWithXilinxWizard
       (instConfig nm)
-      (XilinxWizard
-        { wiz_name = "floating_point"
-        , wiz_vendor = "xilinx.com"
-        , wiz_library = "ip"
-        , wiz_version = "7.1"
-        , wiz_options =
-             ("CONFIG.Operation_Type",     StrOpt operType)
-          :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
-          :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
-          :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
-          :> ("CONFIG.Maximum_Latency",    BoolOpt False)
-          :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
-          :> extraOptions
-        })
-        (ClockPort @"aclk" clk)
-        (Port @"aclken" (boolToBit <$> fromEnable ena))
-        (Port @"s_axis_a_tdata" (pack <$> D.toSignal a))
-        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
-        (Port @"s_axis_b_tdata" (pack <$> D.toSignal b))
-        (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+      (floatingWizard (SNat @d) operType extraOptions)
+      (ClockPort @"aclk" clk)
+      (Port @"aclken" (boolToBit <$> fromEnable ena))
+      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+      (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
+      (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
 {-# INLINE binaryInst #-}
+
+-- | Pad a value to a whole number of bytes, for use as AXI4-Stream @TDATA@
+axiData :: BitPack a => a -> BitVector (AxiWidth (BitSize a))
+axiData = resize . pack
+{-# INLINE axiData #-}
