@@ -56,3 +56,12 @@ unaryEnTopAnn name =
           ]
     , t_output = PortName "result"
     }
+
+-- | For functions with one input and no clock, such as @abs@
+unaryCombTopAnn :: String -> TopEntity
+unaryCombTopAnn name =
+  Synthesize
+    { t_name   = name
+    , t_inputs = [ PortName "x" ]
+    , t_output = PortName "result"
+    }

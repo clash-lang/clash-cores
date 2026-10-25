@@ -185,6 +185,13 @@ runClashTest = defaultMain $ clashTestRoot
                                                       , "fromUEnableTB"
                                                       , "fromSBasicTB"
                                                       , "fromSEnableTB"
+                                                      , "sqrtBasicTB"
+                                                      , "absBasicTB"
+                                                      , "toHalfBasicTB"
+                                                      , "toDoubleBasicTB"
+                                                      , "fromU64BasicTB"
+                                                      , "fromS64BasicTB"
+                                                      , "toS32BasicTB"
                                                       ]
                           }
           in runTest "Floating" _opts
@@ -200,6 +207,13 @@ runClashTest = defaultMain $ clashTestRoot
                                          , "compareBasicTB"
                                          , "fromUBasicTB"
                                          , "fromSBasicTB"
+                                         , "sqrtBasicTB"
+                                         , "absBasicTB"
+                                         , "toHalfBasicTB"
+                                         , "toFloatBasicTB"
+                                         , "fromU64BasicTB"
+                                         , "fromS64BasicTB"
+                                         , "toS32BasicTB"
                                          ]
             }
         , runTest "FloatingHalf" def
@@ -212,6 +226,11 @@ runClashTest = defaultMain $ clashTestRoot
                                          , "mulBasicTB"
                                          , "divBasicTB"
                                          , "compareBasicTB"
+                                         , "sqrtBasicTB"
+                                         , "sqrtBramTB"
+                                         , "absBasicTB"
+                                         , "toFloatBasicTB"
+                                         , "toDoubleBasicTB"
                                          ]
             }
         , runTest "Ibufds" def

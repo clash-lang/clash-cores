@@ -3,9 +3,9 @@ Copyright  :  (C) 2026, QBayLogic B.V.
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
-Samples for the floating point HDL tests in half and double precision
-(@FloatingHalf@ and @FloatingDouble@), generic in the precision. Most expected
-results come from the simulation models in
+Samples for the floating point HDL tests (@Floating@, @FloatingHalf@ and
+@FloatingDouble@), generic in the precision. Most expected results come from
+the simulation models in
 "Clash.Cores.Xilinx.Floating.Internal". The hand-written cases have their
 expected results written out, and are checked against the models at compile
 time.
@@ -27,10 +27,12 @@ import Data.Bits (bit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.Word (Word64)
 import Numeric.Half (Half)
 
+import qualified Clash.Cores.Xilinx.Floating as S
 import qualified Clash.Cores.Xilinx.Floating.Double as D
 import qualified Clash.Cores.Xilinx.Floating.Half as H
 import Clash.Cores.Xilinx.Floating.Internal
-  (ipNaN, xilinxBinaryExact, xilinxCompare)
+  ( ipNaN, xilinxAbs, xilinxBinaryExact, xilinxCompare, xilinxConvert
+  , xilinxFromInteger, xilinxSqrt, xilinxToS32 )
 import qualified Clash.Cores.Xilinx.Floating.Internal as F
 
 -- * Precisions
@@ -42,6 +44,9 @@ class (BitPack a, RealFloat a) => TestFloat a where
 
 instance TestFloat Half where
   xilinxBinary = xilinxBinaryExact
+
+instance TestFloat Float where
+  xilinxBinary f = F.xilinxBinary f
 
 instance TestFloat Double where
   xilinxBinary = xilinxBinaryExact
@@ -97,13 +102,85 @@ doubleCompareSamples =
 
 doubleFromU32Samples :: [(Unsigned 32, BitVector 64)]
 doubleFromU32Samples =
-  delayOutput1 (natToNum @D.FromU32DefDelay) 0 $
-    map (\x -> (x, pack (fromIntegral x :: Double))) fromU32Inputs
+  romSamples1 (natToNum @D.FromU32DefDelay) (fromIntegerSamples @Double fromU32Inputs)
 
 doubleFromS32Samples :: [(Signed 32, BitVector 64)]
 doubleFromS32Samples =
-  delayOutput1 (natToNum @D.FromS32DefDelay) 0 $
-    map (\x -> (x, pack (fromIntegral x :: Double))) fromS32Inputs
+  romSamples1 (natToNum @D.FromS32DefDelay) (fromIntegerSamples @Double fromS32Inputs)
+
+-- | Latency of the @sqrtBram@ test: the maximum for 'H.FullBMemUsage'
+type HalfSqrtBramDelay = 4
+
+halfSqrtSamples :: [(Half, BitVector 16)]
+halfSqrtSamples = romSamples1 (natToNum @H.SqrtDefDelay) sqrtSamples
+
+halfSqrtBramSamples :: [(Half, BitVector 16)]
+halfSqrtBramSamples = romSamples1 (natToNum @HalfSqrtBramDelay) sqrtSamples
+
+halfAbsSamples :: [(Half, BitVector 16)]
+halfAbsSamples = romSamples1 0 absSamples
+
+halfToFloatSamples :: [(Half, BitVector 32)]
+halfToFloatSamples =
+  romSamples1 (natToNum @H.ToFloatDefDelay) (convertSamples @Half @Float)
+
+halfToDoubleSamples :: [(Half, BitVector 64)]
+halfToDoubleSamples =
+  romSamples1 (natToNum @H.ToDoubleDefDelay) (convertSamples @Half @Double)
+
+singleSqrtSamples :: [(Float, BitVector 32)]
+singleSqrtSamples = romSamples1 (natToNum @S.SqrtDefDelay) sqrtSamples
+
+singleAbsSamples :: [(Float, BitVector 32)]
+singleAbsSamples = romSamples1 0 absSamples
+
+singleToHalfSamples :: [(Float, BitVector 16)]
+singleToHalfSamples =
+  romSamples1 (natToNum @S.ToHalfDefDelay) (convertSamples @Float @Half)
+
+singleToDoubleSamples :: [(Float, BitVector 64)]
+singleToDoubleSamples =
+  romSamples1 (natToNum @S.ToDoubleDefDelay) (convertSamples @Float @Double)
+
+singleFromU64Samples :: [(Unsigned 64, BitVector 32)]
+singleFromU64Samples =
+  romSamples1 (natToNum @S.FromU64DefDelay) (fromIntegerSamples @Float fromU64Inputs)
+
+singleFromS64Samples :: [(Signed 64, BitVector 32)]
+singleFromS64Samples =
+  romSamples1 (natToNum @S.FromS64DefDelay) (fromIntegerSamples @Float fromS64Inputs)
+
+singleToS32Samples :: [(Float, Signed 32)]
+singleToS32Samples = delayOutput1 (natToNum @S.ToS32DefDelay) 0 toS32Samples
+
+doubleSqrtSamples :: [(Double, BitVector 64)]
+doubleSqrtSamples = romSamples1 (natToNum @D.SqrtDefDelay) sqrtSamples
+
+doubleAbsSamples :: [(Double, BitVector 64)]
+doubleAbsSamples = romSamples1 0 absSamples
+
+doubleToHalfSamples :: [(Double, BitVector 16)]
+doubleToHalfSamples =
+  romSamples1 (natToNum @D.ToHalfDefDelay) (convertSamples @Double @Half)
+
+doubleToFloatSamples :: [(Double, BitVector 32)]
+doubleToFloatSamples =
+  romSamples1 (natToNum @D.ToFloatDefDelay) (convertSamples @Double @Float)
+
+doubleFromU64Samples :: [(Unsigned 64, BitVector 64)]
+doubleFromU64Samples =
+  romSamples1 (natToNum @D.FromU64DefDelay) (fromIntegerSamples @Double fromU64Inputs)
+
+doubleFromS64Samples :: [(Signed 64, BitVector 64)]
+doubleFromS64Samples =
+  romSamples1 (natToNum @D.FromS64DefDelay) (fromIntegerSamples @Double fromS64Inputs)
+
+doubleToS32Samples :: [(Double, Signed 32)]
+doubleToS32Samples = delayOutput1 (natToNum @D.ToS32DefDelay) 0 toS32Samples
+
+-- | Like 'romSamples', for functions with one input.
+romSamples1 :: BitPack b => Int -> [(a, b)] -> [(a, BitVector (BitSize b))]
+romSamples1 d = delayOutput1 d 0 . map (\(x, y) -> (x, pack y))
 
 -- | Delay the expected results by the latency of the function under test, and
 -- compare them by their bits: 'BitVector's are equal exactly when the floating
@@ -230,6 +307,136 @@ fromS32Inputs =
     , 0b0000_0001_0000_0000_0000_0000_0000_0011
     , 0b0000_0010_0000_0000_0000_0000_0000_0001
     ]
+
+-- | Inputs and results of the square root: the hand-written cases, special
+-- values, NaNs, exact squares, numbers whose square root is very close to
+-- halfway between two numbers, and pseudo-random numbers.
+sqrtSamples :: forall a. (TestFloat a, Show a) => [(a, a)]
+sqrtSamples =
+     checked1 "sqrt" xilinxSqrt sqrtCases
+  ++ modelled1 xilinxSqrt
+       (  interesting
+       ++ nans
+       ++ sqrtNearHalfway
+       ++ [ encodeFloat (m * m) (2 * k)
+          | m <- [3, 5, 7, 2 ^ ((digitsOf @a - 1) `div` 2) - 1]
+          , k <- [-3, 0, 3]
+          ]
+       ++ take 100 (randomBits 20)
+       ++ take 100 (map abs (randomNormals 21)) )
+
+-- | Inputs and results of the absolute value: special values, NaNs and
+-- pseudo-random numbers, all of both signs.
+absSamples :: forall a. (TestFloat a, Show a) => [(a, a)]
+absSamples =
+     checked1 "abs" xilinxAbs absCases
+  ++ modelled1 xilinxAbs
+       (interesting ++ nans ++ take 100 (randomBits 22))
+
+-- | Inputs and results of the conversion from precision @a@ to precision @b@.
+-- Besides special values, NaNs and pseudo-random numbers, conversions to a
+-- narrower precision get numbers close to the smallest normal number and the
+-- largest finite number of precision @b@, and close to halfway between two
+-- numbers of precision @b@.
+convertSamples ::
+  forall a b. (TestFloat a, TestFloat b, Show a, Show b) => [(a, b)]
+convertSamples =
+     checked1 "convert" xilinxConvert (convertCases @a @b)
+  ++ modelled1 xilinxConvert
+       (  interesting
+       ++ nans
+       ++ take 100 (randomBits 23)
+       ++ (if narrowing then narrowingInputs else []) )
+ where
+  pa = digitsOf @a
+  pb = digitsOf @b
+  narrowing = pb < pa
+  -- The smallest normal number of precision b is @2^e@
+  e = eMin @b - 1
+  narrowingInputs =
+       concatMap (\x -> neighbours x ++ neighbours (negate x))
+         [ -- Below the smallest normal number of b, but representable with
+           -- its precision: flushed to zero
+           encodeFloat (2 ^ pb - 1) (e - pb)
+           -- Halfway between that and the smallest normal number: rounds up
+         , encodeFloat (2 ^ (pb + 1) - 1) (e - pb - 1)
+         , encodeFloat 1 e
+           -- The largest finite number of b
+         , encodeFloat (2 ^ pb - 1) (eMax @b - pb)
+           -- Halfway between that and 2^eMax: rounds to infinity
+         , encodeFloat (2 ^ (pb + 1) - 1) (eMax @b - pb - 1)
+         ]
+    ++ take 100 nearTies
+  -- Numbers within an ulp of halfway between two numbers of precision b
+  nearTies =
+    [ nudge ((w `shiftR` 32) `mod` 3) (signedWith w (encodeFloat (2 * m + 1) (ex - pb)))
+    | w <- randoms 24
+    , let m = 2 ^ (pb - 1) + toInteger (w `mod` (2 ^ (pb - 1)))
+          ex = e - pb - 1 + fromIntegral ((w `shiftR` 40) `mod` fromIntegral (eMax @b - e + pb + 2))
+    ]
+  signedWith :: Word64 -> a -> a
+  signedWith w x = if testBit w 63 then negate x else x
+  -- Move one unit in the last place down (0), not at all (1) or up (2)
+  nudge :: Word64 -> a -> a
+  nudge k x = unpack (pack x + fromIntegral k - 1)
+
+-- | The number and the numbers one and two units in the last place away from
+-- it
+neighbours :: TestFloat a => a -> [a]
+neighbours x = [unpack (pack x + fromInteger d) | d <- [-2, -1, 0, 1, 2]]
+
+-- | Inputs and results of the conversion to @Signed 32@: special values, NaNs,
+-- numbers (close to) halfway between two integers, numbers close to the
+-- bounds of @Signed 32@, and pseudo-random numbers.
+toS32Samples :: forall a. (TestFloat a, Show a) => [(a, Signed 32)]
+toS32Samples =
+     checked1 "toS32" xilinxToS32 toS32Cases
+  ++ modelled1 xilinxToS32
+       (  interesting
+       ++ nans
+       ++ concatMap neighbours
+            [ fromRational (s * (fromInteger k + 1 / 2))
+            | s <- [1, -1], k <- [0, 1, 2, 3, 1000, 2 ^ (min 30 (digitsOf @a - 2)) + 1] ]
+       ++ concatMap neighbours
+            [ s * t
+            | s <- [1, -1]
+            , t <- [2 ^ (31 :: Int), 2 ^ (31 :: Int) - 1, fromRational (2 ^ (31 :: Int) - 1 / 2)] ]
+       ++ take 100 (randomBits 25)
+       ++ take 100 [x | x <- randomNormals 26, abs x < 2 ^ (33 :: Int)] )
+
+-- | Inputs and results of conversions of integers
+fromIntegerSamples :: forall a i. (TestFloat a, Integral i) => [i] -> [(i, a)]
+fromIntegerSamples = map (\x -> (x, xilinxFromInteger (toInteger x)))
+
+-- | Inputs of @fromU64@: special values, rounding cases (just below, at and
+-- just above halfway between two numbers) in single and double precision, and
+-- pseudo-random numbers.
+fromU64Inputs :: [Unsigned 64]
+fromU64Inputs =
+     [0, 1, 2 ^ (24 :: Int) + 1, 2 ^ (53 :: Int) + 1, 2 ^ (63 :: Int), maxBound, maxBound - 1]
+  ++ [ (m `shiftL` k) + r
+     | (p, m) <- [(24, 0xC00001), (53, 0x1C000000000001)]
+     , k <- [1, 2, 64 - p]
+     , let half = 2 ^ (k - 1)
+     , r <- [half - 1, half, half + 1, 2 * half - 1]
+     ]
+  ++ [ (m `shiftL` k) + r
+     | (p, m) <- [(24, 0xC00002), (53, 0x1C000000000002)]
+     , k <- [1, 2, 64 - p]
+     , let half = 2 ^ (k - 1)
+     , r <- [half]
+     ]
+  ++ map fromIntegral (take 50 (randoms 27))
+
+-- | Inputs of @fromS64@: the inputs of @fromU64@ as signed numbers, their
+-- halves and the negations of those, and the extremes.
+fromS64Inputs :: [Signed 64]
+fromS64Inputs =
+     [minBound, maxBound, minBound + 1, -1]
+  ++ [ f (fromIntegral w)
+     | w <- fromU64Inputs
+     , f <- [id, (`shiftR` 1), negate . (`shiftR` 1)]
+     ]
 
 -- * Hand-written cases
 
@@ -472,6 +679,119 @@ compareCases =
   , (-1, -pred1, F.LT)
   ]
 
+sqrtCases :: forall a. TestFloat a => [(a, a)]
+sqrtCases =
+  [ (4, 2)
+  , (1, 1)
+  , (0.25, 0.5)
+  , (0, 0)
+    -- The square root of a negative zero is a negative zero
+  , (-0, -0)
+    -- Subnormal inputs are flushed to zero, keeping their sign
+  , (minDenormal, 0)
+  , (maxDenormal, 0)
+  , (-minDenormal, -0)
+  , (-maxDenormal, -0)
+    -- The exponent of the smallest normal number is even
+  , (minNormal, encodeFloat 1 ((eMin @a - 1) `div` 2))
+  , (infinity, infinity)
+    -- Other negative numbers give NaN
+  , (-1, ipNaN)
+  , (-minNormal, ipNaN)
+  , (-maxFinite, ipNaN)
+  , (-infinity, ipNaN)
+  ]
+
+absCases :: forall a. TestFloat a => [(a, a)]
+absCases =
+  [ (-1, 1)
+  , (1, 1)
+  , (-0, 0)
+  , (0, 0)
+  , (-infinity, infinity)
+    -- Subnormal numbers are not flushed to zero
+  , (-minDenormal, minDenormal)
+  , (-maxDenormal, maxDenormal)
+  , (maxDenormal, maxDenormal)
+    -- NaNs keep their payload: only the sign bit is cleared
+  , (mkNaN True False 1, mkNaN False False 1)
+  , (mkNaN True True 5, mkNaN False True 5)
+  , (mkNaN False False 5, mkNaN False False 5)
+  ]
+
+convertCases :: forall a b. (TestFloat a, TestFloat b) => [(a, b)]
+convertCases =
+  [ (1, 1)
+  , (-2, -2)
+  , (0.5, 0.5)
+  , (0, 0)
+  , (-0, -0)
+    -- Subnormal inputs are flushed to zero, keeping their sign
+  , (minDenormal, 0)
+  , (-maxDenormal, -0)
+  , (infinity, infinity)
+  , (-infinity, -infinity)
+    -- Every NaN becomes the NaN the IP generates
+  , (ipNaN, ipNaN)
+  , (mkNaN True False 1, ipNaN)
+  , (mkNaN False True 5, ipNaN)
+  ] ++
+  if pb < pa
+    then
+      [ -- Overflow
+        (maxFinite, infinity)
+      , (-maxFinite, -infinity)
+        -- Results below the smallest normal number are flushed to zero
+      , (minNormal, 0)
+      , (-minNormal, -0)
+        -- Round to nearest
+      , (1 + epsilon, 1)
+        -- Ties to even: 1 + 2^-pb is halfway between 1 and the next number,
+        -- 1 + 3 * 2^-pb halfway between that and the one after it
+      , (encodeFloat (2 ^ pb + 1) (negate pb), 1)
+      , (encodeFloat (2 ^ pb + 3) (negate pb), encodeFloat (2 ^ (pb - 1) + 2) (1 - pb))
+      ]
+    else
+      [ -- Exact
+        (maxFinite, encodeFloat (2 ^ pa - 1) (eMax @a - pa))
+      , (minNormal, encodeFloat 1 (eMin @a - 1))
+      , (1 + epsilon, encodeFloat (2 ^ (pa - 1) + 1) (1 - pa))
+      ]
+ where
+  pa = digitsOf @a
+  pb = digitsOf @b
+
+toS32Cases :: forall a. TestFloat a => [(a, Signed 32)]
+toS32Cases =
+  [ (0, 0)
+  , (-0, 0)
+  , (1, 1)
+  , (-1, -1)
+  , (0.75, 1)
+  , (0.25, 0)
+    -- Ties to even
+  , (0.5, 0)
+  , (1.5, 2)
+  , (2.5, 2)
+  , (3.5, 4)
+  , (-0.5, 0)
+  , (-1.5, -2)
+  , (-2.5, -2)
+    -- Subnormal numbers become zero
+  , (minDenormal, 0)
+  , (-maxDenormal, 0)
+    -- Saturation
+  , (2 ^ (31 :: Int), maxBound)
+  , (-(2 ^ (31 :: Int)), minBound)
+  , (maxFinite, maxBound)
+  , (-maxFinite, minBound)
+  , (infinity, maxBound)
+  , (-infinity, minBound)
+    -- Every NaN becomes the smallest number
+  , (ipNaN, minBound)
+  , (mkNaN True False 1, minBound)
+  ]
+
 -- * Generated inputs
 
 -- | Inputs whose products are close to the smallest normal number, where the
@@ -581,6 +901,48 @@ normalWith w e =
       (e - digits + 1)
  where
   digits = digitsOf @a
+
+-- | Pseudo-random normal numbers of both signs, with exponents anywhere in the
+-- normal range
+randomNormals :: forall a. RealFloat a => Word64 -> [a]
+randomNormals seed =
+  [ normalWith w1 (eMin @a - 1 + fromIntegral (w2 `mod` fromIntegral (eMax @a - eMin @a + 1)))
+  | (w1, w2) <- pairs (randoms seed)
+  ]
+
+-- | Numbers whose square root is very close to halfway between two numbers of
+-- the precision, @p@ bits. Their significands are @s^2 - c@, for a small
+-- @c = 1 (mod 8)@ and an odd @s@ of @p+1@ bits with @s^2 = c (mod 2^t)@, where
+-- @t@ is the number of bits of @s^2@ beyond @p@: then @s^2 - c@ has at most
+-- @p@ significant bits and its square root is within about @c / (2s)@ of @s@.
+sqrtNearHalfway :: forall a. RealFloat a => [a]
+sqrtNearHalfway =
+  [ encodeFloat (s * s - c) (2 * k)
+  | c <- [-15, -7, 1, 9, 17]
+  , t <- [p + 1, p + 2]
+  , s <- sqrtsMod2 c t
+  , s >= 2 ^ p && s < 2 ^ (p + 1)
+  , bitLength (s * s - c) <= p + t
+    -- Results near one, near the smallest normal number and near the largest
+    -- finite number
+  , k <- [negate p - 1, (eMin @a - 2 * p) `div` 2, (eMax @a - 2 * p - 2) `div` 2]
+  ]
+ where
+  p = digitsOf @a
+  bitLength :: Integer -> Int
+  bitLength = length . takeWhile (> 0) . iterate (`shiftR` 1)
+
+-- | All square roots of @c@ modulo @2^t@, for @c = 1 (mod 8)@ and @t >= 3@
+sqrtsMod2 :: Integer -> Int -> [Integer]
+sqrtsMod2 c t = [x `mod` 2 ^ t | x <- [r, negate r, r + half, half - r]]
+ where
+  half = 2 ^ (t - 1)
+  -- If r^2 = c (mod 2^k), then r or r + 2^(k-1) is a square root modulo
+  -- 2^(k+1)
+  r = foldl lift 1 [3 .. t - 1]
+  lift x k
+    | (x * x - c) `mod` (2 ^ (k + 1)) == 0 = x
+    | otherwise = x + 2 ^ (k - 1)
 
 -- | Pseudo-random bit patterns
 randomBits :: forall a. TestFloat a => Word64 -> [a]
@@ -716,6 +1078,23 @@ cartesianProduct as bs = [(a, b) | a <- as, b <- bs]
 -- | Add the expected results according to a model
 modelled :: (a -> b -> c) -> [(a, b)] -> [(a, b, c)]
 modelled model = map (\(x, y) -> (x, y, model x y))
+
+-- | 'modelled' for functions with one input
+modelled1 :: (a -> b) -> [a] -> [(a, b)]
+modelled1 model = map (\x -> (x, model x))
+
+-- | 'checked' for functions with one input
+checked1 ::
+  (Show a, Show b, BitPack b) => String -> (a -> b) -> [(a, b)] -> [(a, b)]
+checked1 name model = map check
+ where
+  check s@(x, expected)
+    | pack actual == pack expected = s
+    | otherwise = error $
+        name <> " " <> show x <> ": expected " <> show expected
+          <> ", but the model gives " <> show actual
+   where
+    actual = model x
 
 -- | Check hand-written cases against a model, comparing the bits of the
 -- results. Fails at compile time if they disagree.
