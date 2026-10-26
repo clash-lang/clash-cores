@@ -30,3 +30,6 @@
   also outputs its overflow and invalid operation flags. The documentation of
   `Clash.Cores.Xilinx.Floating.Generic` describes how to derive the exception
   flags of the other operations from their inputs and results
+* Fix the operations of the Xilinx Floating-Point core at a latency of zero:
+  the IP is then combinational and has no clock or clock enable ports, but they
+  were connected anyway

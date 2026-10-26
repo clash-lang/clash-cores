@@ -92,6 +92,25 @@ mulMaxDspTB =
     $(memBlobTH Nothing doubleMulMaxDspSamples)
 {-# ANN mulMaxDspTB (TestBench 'mulMaxDsp) #-}
 
+-- | Addition at a latency of zero, where the IP is combinational: no clock or
+-- clock enable may be connected to it
+addComb
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+addComb clk x y = withClock clk $ withEnable enableGen $ D.addWith D.defConfig x y
+{-# OPAQUE addComb #-}
+{-# ANN addComb (binaryTopAnn "addComb") #-}
+
+addCombTB :: Signal XilinxSystem Bool
+addCombTB =
+  basicRomTB
+    (\clk a b -> pack <$> addComb clk a b)
+    0
+    $(memBlobTH Nothing doubleAddCombSamples)
+{-# ANN addCombTB (TestBench 'addComb) #-}
+
 divBasic
   :: Clock XilinxSystem
   -> DSignal XilinxSystem 0 Double
@@ -171,6 +190,23 @@ sqrtBasicTB =
     0
     $(memBlobTH Nothing doubleSqrtSamples)
 {-# ANN sqrtBasicTB (TestBench 'sqrtBasic) #-}
+
+-- | Square root at a latency of zero, where the IP is combinational
+sqrtComb
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+sqrtComb clk x = withClock clk $ withEnable enableGen $ D.sqrtWith D.defConfig x
+{-# OPAQUE sqrtComb #-}
+{-# ANN sqrtComb (unaryTopAnn "sqrtComb") #-}
+
+sqrtCombTB :: Signal XilinxSystem Bool
+sqrtCombTB =
+  unaryRomTB
+    (\clk a -> pack <$> sqrtComb clk a)
+    0
+    $(memBlobTH Nothing doubleSqrtCombSamples)
+{-# ANN sqrtCombTB (TestBench 'sqrtComb) #-}
 
 -- | The IP is combinational, so this has no clock
 absBasic
@@ -433,6 +469,26 @@ fmaMediumTB =
     0
     $(memBlobTH Nothing doubleFmaMediumSamples)
 {-# ANN fmaMediumTB (TestBench 'fmaMedium) #-}
+
+-- | Fused multiply-add at a latency of zero, where the IP is combinational
+fmaComb
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+fmaComb clk x y z =
+  withClock clk $ withEnable enableGen $ D.fmaWith D.defConfig x y z
+{-# OPAQUE fmaComb #-}
+{-# ANN fmaComb (ternaryTopAnn "fmaComb") #-}
+
+fmaCombTB :: Signal XilinxSystem Bool
+fmaCombTB =
+  ternaryRomTB
+    (\clk a b c -> pack <$> fmaComb clk a b c)
+    0
+    $(memBlobTH Nothing doubleFmaCombSamples)
+{-# ANN fmaCombTB (TestBench 'fmaComb) #-}
 
 -- | Accumulator with the default settings, without flags
 accumBasic

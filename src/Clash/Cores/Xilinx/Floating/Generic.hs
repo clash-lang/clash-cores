@@ -140,17 +140,19 @@ The maximum latencies, as reported by Vivado 2022.1:
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
-ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only
-uses the @bMemUsage@ setting in half precision; with @FullBMemUsage@ it also
-needs a latency of at least one. The IP only supports a latency of zero for
-'abs'. For 'convertWith', the columns are the precision of the input. In half
-precision, the IP builds 'recipWith' and 'rsqrtWith' from block memory without
-DSP slices, whatever the configuration, and they need a latency of at least
-one; 'expWith' ignores the configuration; and 'logWith' supports at most
-@MediumDspUsage@, so with @FullDspUsage@ (the default) it uses @MediumDspUsage@
-instead. In double precision, 'recipWith' and 'rsqrtWith' always use
-@FullDspUsage@. 'expWith' only uses the @bMemUsage@ setting in single and
-double precision. Only multiplication, the reciprocal square root and the
+ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only uses
+the @bMemUsage@ setting in half precision; with @FullBMemUsage@ it also needs a
+latency of at least one. 'abs' only supports a latency of zero. All other
+operations support a latency of zero as well, except the accumulator and the
+cases above that need a latency of at least one. The IP is then combinational,
+and the 'Enable' has no effect. For 'convertWith', the columns are the precision
+of the input. In half precision, the IP builds 'recipWith' and 'rsqrtWith' from
+block memory without DSP slices, whatever the configuration, and they need a
+latency of at least one; 'expWith' ignores the configuration; and 'logWith'
+supports at most @MediumDspUsage@, so with @FullDspUsage@ (the default) it uses
+@MediumDspUsage@ instead. In double precision, 'recipWith' and 'rsqrtWith'
+always use @FullDspUsage@. 'expWith' only uses the @bMemUsage@ setting in single
+and double precision. Only multiplication, the reciprocal square root and the
 logarithm in 'Double' have different maxima on 7-series devices than on
 UltraScale and UltraScale+ devices. The measured 7-series devices are Artix-7,
 Kintex-7 and Spartan-7; the UltraScale and UltraScale+ devices are Kintex
