@@ -15,8 +15,9 @@
   "Clash.Cores.Xilinx.Floating.Half" and "Clash.Cores.Xilinx.Floating.Double"
   against the bit-accurate C model of the Xilinx Floating-Point LogiCORE IP
   v7.1. Covers addition, subtraction, multiplication, division, comparison
-  (condition code), square root, absolute value and conversion to the other
-  precisions in half, single and double precision, and conversions from
+  (condition code), square root, absolute value, conversion to the other
+  precisions, reciprocal, reciprocal square root, exponential and natural
+  logarithm in half, single and double precision, and conversions from
   @Unsigned 32@, @Signed 32@, @Unsigned 64@ and @Signed 64@ to single and
   double precision and from those to @Signed 32@ (the IP cannot convert between
   integers and half precision), all with round to nearest even, the
@@ -140,6 +141,30 @@
 
   Half precision has only 65,536 numbers, so the operations with one input in
   half precision are also tested on all of them.
+
+  = Reciprocal, reciprocal square root, exponential and logarithm
+
+  The IP computes these only to an accuracy of one unit in the last place
+  (except for the reciprocal and reciprocal square root in half precision,
+  which it rounds correctly), and the models give the correctly rounded
+  results instead. So for these, the tests check that ('checkElementary'):
+
+  * special cases (NaN, zero, infinity and negative inputs, the logarithm of
+    one) and results that are zero or infinite match the C model bit for bit,
+    except for the sign of the C model's NaN from the exponential;
+
+  * other results are at most one unit in the last place from the C model's,
+    and equal to them where the IP rounds correctly;
+
+  * the model's results are correctly rounded, which the test checks
+    independently with exact arithmetic: the exact result must lie between the
+    numbers halfway to the neighbours of the model's result. For the
+    exponential and the logarithm, it compares @e^x@ with rational numbers
+    using interval arithmetic with as many bits as needed ('expCompare').
+
+  The coverage reports show for how many of the generated inputs the model and
+  the C model differ. The tests on every half precision input print the number
+  of differences.
 -}
 module Test.Cores.Xilinx.Floating (mkTests) where
 
@@ -147,17 +172,18 @@ import Prelude
 
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (IOException, SomeException, catch, onException, try)
-import Control.Monad (forM, unless, void, when)
+import Control.Monad (forM, forM_, unless, void, when)
 import Data.Bits (bit, clearBit, complement, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.Int (Int32, Int64)
 import Data.List (isPrefixOf, nub, subsequences)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Ratio (denominator, numerator)
 import Data.String (fromString)
 import Data.Word (Word32, Word64)
 import GHC.Float
   ( castDoubleToWord64, castFloatToWord32, castWord32ToFloat
   , castWord64ToDouble )
+import GHC.Num.Integer (integerLog2)
 import Numeric (readHex, showHex)
 import Numeric.Half (Half)
 import System.Directory
@@ -264,6 +290,11 @@ precisionTests getPrepared extraTests =
         , property "convert to single" "toSingle" . prop_convert @a @Float "tosingle" <$> modelToSingle
         , property "convert to double" "toDouble" . prop_convert @a @Double "todouble" <$> modelToDouble
         ]
+      <> [ property "recip" "recip" (prop_elementary @a Recip)
+         , property "rsqrt" "rsqrt" (prop_elementary @a RSqrt)
+         , property "exp" "exp" (prop_elementary @a Exp)
+         , property "log" "log" (prop_elementary @a Log)
+         ]
       <> extraTests
       <> [ property "NaN" "nan" (prop_nan @a)
          , belowMinNormalTest Mul (genMulWindow @a)
@@ -333,7 +364,37 @@ exhaustiveHalfTests getPrepared =
       [ exhaustive "tosingle" . (toWord .) <$> modelToSingle @Half
       , exhaustive "todouble" . (toWord .) <$> modelToDouble @Half
       ]
+    <> map exhaustiveElementary [minBound .. maxBound]
  where
+  -- Also counts the inputs for which the model differs from the C model
+  exhaustiveElementary op =
+    withDriver getPrepared $ \getDriver ->
+      testCaseInfo (elemOpName op <> ", every input") $ do
+        driver <- getDriver
+        results <- forM [0 .. wordMask @Half] $ \w -> do
+          (cmodel, _) <- query driver (precisionName @Half) (elemOpName op) w 0
+          let haskell = toWord (modelElementary op (fromWord w :: Half))
+          pure (w, checkElementary @Half op (fromWord w) haskell cmodel)
+        let
+          failures = [(w, msg) | (w, Left msg) <- results]
+          differing = length [() | (_, Right True) <- results]
+          -- Inputs that are no special case, with a finite, non-zero result
+          rounded =
+            length
+              [ ()
+              | w <- [0 .. wordMask @Half]
+              , isNothing (specialElementary op (condition (fromWord w :: Half)))
+              , not (isZeroOrInfinite (modelElementary op (fromWord w :: Half)))
+              ]
+        case failures of
+          [] ->
+            pure $
+              show differing <> " of the " <> show rounded <> " finite, non-zero results of inputs that are no"
+                <> " special case differ from the C model by one unit in the last place"
+          (w, msg) : _ ->
+            assertFailure $
+              show (length failures) <> " failures. The first: " <> elemOpName op <> " "
+                <> showBits @Half w <> ": " <> msg
   exhaustive op model =
     withDriver getPrepared $ \getDriver ->
       testCase (op <> ", every input") $ do
@@ -557,6 +618,7 @@ class (RealFloat a, Show a) => TestFloat a where
   modelToHalf :: Maybe (a -> Half)
   modelToSingle :: Maybe (a -> Float)
   modelToDouble :: Maybe (a -> Double)
+  modelElementary :: ElemOp -> a -> a
 
   -- | The NaN the models produce, @xilinxNaN@
   modelNaN :: a
@@ -591,6 +653,11 @@ instance TestFloat Float where
   modelToHalf = Just $ \x -> afterPipeline (F.toHalf clk en (constant x))
   modelToSingle = Nothing
   modelToDouble = Just $ \x -> afterPipeline (F.toDouble clk en (constant x))
+  modelElementary op x = case op of
+    Recip -> afterPipeline (F.recip clk en (constant x))
+    RSqrt -> afterPipeline (F.rsqrt clk en (constant x))
+    Exp -> afterPipeline (F.exp clk en (constant x))
+    Log -> afterPipeline (F.log clk en (constant x))
   modelNaN = F.xilinxNaN
   minNormalTieFactors = [31, 601, 1801]
 
@@ -620,6 +687,11 @@ instance TestFloat Half where
   modelToHalf = Nothing
   modelToSingle = Just $ \x -> afterPipeline (HE.toFloat clk en (constant x))
   modelToDouble = Just $ \x -> afterPipeline (HE.toDouble clk en (constant x))
+  modelElementary op x = case op of
+    Recip -> afterPipeline (HE.recip clk en (constant x))
+    RSqrt -> afterPipeline (HE.rsqrt clk en (constant x))
+    Exp -> afterPipeline (HE.exp clk en (constant x))
+    Log -> afterPipeline (HE.log clk en (constant x))
   modelNaN = HE.xilinxNaN
   minNormalTieFactors = [3, 3, 5, 7, 13]
 
@@ -642,6 +714,11 @@ instance TestFloat Double where
   modelToHalf = Just $ \x -> afterPipeline (DE.toHalf clk en (constant x))
   modelToSingle = Just $ \x -> afterPipeline (DE.toFloat clk en (constant x))
   modelToDouble = Nothing
+  modelElementary op x = case op of
+    Recip -> afterPipeline (DE.recip clk en (constant x))
+    RSqrt -> afterPipeline (DE.rsqrt clk en (constant x))
+    Exp -> afterPipeline (DE.exp clk en (constant x))
+    Log -> afterPipeline (DE.log clk en (constant x))
   modelNaN = DE.xilinxNaN
   minNormalTieFactors = [3, 3, 3, 3, 7, 19, 73, 87211, 262657]
 
@@ -750,12 +827,16 @@ flushSubnormal z = if isDenormalized z then 0 else z
 exponentOf :: Rational -> Int
 exponentOf r = adjust (bitLength (numerator r) - bitLength (denominator r))
  where
-  bitLength :: Integer -> Int
-  bitLength = length . takeWhile (> 0) . iterate (`shiftR` 1)
   adjust e
     | 2 ^^ e > r = adjust (e - 1)
     | 2 ^^ (e + 1) <= r = adjust (e + 1)
     | otherwise = e
+
+-- | Number of bits of a positive integer, or zero
+bitLength :: Integer -> Int
+bitLength n
+  | n <= 0 = 0
+  | otherwise = fromIntegral (integerLog2 n) + 1
 
 -- | Whether the magnitude of an exact result lies near the smallest normal
 -- number
@@ -1054,8 +1135,6 @@ isqrt n
   go x =
     let y = (x + n `div` x) `div` 2
      in if y >= x then x else go y
-  bitLength :: Integer -> Int
-  bitLength = length . takeWhile (> 0) . iterate (`shiftR` 1)
 
 -- | Whether the square root of a positive normal number is exact: whether it
 -- has at most @p@ significant bits
@@ -1638,9 +1717,6 @@ genSqrtOperand =
           else Nothing
     withEvenExponent (s * s - c)
 
-  bitLength :: Integer -> Int
-  bitLength = length . takeWhile (> 0) . iterate (`shiftR` 1)
-
 {- | All square roots of @c@ modulo @2^t@, for @c = 1 (mod 8)@ and @t >= 3@.
 Starts with a square root modulo 8 and adds one bit at a time: if @r^2 = c
 (mod 2^k)@ for @k >= 3@, then @r@ or @r + 2^(k-1)@ is a square root modulo
@@ -1735,3 +1811,315 @@ genToS32Operand =
     negative <- Gen.bool
     d <- Gen.integral (Range.constant (-3) 3)
     pure (nudge d (approx (if negative then negate t else t)))
+
+------------------------------------------------------------------------------
+-- Reciprocal, reciprocal square root, exponential and logarithm
+------------------------------------------------------------------------------
+
+{- | Operations whose models round correctly, while the IP is only accurate to
+one unit in the last place (except for 'Recip' and 'RSqrt' in half precision,
+which the IP rounds correctly too).
+-}
+data ElemOp = Recip | RSqrt | Exp | Log
+  deriving (Eq, Show, Enum, Bounded)
+
+-- | Name of the operation, as understood by the C driver
+elemOpName :: ElemOp -> String
+elemOpName = \case
+  Recip -> "recip"
+  RSqrt -> "rsqrt"
+  Exp -> "exp"
+  Log -> "log"
+
+-- | Whether the IP rounds the operation correctly in precision @a@, so that the
+-- model must match the C model exactly
+elemOpExact :: forall a. TestFloat a => ElemOp -> Bool
+elemOpExact op = precisionName @a == "half" && op `elem` [Recip, RSqrt]
+
+{- | Compare the model of an operation with the C model, see 'checkElementary',
+and label the cases for the coverage report. The percentage of
+"differs from the C model" is the fraction of the generated inputs for which
+simulation and the IP differ in the last bit.
+-}
+prop_elementary :: forall a. TestFloat a => ElemOp -> IO Driver -> Property
+prop_elementary op getDriver = H.withTests nTests $ H.property $ do
+  driver <- H.evalIO getDriver
+  a <- H.forAll (genElemOperand @a op)
+  let
+    x = bitsFloat a
+    haskell = toWord (modelElementary op x)
+  classifyOperand x
+  (cmodel, exceptions) <- H.evalIO (query driver (precisionName @a) (elemOpName op) (toWord x) 0)
+  H.footnote ("C model exception flags: " <> show exceptions)
+  H.footnote ("C model: " <> show (FloatBits cmodel :: FloatBits a))
+  H.footnote ("Haskell model: " <> show (FloatBits haskell :: FloatBits a))
+  let special = isJust (specialElementary op (condition x))
+  H.classify "special case" special
+  H.classify "result rounded to zero or infinity" $
+    not special && isZeroOrInfinite (fromWord haskell :: a)
+  case checkElementary @a op x haskell cmodel of
+    Left msg -> do
+      H.annotate msg
+      H.failure
+    Right differs ->
+      H.classify "differs from the C model by one unit in the last place" differs
+
+{- | Check the result of the model of an operation on an input against the C
+model's result, and check that it is the correctly rounded result:
+
+* NaN: the model must give @xilinxNaN@, and so must the C model, except that
+  the C model's exponential may give it with the sign bit set (its functions
+  on arrays of floats and doubles do, unlike the IP, see the C file).
+
+* Zeros and infinities, and the results of special cases: equal bit patterns.
+
+* Other results: if the IP rounds correctly ('elemOpExact'), equal bit
+  patterns. Otherwise at most one unit in the last place apart: their bit
+  patterns, as sign and magnitude, differ by at most one.
+
+* The model's result must be the exact result rounded the way the IP does:
+  for special inputs as in 'specialElementary'; otherwise the exact result must
+  lie in the interval of numbers that round to it ('roundingInterval'), which
+  is checked with exact arithmetic ('exactCompare').
+
+Returns whether the model and the C model differ, or what is wrong.
+-}
+checkElementary :: forall a. TestFloat a => ElemOp -> a -> Word64 -> Word64 -> Either String Bool
+checkElementary op x haskell cmodel = do
+  againstCModel
+  correctlyRounded
+  pure (haskell /= cmodel)
+ where
+  nan = toWord (modelNaN @a)
+  y = fromWord haskell :: a
+  cy = fromWord cmodel :: a
+  cx = condition x
+  ordinal w
+    | testBit w (totalWidth @a - 1) = negate (toInteger (w .&. complement (signBit @a)))
+    | otherwise = toInteger w
+
+  againstCModel
+    | isNaN y || isNaN cy =
+        unless (haskell == nan && (cmodel == nan || (op == Exp && cmodel == nan .|. signBit @a))) $
+          Left "NaN results differ"
+    | isZeroOrInfinite y || isZeroOrInfinite cy || isJust (specialElementary op cx) =
+        unless (haskell == cmodel) $ Left "special results differ from the C model"
+    | elemOpExact @a op =
+        unless (haskell == cmodel) $ Left "results differ, but the IP rounds correctly"
+    | otherwise =
+        unless (abs (ordinal haskell - ordinal cmodel) <= 1) $
+          Left "results differ by more than one unit in the last place"
+
+  correctlyRounded = case specialElementary op cx of
+    Just expected ->
+      unless (toWord expected == haskell) $
+        Left ("special case: expected " <> show (floatBits expected))
+    Nothing
+      | isNaN y -> Left "NaN for an input that is no special case"
+      | otherwise -> do
+          let
+            r = toRational cx
+            (lo, hi) = roundingInterval @a y
+          forM_ lo $ \b ->
+            unless (exactCompare op r b == GT) $
+              Left ("not correctly rounded: the exact result is not above " <> show (fromRational b :: Double))
+          forM_ hi $ \b ->
+            unless (exactCompare op r b == LT) $
+              Left ("not correctly rounded: the exact result is not below " <> show (fromRational b :: Double))
+
+isZeroOrInfinite :: RealFloat a => a -> Bool
+isZeroOrInfinite z = z == 0 || isInfinite z
+
+-- | Condition an input like the IP does: subnormal numbers become a zero of
+-- the same sign
+condition :: RealFloat a => a -> a
+condition z
+  | isDenormalized z = if z < 0 then -0 else 0
+  | otherwise = z
+
+{- | The result of an operation for an input that the IP treats as a special
+case (after 'condition'), or 'Nothing' if the exact result needs rounding.
+These follow IEEE 754.
+-}
+specialElementary :: forall a. TestFloat a => ElemOp -> a -> Maybe a
+specialElementary op x
+  | isNaN x = Just (modelNaN @a)
+  | otherwise = case op of
+      Recip
+        | x == 0 -> Just (if isNegativeZero x then -inf else inf)
+        | isInfinite x -> Just (if x < 0 then -0 else 0)
+      RSqrt
+        | x == 0 -> Just (if isNegativeZero x then -inf else inf)
+        | x < 0 -> Just (modelNaN @a)
+        | isInfinite x -> Just 0
+      Exp
+        | x == 0 -> Just 1
+        | isInfinite x -> Just (if x > 0 then inf else 0)
+      Log
+        | x == 0 -> Just (-inf)
+        | x < 0 -> Just (modelNaN @a)
+        | isInfinite x -> Just inf
+        | x == 1 -> Just 0
+      _ -> Nothing
+ where
+  inf = 1 / 0
+
+{- | The open interval of exact results that the IP's rounding takes to the
+given result: round to the precision as if the exponent were unbounded, then
+flush results below the smallest normal number to a zero of the same sign, and
+results beyond the largest finite number to an infinity of the same sign.
+'Nothing' stands for an unbounded side. (Exact results are never halfway
+between two numbers for these operations, so whether the bounds belong to the
+interval does not matter.)
+-}
+roundingInterval :: forall a. TestFloat a => a -> (Maybe Rational, Maybe Rational)
+roundingInterval y
+  | isInfinite y = if y > 0 then (Just big, Nothing) else (Nothing, Just (negate big))
+  | y == 0 = if isNegativeZero y then (Just (negate small), Just 0) else (Just 0, Just small)
+  | y > 0 = (Just lo, Just hi)
+  | otherwise = (Just (negate hi), Just (negate lo))
+ where
+  p = significandWidth @a
+  e = minExponent @a
+  -- Halfway between the smallest normal number and the number below it, with
+  -- the precision's number of significant bits
+  small = 2 ^^ e - 2 ^^ (e - p - 1)
+  -- Halfway between the largest finite number and 2^(emax+1)
+  big = 2 ^^ (maxExponent @a + 1) - 2 ^^ (maxExponent @a - p)
+  (m, ex) = decodeFloat (abs y)
+  -- Below a power of two, the numbers are twice as close together
+  lo = (fromInteger m - (if m == 2 ^ (p - 1) then 1 / 4 else 1 / 2)) * 2 ^^ ex
+  hi = (fromInteger m + 1 / 2) * 2 ^^ ex
+
+{- | Compare the exact result of an operation on a finite, non-zero input
+@r@, which is not a special case, with a number @b@, exactly.
+-}
+exactCompare :: ElemOp -> Rational -> Rational -> Ordering
+exactCompare op r b = case op of
+  Recip -> compare (1 / r) b
+  -- 1 / sqrt r > b  <=>  b <= 0 or 1 / r > b^2
+  RSqrt
+    | b <= 0 -> GT
+    | otherwise -> compare 1 (b * b * r)
+  Exp
+    | b <= 0 -> GT
+    | otherwise -> expCompare r b
+  -- log r > b  <=>  r > e^b
+  Log -> compare EQ (expCompare b r)
+
+{- | Compare @e^a@ with @c > 0@, exactly. For @a /= 0@, @e^a@ is irrational, so
+it never equals @c@: refine an interval containing @e^a@ ('expInterval') until
+it lies on one side of @c@.
+-}
+expCompare :: Rational -> Rational -> Ordering
+expCompare a c
+  | a == 0 = compare 1 c
+  -- e^a > 2^a >= 2^floor(a) >= 2^(e+2) > c, where 2^e <= c < 2^(e+1)
+  | a > 0 && floor a > toInteger (exponentOf c) + 1 = GT
+  -- e^a < 2^a <= 2^ceiling(a) <= 2^e <= c
+  | a < 0 && ceiling a <= toInteger (exponentOf c) = LT
+  | otherwise = go 128
+ where
+  go prec
+    | hi < c = LT
+    | lo > c = GT
+    | otherwise = go (2 * prec)
+   where
+    (lo, hi) = expInterval prec a
+
+{- | An interval containing @e^a@, of relative width about @2^(s+3-prec)@ for
+@|a| < 2^(s-10)@. This uses a different method from the model: the Taylor
+series of @e^(a / 2^s)@, summed exactly with 'Rational's and an upper bound on
+the rest of the series, then squared @s@ times in interval arithmetic with
+@prec@ bits, rounding the lower bound down and the upper bound up.
+-}
+expInterval :: Int -> Rational -> (Rational, Rational)
+expInterval prec a = (fromInteger lo * 2 ^^ ex, fromInteger hi * 2 ^^ ex)
+ where
+  s = max 0 (exponentOf (abs a) + 11)
+  y = a / 2 ^ s
+  -- The terms y^k / k!, while they are at least 2^-(prec+4). The ones after
+  -- that add less than 2^-(prec+4) * (1 + 2 * 2^-10) in absolute value, as
+  -- |y| < 2^-10.
+  terms = takeWhile (\t -> abs t >= 2 ^^ negate (prec + 4)) (scanl (\t k -> t * y / fromInteger k) 1 [1 :: Integer ..])
+  total = sum terms
+  bound = 2 ^^ negate (prec + 3)
+  lo0 = floor ((total - bound) * 2 ^ prec)
+  hi0 = ceiling ((total + bound) * 2 ^ prec)
+  (lo, hi, ex) = iterate square (lo0, hi0, negate prec) !! s
+  -- Square the interval, keeping 'prec' bits: round down and up
+  square :: (Integer, Integer, Int) -> (Integer, Integer, Int)
+  square (l, h, e) = (l2 `shiftR` sh, negate (negate h2 `shiftR` sh), 2 * e + sh)
+   where
+    l2 = l * l
+    h2 = h * h
+    sh = max 0 (bitLength h2 - prec)
+
+{- | Inputs of the operations: numbers of every class, and per operation:
+
+* 'Recip': numbers with reciprocals close to the smallest normal number, and
+  powers of two (exact reciprocals).
+
+* 'RSqrt': positive numbers, with even and odd exponents, and powers of two
+  (exact for even exponents).
+
+* 'Exp': numbers with finite, non-zero exponentials, numbers close to the
+  thresholds of overflow and of flushing to zero, and tiny numbers with
+  exponentials close to one, near the numbers next to one and halfway to them.
+
+* 'Log': positive numbers, numbers close to one (with logarithms that need
+  many more bits) and powers of two.
+-}
+genElemOperand :: forall a. TestFloat a => ElemOp -> Gen (FloatBits a)
+genElemOperand op =
+  Gen.frequency $
+    [ (4, genFloat)
+    , (2, genNormal)
+    ]
+      <> case op of
+        Recip ->
+          [ (3, genNormalWithExponent (negate eMin - 3) eMax)
+          , (1, powerOfTwo (negate eMax) eMax)
+          ]
+        RSqrt ->
+          [ (6, positive <$> genNormal)
+          , (1, powerOfTwo eMin eMax)
+          ]
+        Exp ->
+          [ (6, genNormalWithExponent (negate p - 3) (bitLength (toInteger eMax) - 1))
+          , (2, near (fromIntegral (eMax + 1) * ln2) 16)
+          , (2, near (fromIntegral eMin * ln2) 16)
+          , (2, near (fromIntegral (eMin - 1) * ln2) 16)
+          , (2, genNormalWithExponent (negate p - 4) (2 - p))
+          , (1, (\k -> nudge k (floatBits (2 ^^ negate p :: a))) <$> Gen.int (Range.constant (-4) 4))
+          ]
+        Log ->
+          [ (4, positive <$> genNormal)
+          , (3, (\k -> nudge k (floatBits (1 :: a))) <$> Gen.int (Range.constant (-64) 64))
+          , (2, nearOne)
+          , (1, powerOfTwo eMin eMax)
+          ]
+ where
+  p = significandWidth @a
+  eMin = minExponent @a
+  eMax = maxExponent @a
+  ln2 = toRational (log 2 :: Double)
+  positive :: FloatBits a -> FloatBits a
+  positive (FloatBits w) = FloatBits (w .&. complement (signBit @a))
+  -- 2^k, with a random sign, for k in the given range, clamped to the normal
+  -- range
+  powerOfTwo lo hi = do
+    k <- Gen.int (Range.constant lo hi)
+    signed 1 (max eMin (min eMax k))
+  -- Within a few units in the last place of plus or minus t
+  near :: Rational -> Int -> Gen (FloatBits a)
+  near t n = do
+    d <- Gen.int (Range.constant (negate n) n)
+    s <- Gen.element [1, -1]
+    pure (nudge d (approx (s * t)))
+  -- 1 + r or 1 - r for a small r
+  nearOne = do
+    k <- Gen.int (Range.constant 1 (p + 4))
+    r <- Gen.integral (Range.constant 0 (2 ^ p :: Integer))
+    s <- Gen.element [1, -1]
+    pure (approx (1 + s * fromInteger r / 2 ^ (p + k)))
