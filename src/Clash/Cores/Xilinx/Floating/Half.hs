@@ -14,6 +14,10 @@ maximum latencies are different (see below). The IP does not support
 conversions between integers and half precision, so this module has no
 @fromU32@, @fromS32@, @fromU64@, @fromS64@ and @toS32@. In half precision,
 'sqrtWith' can use block memory, see t'Clash.Cores.Xilinx.Floating.Half.BMemUsage'.
+Like in single precision, Clash simulation gives the correctly rounded results
+for 'exp' and 'log', which can differ in the last bit from the IP's, which are
+only accurate to one unit in the last place. In half precision, the IP rounds
+'recip' and 'rsqrt' correctly, so for them simulation and hardware agree.
 
 Related modules:
 
@@ -67,12 +71,31 @@ The maximum latencies in half precision, as reported by Vivado 2022.1:
 +----------------------+---------------------------------------+-----------------+
 | 'toDoubleWith'       |                                       | 2               |
 +----------------------+---------------------------------------+-----------------+
+| 'recipWith'          | any                                   | 4 (minimum 1)   |
++----------------------+---------------------------------------+-----------------+
+| 'rsqrtWith'          | any                                   | 4 (minimum 1)   |
++----------------------+---------------------------------------+-----------------+
+| 'expWith'            | any                                   | 13              |
++----------------------+---------------------------------------+-----------------+
+| 'logWith'            | @NoDspUsage@                          | 17              |
++----------------------+---------------------------------------+-----------------+
+| 'logWith'            | @MediumDspUsage@                      | 17              |
++----------------------+---------------------------------------+-----------------+
+| 'logWith'            | @FullDspUsage@ (default)              | 17              |
++----------------------+---------------------------------------+-----------------+
+| 'logWith'            | @MaxDspUsage@                         | /rejected/      |
++----------------------+---------------------------------------+-----------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
 ignores the @dspUsage@ setting of 'addWith' and 'subWith'. With
-@FullBMemUsage@, 'sqrtWith' also needs a latency of at least one. The IP only
-supports a latency of zero for 'abs'. These maximum latencies are the same on
+@FullBMemUsage@, 'sqrtWith' also needs a latency of at least one. In half
+precision, the IP builds 'recipWith' and 'rsqrtWith' from block memory without
+DSP slices, whatever the configuration, and they need a latency of at least
+one. 'expWith' ignores the configuration. 'logWith' supports at most
+@MediumDspUsage@: the IP rejects @MaxDspUsage@, and with @FullDspUsage@ (the
+default) 'logWith' uses @MediumDspUsage@ instead. The IP only supports a latency
+of zero for 'abs'. These maximum latencies are the same on
 all measured devices: 7-series (Artix-7, Kintex-7 and Spartan-7), UltraScale
 (Kintex UltraScale) and UltraScale+ (Kintex UltraScale+ and Zynq UltraScale+).
 Other versions of Vivado might accept other latencies.
@@ -113,6 +136,18 @@ module Clash.Cores.Xilinx.Floating.Half
   , toDoubleWith
   , toDouble
   , E.ToDoubleDefDelay
+  , recipWith
+  , recip
+  , E.RecipDefDelay
+  , rsqrtWith
+  , rsqrt
+  , E.RSqrtDefDelay
+  , expWith
+  , exp
+  , E.ExpDefDelay
+  , logWith
+  , log
+  , E.LogDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -124,7 +159,7 @@ module Clash.Cores.Xilinx.Floating.Half
   ) where
 
 import Clash.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs, recip, exp, log)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -393,3 +428,199 @@ toDouble
   -> DSignal dom (n + E.ToDoubleDefDelay) Double
 toDouble = withFrozenCallStack $ hideEnable $ hideClock E.toDouble
 {-# INLINE toDouble #-}
+
+-- | Customizable floating point reciprocal, @1 / x@.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal rounded to nearest, ties to even. In half precision, the IP
+-- rounds correctly too, so simulation and hardware agree.
+--
+-- The t'E.Config' makes no difference: in half precision, the IP builds the
+-- reciprocal from block memory, without DSP slices. Its latency must be at
+-- least one.
+recipWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+recipWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.recipWith cfg
+{-# INLINE recipWith #-}
+
+-- | Floating point reciprocal, @1 / x@, with default settings.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- Clash simulation gives the correctly rounded result, and so does the IP in
+-- half precision. See 'recipWith'.
+recip
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom (n + E.RecipDefDelay) Half
+recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
+{-# INLINE recip #-}
+
+-- | Customizable floating point reciprocal square root, @1 / sqrt x@.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal square root rounded to nearest, ties to even. In half precision,
+-- the IP rounds correctly too, so simulation and hardware agree.
+--
+-- The t'E.Config' makes no difference: in half precision, the IP builds the
+-- reciprocal square root from block memory, without DSP slices. Its latency must be at
+-- least one.
+rsqrtWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+rsqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.rsqrtWith cfg
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, @1 / sqrt x@, with default settings.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- Clash simulation gives the correctly rounded result, and so does the IP in
+-- half precision. See 'rsqrtWith'.
+rsqrt
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom (n + E.RSqrtDefDelay) Half
+rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
+{-# INLINE rsqrt #-}
+
+-- | Customizable floating point exponential, @e^x@.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- exponential rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for 3.9% of the inputs with a
+-- finite result other than zero and one.
+--
+-- The t'E.Config' makes no difference: in half precision, the IP always uses
+-- @FullDspUsage@ and no block memory for the exponential.
+expWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+expWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.expWith cfg
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, with default settings.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'expWith'.
+exp
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom (n + E.ExpDefDelay) Half
+exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
+{-# INLINE exp #-}
+
+-- | Customizable floating point natural logarithm, @log x@.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- logarithm rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for 0.3% of the inputs with a
+-- finite, non-zero result.
+--
+-- Only the @dspUsage@ setting of the t'E.Config' matters. In half precision,
+-- the IP supports at most @MediumDspUsage@ for the logarithm: it rejects
+-- @MaxDspUsage@, and with @FullDspUsage@, the default, this function uses
+-- @MediumDspUsage@ instead.
+logWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+logWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.logWith cfg
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, @log x@, with default settings.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'logWith'.
+log
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Half
+  -> DSignal dom (n + E.LogDefDelay) Half
+log = withFrozenCallStack $ hideEnable $ hideClock E.log
+{-# INLINE log #-}

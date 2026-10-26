@@ -4,6 +4,7 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 -}
 
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
@@ -39,6 +40,11 @@ module Clash.Cores.Xilinx.Floating.Internal
   , xilinxFromInteger
   , xilinxToS32
   , xilinxRoundScaled
+  , xilinxRecip
+  , xilinxRSqrt
+  , xilinxExp
+  , xilinxLog
+  , integerSqrt
   , toMaybeOrdering
   , precisionOpts
   , fixedToFloatWith
@@ -72,7 +78,8 @@ data Config = Config
   , dspUsage :: !DspUsage
     -- ^ DSP slice usage
   , bMemUsage :: !BMemUsage
-    -- ^ Block memory usage of the square root in half precision
+    -- ^ Block memory usage of the square root in half precision and of the
+    -- exponential in single and double precision
   } deriving (Eq, Show)
 
 -- | Default customization options.
@@ -80,8 +87,10 @@ data Config = Config
 -- For those operations that support it, the default options are:
 --
 -- * Speed-optimized architecture ('SpeedArch')
--- * Full DSP slice usage ('FullDspUsage')
--- * Square root in half precision does not use block memory ('NoBMemUsage')
+-- * Full DSP slice usage ('FullDspUsage'). In half precision, the logarithm
+--   supports at most 'MediumDspUsage' and uses that instead.
+-- * No block memory ('NoBMemUsage') for the square root in half precision and
+--   the exponential in single and double precision
 defConfig :: Config
 defConfig = Config
   { archOpt = SpeedArch
@@ -126,8 +135,12 @@ dspUsageToTcl = \case
 -- | Block memory usage.
 --
 -- Configures whether the square root in half precision uses block memory,
--- which lowers its maximum latency. The other operations, including the square
--- root in single and double precision, ignore this setting.
+-- which lowers its maximum latency, and whether the exponential in single and
+-- double precision uses block memory for its tables instead of distributed
+-- memory, which can raise its maximum latency by one. The other operations,
+-- including the square root in single and double precision and the
+-- exponential in half precision, ignore this setting. (The reciprocal and
+-- reciprocal square root in half precision always use block memory.)
 data BMemUsage
   = NoBMemUsage
     -- ^ Do not use block memory
@@ -403,6 +416,311 @@ xilinxToS32 (xilinxCondition -> x)
  where
   lo = toInteger (minBound :: Signed 32)
   hi = toInteger (maxBound :: Signed 32)
+
+{- Note [Correctly rounded models]
+The IP's reciprocal, reciprocal square root, exponential and logarithm are not
+correctly rounded: the datasheet only promises results accurate to one unit in
+the last place (except for the reciprocal and reciprocal square root in half
+precision, which are correctly rounded). The IP's exact algorithms are not
+documented, so instead of the IP's results, the models below give the correctly
+rounded results: the exact result rounded the way the other operations round
+theirs ('xilinxRoundScaled'), with the IP's treatment of NaNs, subnormal inputs
+and the special cases.
+
+The reciprocal and the reciprocal square root of a number with a significand
+of @p@ bits follow from an integer division and an integer square root with at
+least @p + 2@ significant bits, plus a bit that tells whether the remainder is
+zero. That is enough to round correctly.
+
+The exponential and the logarithm are transcendental: for a rational input
+other than zero (and one, for the logarithm), the exact result is irrational,
+so it is never a number of the precision nor halfway between two of them. The
+models use Ziv's strategy: they compute an approximation in fixed point with a
+proven bound on its error, giving an interval that contains the exact result.
+If both ends of that interval round to the same number, so does the exact
+result. Otherwise, which happens rarely, they compute again with twice as many
+bits, and so on. Since the exact result is not halfway between two numbers,
+this always ends. All arithmetic is on 'Integer's, so the error bounds hold
+exactly.
+-}
+
+-- | Model of the IP's reciprocal, @1 / x@, rounded correctly (see the
+-- documentation of @recip@ in "Clash.Cores.Xilinx.Floating").
+--
+-- Like the IP, it treats every NaN input as the NaN the IP generates and
+-- subnormal inputs as a zero of the same sign. The reciprocal of a zero is an
+-- infinity of the same sign, that of an infinity a zero of the same sign.
+-- Results below the smallest normal number become a zero of the same sign.
+--
+-- __NB__: Not synthesizable
+xilinxRecip :: (BitPack a, RealFloat a) => a -> a
+xilinxRecip (xilinxCondition -> x)
+  | isNaN x = ipNaN
+  | x == 0 = if isNegativeZero x then -1 / 0 else 1 / 0
+  | isInfinite x = if x < 0 then -0 else 0
+  | otherwise = xilinxRoundScaled (signum m * (2 * q + sticky)) (negate (e + s + p + 2))
+ where
+  p = floatDigits x
+  (m, e) = decodeFloat x
+  s = bitLength (abs m)
+  -- 1 / x = 2^(s+p+1) / |m| * 2^-(e+s+p+1), where the quotient lies in
+  -- (2^(p+1), 2^(p+2)]: it has at least p + 2 bits.
+  (q, r) = bit (s + p + 1) `quotRem` abs m
+  -- The remainder only matters for rounding through whether it is zero:
+  -- 2q + 1 stands for any number between 2q and 2q + 2.
+  sticky = if r == 0 then 0 else 1
+
+-- | Model of the IP's reciprocal square root, @1 / sqrt x@, rounded correctly
+-- (see the documentation of @rsqrt@ in "Clash.Cores.Xilinx.Floating").
+--
+-- Like the IP, it treats every NaN input as the NaN the IP generates and
+-- subnormal inputs as a zero of the same sign. The reciprocal square root of a
+-- zero is an infinity of the same sign, so that of a negative subnormal
+-- number is negative infinity. That of any other negative number, including
+-- negative infinity, is NaN. That of positive infinity is positive zero.
+--
+-- __NB__: Not synthesizable
+xilinxRSqrt :: (BitPack a, RealFloat a) => a -> a
+xilinxRSqrt (xilinxCondition -> x)
+  | isNaN x = ipNaN
+  | x == 0 = if isNegativeZero x then -1 / 0 else 1 / 0
+  | x < 0 = ipNaN
+  | isInfinite x = 0
+  | otherwise = xilinxRoundScaled (2 * y + sticky) (negate (h + k + 1))
+ where
+  p = floatDigits x
+  (m0, e0) = decodeFloat x
+  -- x = m * 2^(2h), with an even exponent
+  (m, h) = if even e0 then (m0, e0 `div` 2) else (2 * m0, (e0 - 1) `div` 2)
+  -- 1 / sqrt x = sqrt (2^(2k) / m) * 2^-(h+k). With m < 2^s, the square root
+  -- is more than 2^(k - s/2) >= 2^(p+1), so it has at least p + 2 bits.
+  k = p + 2 + (bitLength m + 1) `div` 2
+  (q, r) = bit (2 * k) `quotRem` m
+  -- floor (sqrt (2^(2k) / m)) = floor (sqrt q)
+  y = integerSqrt q
+  sticky = if r == 0 && y * y == q then 0 else 1
+
+-- | Model of the IP's exponential, @e^x@, rounded correctly (see the
+-- documentation of @exp@ in "Clash.Cores.Xilinx.Floating").
+--
+-- Like the IP, it treats every NaN input as the NaN the IP generates and
+-- subnormal inputs as a zero of the same sign, whose exponential is one. The
+-- exponential of positive infinity is positive infinity, that of negative
+-- infinity positive zero. Results beyond the largest finite number become
+-- positive infinity, results below the smallest normal number positive zero.
+--
+-- __NB__: Not synthesizable
+xilinxExp :: forall a. (BitPack a, RealFloat a) => a -> a
+xilinxExp (xilinxCondition -> x)
+  | isNaN x = ipNaN
+  | isInfinite x = if x > 0 then x else 0
+  | x == 0 = 1
+  -- e^x > e^emax > 2^emax: rounds to infinity
+  | x > fromIntegral emax = 1 / 0
+  -- e^x < e^(emin-2) < 2^(emin-2): rounds to below the smallest normal number,
+  -- 2^(emin-1)
+  | x < fromIntegral (emin - 2) = 0
+  -- 1 + x < e^x < 1 + 2x for 0 < x < 1: with |x| < 2^-(p+2), e^x is closer to
+  -- one than halfway to the numbers next to it, 1 - 2^-(p+1) and 1 + 2^(1-p).
+  | e < negate (p + 2) - bitLength (abs m) = 1
+  | otherwise = ziv (expApprox m e)
+ where
+  p = floatDigits x
+  (emin, emax) = floatRange x
+  (m, e) = decodeFloat x
+
+-- | Model of the IP's natural logarithm, @log x@, rounded correctly (see the
+-- documentation of @log@ in "Clash.Cores.Xilinx.Floating").
+--
+-- Like the IP, it treats every NaN input as the NaN the IP generates and
+-- subnormal inputs as a zero of the same sign. The logarithm of a zero of
+-- either sign, and so of a subnormal number, is negative infinity. That of any
+-- other negative number, including negative infinity, is NaN. That of
+-- positive infinity is positive infinity, and that of one positive zero.
+--
+-- __NB__: Not synthesizable
+xilinxLog :: (BitPack a, RealFloat a) => a -> a
+xilinxLog (xilinxCondition -> x)
+  | isNaN x = ipNaN
+  | x == 0 = -1 / 0
+  | x < 0 = ipNaN
+  | isInfinite x = x
+  | x == 1 = 0
+  | otherwise = ziv (logApprox m e)
+ where
+  (m, e) = decodeFloat x
+
+-- | Ziv's strategy, see Note [Correctly rounded models]. Given an
+-- approximation with a working precision of @w@ bits, @approx w = (v, err, e)@
+-- such that the exact result lies in @[(v - err) * 2^e, (v + err) * 2^e]@ and
+-- @err@ is about @2^-w@ times @v@, try more bits until the interval decides
+-- how the exact result rounds.
+ziv :: forall a. RealFloat a => (Int -> (Integer, Integer, Int)) -> a
+ziv approx = go (floatDigits (undefined :: a) + 24)
+ where
+  go w
+    | lo /= 0 && signum lo == signum hi && rLo == rHi = rLo
+    | otherwise = go (2 * w)
+   where
+    (v, err, e) = approx w
+    lo = v - err
+    hi = v + err
+    -- 'xilinxRoundScaled' is monotonic, so if both ends of the interval round
+    -- to the same number, everything in between does. Both have the same sign,
+    -- so comparing with '==' is exact (zeros have the same sign too).
+    rLo = xilinxRoundScaled lo e :: a
+    rHi = xilinxRoundScaled hi e
+
+-- | Approximation of @e^x@ for a non-zero @x = m * 2^e@ with
+-- @|x| < 2^13@, for 'ziv', with @w@ bits after the binary point.
+--
+-- Reduce the argument with @x = k * ln 2 + r@, so that @e^x = 2^k * e^r@ and
+-- @|r| <= ln 2 / 2 + 2^-w@, and sum the Taylor series of @e^r@ in fixed point.
+--
+-- Errors, in units of @2^-w@:
+--
+-- * @x * 2^w@ rounded down: less than 1. @ln 2@ has @g@ more bits, with an
+--   error less than 3, so @k * ln 2@ (@|k| < 2^14@) is off by less than
+--   @3 * 2^14 / 2^g < 1@, plus less than 1 for rounding it to @w@ bits. So
+--   @|R - r * 2^w| < 3@, where @R@ is the computed @r@.
+--
+-- * The Taylor series of @e^(R / 2^w)@: each computed term is within 2 of the
+--   exact term, see 'expTaylor', and the terms after the last one add less
+--   than 2: less than @2n + 2@ for @n@ terms after the first (which is exact).
+--
+-- * @e^(r)@ versus @e^(R / 2^w)@: less than @e^0.36 * 3 < 5@.
+expApprox :: Integer -> Int -> Int -> (Integer, Integer, Int)
+expApprox m e w = (s, 2 * toInteger nTerms + 8, fromInteger k - w)
+ where
+  g = 16
+  -- x * 2^w, rounded down
+  xw = shiftFloor m (e + w)
+  l = ln2Fixed (w + g)
+  -- x / ln 2, rounded to nearest
+  k = (2 * (xw `shiftL` g) + l) `div` (2 * l)
+  r = xw - ((k * l) `shiftR` g)
+  (s, nTerms) = expTaylor w r
+
+-- | Sum of the Taylor series of @e^(r / 2^w)@ in fixed point with @w@ bits
+-- after the binary point, for @|r| <= 2^(w-1)@, and the number of terms after
+-- the first.
+--
+-- The term @T_i@ is the previous one times @r@, rounded down to @w@ bits, then
+-- divided by @i@ and rounded towards zero. If the previous term was within
+-- @E_(i-1)@ of the exact @t_(i-1)@, @T_i@ is within
+-- @(E_(i-1) * |r| / 2^w + 1) / i + 1 <= (E_(i-1) / 2 + 1) / i + 1@ of @t_i@,
+-- and by induction (@E_0 = 0@) within 2. The sum stops at the first term that
+-- is zero. The exact terms after it are at most 2 times @(1/4)^j@ (@|r| < 1/2@,
+-- @i >= 1@), which adds less than 1.
+expTaylor :: Int -> Integer -> (Integer, Int)
+expTaylor w r = go (bit w) (bit w) 1
+ where
+  go !acc !term !i
+    | term' == 0 = (acc, i)
+    | otherwise = go (acc + term') term' (i + 1)
+   where
+    term' = ((term * r) `shiftR` w) `quot` toInteger i
+
+-- | Approximation of @log x@ for @x = m * 2^e@, with @m > 0@ and @x /= 1@,
+-- for 'ziv', with a precision of about @w@ bits relative to @log x@.
+--
+-- Write @x = (m / d) * 2^k@ with @m / d@ in @(sqrt 2 / 2, sqrt 2]@, so
+-- @log x = k * ln 2 + 2 * atanh z@ with @z = (m - d) / (m + d)@ and
+-- @|z| <= 0.172@. If @k /= 0@, @|log x| > ln 2 / 2@. If @k = 0@, @log x@ is
+-- about @2z@, so the fixed point numbers get as many more bits as @z@ has
+-- leading zeros.
+--
+-- Errors: the series is within @err@ of @atanh z@ (see 'atanhFixed'), so twice
+-- it within @2 err@. Like in 'expApprox', @k * ln 2@ (@|k| < 2^14@) is within 2.
+logApprox :: Integer -> Int -> Int -> (Integer, Integer, Int)
+logApprox m e w = (v, 2 * err + 2, negate wf)
+ where
+  b = bitLength m
+  -- (m / 2^(b-1))^2 > 2
+  big = m * m > bit (2 * b - 1)
+  (d, k) = if big then (bit b, e + b) else (bit (b - 1), e + b - 1)
+  num = m - d
+  extra
+    | k /= 0 || num == 0 = 2
+    | otherwise = max 0 (bitLength (m + d) - bitLength (abs num)) + 2
+  wf = w + extra
+  g = 16
+  (s, err) = atanhFixed wf num (m + d)
+  v = 2 * s + ((toInteger k * ln2Fixed (wf + g)) `shiftR` g)
+
+-- | @atanh (a / b)@ in fixed point with @w@ bits after the binary point, for
+-- @|a / b| <= 1/2@, and a bound on its error: @(v, err)@ such that the exact
+-- result lies in @[v - err, v + err]@ (in units of @2^-w@).
+--
+-- For @z = a / b >= 0@: @atanh z = sum (z^(2j+1) / (2j+1))@. The computed @z@ is
+-- rounded down, less than 1 below the exact one, its square less than 2 below
+-- the exact one (@z <= 1/2@). The powers @U_j@ are the previous one times @z^2@,
+-- rounded down; @u_j - U_j < (u_(j-1) - U_(j-1)) / 4 + 1 + 1@, so by induction
+-- (@u_0 - U_0 < 1@) @U_j@ is less than 3 below @u_j@. Dividing by @2j+1@ and
+-- rounding down, the terms are less than 2 below the exact ones (less than 1
+-- for the first). The sum stops at the first power that is zero, so the exact
+-- ones after it are less than @3 * (1/4)^i@, which adds less than 4.
+atanhFixed :: Int -> Integer -> Integer -> (Integer, Integer)
+atanhFixed w a b
+  | a < 0 = let (v, err) = atanhFixed w (negate a) b in (negate v, err)
+  | otherwise = go 0 z 0 0
+ where
+  z = (a `shiftL` w) `quot` b
+  z2 = (z * z) `shiftR` w
+  go :: Integer -> Integer -> Integer -> Int -> (Integer, Integer)
+  go !acc !u !j !cnt
+    | u == 0 = (acc, 2 * toInteger cnt + 5)
+    | otherwise =
+        go (acc + u `quot` (2 * j + 1)) ((u * z2) `shiftR` w) (j + 1) (cnt + 1)
+
+-- | @ln 2@ in fixed point with @w@ bits after the binary point, within 3 of
+-- the exact value (in units of @2^-w@).
+ln2Fixed :: Int -> Integer
+ln2Fixed w
+  | w <= ln2Bits = ln2Table `shiftR` (ln2Bits - w)
+  | otherwise = ln2Compute w
+
+-- | Number of bits after the binary point of 'ln2Table'
+ln2Bits :: Int
+ln2Bits = 1024
+
+-- | @ln 2@ with 'ln2Bits' bits after the binary point, computed once
+ln2Table :: Integer
+ln2Table = ln2Compute ln2Bits
+{-# NOINLINE ln2Table #-}
+
+-- | @ln 2 = 2 * atanh (1/3)@ in fixed point with @w@ bits after the binary
+-- point, within 2 of the exact value: computed with 32 more bits (error less
+-- than @2 * err@, far less than @2^32@), then rounded down to @w@ bits.
+ln2Compute :: Int -> Integer
+ln2Compute w = (2 * fst (atanhFixed (w + 32) 1 3)) `shiftR` 32
+
+-- | @m * 2^e@ rounded down to an integer
+shiftFloor :: Integer -> Int -> Integer
+shiftFloor m e
+  | e >= 0 = m `shiftL` e
+  | otherwise = m `shiftR` negate e
+
+-- | Integer square root: the largest integer whose square is at most the given
+-- non-negative integer.
+--
+-- __NB__: Not synthesizable
+integerSqrt :: Integer -> Integer
+integerSqrt i
+  | i < 0 = P.error "integerSqrt: negative number"
+  | i < 2 = i
+  | otherwise = newton start
+ where
+  -- Estimate from the most significant (at most 53) bits, after shifting out an
+  -- even number of bits. 'sqrt' of a 'Double' rounds correctly and converting
+  -- at most 53 bits to a 'Double' is exact, so 'start' is at least the square
+  -- root: floor (sqrt h) + 1 >= sqrt (h + 1).
+  t = max 0 ((bitLength i - 52) `div` 2)
+  start = (floor (P.sqrt (fromInteger (i `shiftR` (2 * t)) :: Double)) + 1) `shiftL` t
+  -- Newton's iteration from above
+  newton x =
+    let x' = (x + i `quot` x) `shiftR` 1
+    in if x' >= x then x else newton x'
 
 -- | One-hot encoded version of t'Prelude.Ordering'. The order of fields is
 -- chosen to match the ordering picked by Xilinx's Floating Point comparison IP.
