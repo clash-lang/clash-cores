@@ -477,8 +477,8 @@ fromS32 = withFrozenCallStack $ hideEnable $ hideClock E.fromS32
 -- square root of any other negative number, including negative infinity, is
 -- NaN.
 --
--- The t'E.Config' makes no difference in single precision: only the square root
--- in half precision uses it (@bMemUsage@).
+-- The t'Clash.Cores.Xilinx.Floating.Config' makes no difference in single
+-- precision: only the square root in half precision uses it (@bMemUsage@).
 sqrtWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -747,7 +747,7 @@ toDouble = withFrozenCallStack $ hideEnable $ hideClock E.toDouble
 -- simulation in the last bit: the IP's C model, which matches the IP bit for
 -- bit, differs from the correctly rounded result for 2.2% of all inputs.
 --
--- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config' matters. The IP rejects
 -- @MediumDspUsage@ and @MaxDspUsage@.
 recipWith
   :: ( HiddenClock dom
@@ -796,7 +796,7 @@ recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
 -- bit for bit, differs from the correctly rounded result for 2.0% of all
 -- inputs.
 --
--- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config' matters. The IP rejects
 -- @MediumDspUsage@ and @MaxDspUsage@.
 rsqrtWith
   :: ( HiddenClock dom
@@ -846,7 +846,7 @@ rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
 -- bit, differs from the correctly rounded result for about 16% of random
 -- inputs between -90 and 89.
 --
--- The @dspUsage@ and @bMemUsage@ settings of the t'E.Config' matter. The IP
+-- The @dspUsage@ and @bMemUsage@ settings of the t'Clash.Cores.Xilinx.Floating.Config' matter. The IP
 -- rejects @MaxDspUsage@.
 expWith
   :: ( HiddenClock dom
@@ -897,7 +897,7 @@ exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
 -- model, which matches the IP bit for bit, differs from the correctly rounded
 -- result for about half of all inputs.
 --
--- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config' matters. The IP rejects
 -- @MaxDspUsage@.
 logWith
   :: ( HiddenClock dom

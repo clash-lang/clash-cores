@@ -464,9 +464,11 @@ fromS32 = withFrozenCallStack $ hideEnable $ hideClock E.fromS32
 -- square root of any other negative number, including negative infinity, is
 -- NaN.
 --
--- Only the @bMemUsage@ setting of the t'E.Config' matters, and only in half
--- precision: with 'E.FullBMemUsage' the IP uses block memory, which lowers
--- its maximum latency.
+-- Only the @bMemUsage@ setting of the
+-- t'Clash.Cores.Xilinx.Floating.Generic.Config' matters, and only in half
+-- precision: with 'Clash.Cores.Xilinx.Floating.Generic.FullBMemUsage' the IP
+-- uses block memory, which lowers its maximum latency but needs a latency of
+-- at least one.
 sqrtWith
   :: forall a d dom n
    . ( E.XilinxFloat a
