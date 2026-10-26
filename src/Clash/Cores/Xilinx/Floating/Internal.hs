@@ -44,6 +44,7 @@ module Clash.Cores.Xilinx.Floating.Internal
   , xilinxRSqrt
   , xilinxExp
   , xilinxLog
+  , xilinxFma
   , integerSqrt
   , toMaybeOrdering
   , precisionOpts
@@ -51,6 +52,7 @@ module Clash.Cores.Xilinx.Floating.Internal
   , unaryInst
   , unaryCombinationalInst
   , binaryInst
+  , ternaryInst
   ) where
 
 import Clash.Prelude hiding (Ordering(..), delayI)
@@ -334,6 +336,47 @@ roundShiftR s m
   q = m `shiftR` s
   rest = m .&. (bit s - 1)
   half = bit (s - 1)
+
+-- | Model of the IP's fused multiply-add, @x * y + z@ with a single rounding.
+--
+-- Like the IP, it treats every NaN input as the NaN the IP generates and
+-- subnormal inputs as a zero of the same sign. The exact result, computed with
+-- 'Integer's, is rounded once like the other operations round theirs
+-- ('xilinxRoundScaled'): to nearest, ties to even, as if the exponent were
+-- unbounded, then to a zero of the same sign below the smallest normal number
+-- and to an infinity of the same sign beyond the largest finite number. So a
+-- product beyond the largest finite number gives a finite result if the addend
+-- brings the sum back in range.
+--
+-- The special cases follow IEEE 754: an infinity times a zero is NaN, and so
+-- is the sum of an infinite product and an infinite addend of the opposite
+-- sign. An exact result of zero is a positive zero, unless the product and the
+-- addend are both negative zeros (@-0 * y + -0@ for positive @y@, say).
+--
+-- __NB__: Not synthesizable
+xilinxFma :: (BitPack a, RealFloat a) => a -> a -> a -> a
+xilinxFma (xilinxCondition -> x) (xilinxCondition -> y) (xilinxCondition -> z)
+  | isNaN x || isNaN y || isNaN z = ipNaN
+  -- The product is infinite, or NaN for an infinity times a zero. Computing it
+  -- in the type itself gets its sign right.
+  | isInfinite x || isInfinite y =
+      if isNaN p || (isInfinite z && z /= p) then ipNaN else p
+  | isInfinite z = z
+  -- Exact zero: the sum of a product and an addend that are both zero has the
+  -- sign IEEE 754 prescribes, see above. The product of zeros is exact.
+  | m == 0 = if isNegativeZero p && isNegativeZero z then -0 else 0
+  | otherwise = xilinxRoundScaled m e
+ where
+  p = x * y
+  (mx, ex) = decodeFloat x
+  (my, ey) = decodeFloat y
+  (mz, ez) = decodeFloat z
+  -- The exact result is m * 2^e: align the product and the addend to the
+  -- smaller of their exponents. Zeros do not take part, so that their exponent
+  -- of zero does not make the shifts needlessly large.
+  terms = P.filter ((/= 0) . fst) [(mx * my, ex + ey), (mz, ez)]
+  e = if P.null terms then 0 else P.minimum (P.map snd terms)
+  m = P.sum [t `shiftL` (et - e) | (t, et) <- terms]
 
 -- | Model of the IP's square root.
 --
@@ -958,6 +1001,50 @@ binaryInst nm operType extraOptions clk ena a b =
       (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
       (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
 {-# INLINE binaryInst #-}
+
+-- | Instantiate the Floating-Point IP for an operation with three inputs
+ternaryInst ::
+  forall d nExtraOpts n dom a b c r .
+  ( KnownNat nExtraOpts
+  , KnownDomain dom
+  , KnownNat d
+  , BitPack a
+  , BitPack b
+  , BitPack c
+  , BitPack r
+  ) =>
+  -- | Instantiation type hint
+  String ->
+  -- | @CONFIG.Operation_Type@. E.g., @FMA@.
+  String ->
+  -- | Extra Wizard options (will be added to the default ones)
+  Vec nExtraOpts (OptionName, XilinxWizardOption) ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n a ->
+  DSignal dom n b ->
+  DSignal dom n c ->
+  DSignal dom (n + d) r
+ternaryInst nm operType extraOptions clk ena a b c =
+  D.unsafeFromSignal $ unpack . resize <$> unPort (snd go)
+ where
+  go ::
+    ( Port "m_axis_result_tvalid" dom Bit
+    , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize r)))
+    )
+  go =
+    instWithXilinxWizard
+      (instConfig nm)
+      (floatingWizard (SNat @d) operType extraOptions)
+      (ClockPort @"aclk" clk)
+      (Port @"aclken" (boolToBit <$> fromEnable ena))
+      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+      (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
+      (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+      (Port @"s_axis_c_tdata" (axiData <$> D.toSignal c))
+      (Port @"s_axis_c_tvalid" (pure 1 :: Signal dom Bit))
+{-# INLINE ternaryInst #-}
 
 -- | Pad a value to a whole number of bytes, for use as AXI4-Stream @TDATA@
 axiData :: BitPack a => a -> BitVector (AxiWidth (BitSize a))

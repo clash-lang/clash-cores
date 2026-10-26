@@ -20,3 +20,5 @@
   the IP bit for bit: it gives the correctly rounded results, while the IP is
   only accurate to one unit in the last place, so they can differ in the last
   bit
+* Add fused multiply-add (`fma`, `x * y + z` with a single rounding) to the
+  Xilinx Floating-Point core, in every precision

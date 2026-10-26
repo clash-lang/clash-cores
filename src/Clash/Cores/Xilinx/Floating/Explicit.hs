@@ -77,6 +77,9 @@ module Clash.Cores.Xilinx.Floating.Explicit
   , logWith
   , log
   , LogDefDelay
+  , fmaWith
+  , fma
+  , FmaDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -971,3 +974,75 @@ log = withFrozenCallStack $ logWith defConfig
 -- | The default delay for floating point natural logarithm with default
 -- customization.
 type LogDefDelay = 28
+
+-- | Customizable fused multiply-add: @fmaWith cfg clk en x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. The IP computes the
+-- product exactly, adds the addend and rounds the exact sum once, to nearest,
+-- ties to even. For a fused multiply-subtract, @x * y - z@, flip the sign bit
+-- of the addend.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero of the
+-- same sign and every NaN as NaN, and rounds as if the exponent were
+-- unbounded: results below the smallest normal number become a zero of the
+-- same sign, results beyond the largest finite number an infinity of the same
+-- sign. As the product is not rounded, a product beyond the largest finite
+-- number still gives a finite result if the addend brings the sum back in
+-- range. Simulation and the IP agree bit for bit.
+--
+-- The special cases follow IEEE 754: an infinity times a zero is 'xilinxNaN',
+-- whatever the addend, and so is the sum of an infinite product and an
+-- infinite addend of the opposite sign. An exact result of zero is a positive
+-- zero, unless both the product and the addend are negative zeros: so
+-- @x * y + (-(x * y))@ is a positive zero, @(-0) * 1 + (-0)@ a negative one.
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP accepts
+-- 'MediumDspUsage' and 'FullDspUsage' (the default), and rejects 'NoDspUsage'
+-- and 'MaxDspUsage'. It supports every precision, see
+-- "Clash.Cores.Xilinx.Floating", "Clash.Cores.Xilinx.Floating.Half" and
+-- "Clash.Cores.Xilinx.Floating.Double" for the maximum latencies.
+fmaWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+fmaWith Config{dspUsage} clk en x y z
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (xilinxFma <$> x <*> y <*> z)
+  und = withFrozenCallStack $ deepErrorX "Initial values of fma undefined"
+  extraOpts =
+       ("CONFIG.Add_Sub_Value", StrOpt "Add")
+    :> ("CONFIG.C_Mult_Usage",  StrOpt (dspUsageToTcl dspUsage))
+    :> precisionOpts "Single"
+  synth = ternaryInst "fma" "FMA" extraOpts clk en x y z
+{-# INLINE fmaWith #-}
+
+-- | Fused multiply-add with default settings: @fma clk en x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. Subnormal inputs count as
+-- a zero of the same sign, and results below the smallest normal number
+-- become a zero of the same sign. See 'fmaWith'.
+fma
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + FmaDefDelay) Float
+fma = withFrozenCallStack $ fmaWith defConfig
+{-# INLINE fma #-}
+
+-- | The default delay for fused multiply-add with default customization.
+type FmaDefDelay = 19
