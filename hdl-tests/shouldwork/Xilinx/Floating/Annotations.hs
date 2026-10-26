@@ -65,3 +65,31 @@ unaryCombTopAnn name =
     , t_inputs = [ PortName "x" ]
     , t_output = PortName "result"
     }
+
+-- | For functions with three inputs, such as @fma@
+ternaryTopAnn :: String -> TopEntity
+ternaryTopAnn name =
+  Synthesize
+    { t_name   = name
+    , t_inputs =
+          [ PortName "clk"
+          , PortName "x"
+          , PortName "y"
+          , PortName "z"
+          ]
+    , t_output = PortName "result"
+    }
+
+-- | For the accumulator: clock, enable, last flag and input
+accumTopAnn :: String -> TopEntity
+accumTopAnn name =
+  Synthesize
+    { t_name   = name
+    , t_inputs =
+          [ PortName "clk"
+          , PortName "en"
+          , PortName "lst"
+          , PortName "x"
+          ]
+    , t_output = PortName "result"
+    }

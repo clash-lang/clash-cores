@@ -199,6 +199,12 @@ runClashTest = defaultMain $ clashTestRoot
                                                       , "expBasicTB"
                                                       , "expBramTB"
                                                       , "logBasicTB"
+                                                      , "fmaBasicTB"
+                                                      , "fmaMediumTB"
+                                                      , "accumBasicTB"
+                                                      , "accumFlagsTB"
+                                                      , "accumTinyTB"
+                                                      , "accumHugeTB"
                                                       ]
                           }
           in runTest "Floating" _opts
@@ -228,6 +234,12 @@ runClashTest = defaultMain $ clashTestRoot
                                          , "expBramTB"
                                          , "logBasicTB"
                                          , "logNoDspTB"
+                                         , "fmaBasicTB"
+                                         , "fmaMediumTB"
+                                         , "accumBasicTB"
+                                         , "accumFlagsTB"
+                                         , "accumTinyTB"
+                                         , "accumHugeTB"
                                          ]
             }
         , runTest "FloatingHalf" def
@@ -254,6 +266,12 @@ runClashTest = defaultMain $ clashTestRoot
                                          , "expBasicTB"
                                          , "logBasicTB"
                                          , "logGenericTB"
+                                         , "fmaBasicTB"
+                                         , "fmaMediumTB"
+                                         , "accumBasicTB"
+                                         , "accumFlagsTB"
+                                         , "accumTinyTB"
+                                         , "accumHugeTB"
                                          ]
             }
         , runTest "Ibufds" def

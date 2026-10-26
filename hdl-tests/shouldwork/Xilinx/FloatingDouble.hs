@@ -394,3 +394,120 @@ logNoDspTB =
     0
     $(memBlobTH Nothing doubleLogNoDspSamples)
 {-# ANN logNoDspTB (TestBench 'logNoDsp) #-}
+
+fmaBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem D.FmaDefDelay Double
+fmaBasic clk x y z = withClock clk $ withEnable enableGen $ D.fma x y z
+{-# OPAQUE fmaBasic #-}
+{-# ANN fmaBasic (ternaryTopAnn "fmaBasic") #-}
+
+fmaBasicTB :: Signal XilinxSystem Bool
+fmaBasicTB =
+  ternaryRomTB
+    (\clk a b c -> pack <$> fmaBasic clk a b c)
+    0
+    $(memBlobTH Nothing doubleFmaSamples)
+{-# ANN fmaBasicTB (TestBench 'fmaBasic) #-}
+
+-- | Fused multiply-add with medium DSP usage, at its maximum latency
+fmaMedium
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem DoubleFmaMediumDelay Double
+fmaMedium clk x y z =
+  withClock clk $ withEnable enableGen $
+    D.fmaWith D.defConfig{D.dspUsage = D.MediumDspUsage} x y z
+{-# OPAQUE fmaMedium #-}
+{-# ANN fmaMedium (ternaryTopAnn "fmaMedium") #-}
+
+fmaMediumTB :: Signal XilinxSystem Bool
+fmaMediumTB =
+  ternaryRomTB
+    (\clk a b c -> pack <$> fmaMedium clk a b c)
+    0
+    $(memBlobTH Nothing doubleFmaMediumSamples)
+{-# ANN fmaMediumTB (TestBench 'fmaMedium) #-}
+
+-- | Accumulator with the default settings, without flags
+accumBasic
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem D.AccumDefDelay Double
+accumBasic clk en lst x = withClock clk $ withEnable en $ D.accum lst x
+{-# OPAQUE accumBasic #-}
+{-# ANN accumBasic (accumTopAnn "accumBasic") #-}
+
+accumBasicTB :: Signal XilinxSystem Bool
+accumBasicTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumBasic clk en l a)
+    $(memBlobTH Nothing doubleAccumBasicRom)
+{-# ANN accumBasicTB (TestBench 'accumBasic) #-}
+
+-- | Accumulator with narrow bounds and flags, below its maximum latency
+accumFlags
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem AccumCustomDelay (Double, D.AccumFlags)
+accumFlags clk en lst x =
+  withClock clk $ withEnable en $
+    D.accumWithFlags (accumNarrowConfig D.MediumDspUsage) lst x
+{-# OPAQUE accumFlags #-}
+{-# ANN accumFlags (accumTopAnn "accumFlags") #-}
+
+accumFlagsTB :: Signal XilinxSystem Bool
+accumFlagsTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumFlags clk en l a)
+    $(memBlobTH Nothing doubleAccumFlagsRom)
+{-# ANN accumFlagsTB (TestBench 'accumFlags) #-}
+
+-- | Accumulator with sums below the smallest normal number
+accumTiny
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem AccumCustomDelay (Double, D.AccumFlags)
+accumTiny clk en lst x =
+  withClock clk $ withEnable en $
+    D.accumWithFlags (accumTinyConfig @Double) lst x
+{-# OPAQUE accumTiny #-}
+{-# ANN accumTiny (accumTopAnn "accumTiny") #-}
+
+accumTinyTB :: Signal XilinxSystem Bool
+accumTinyTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumTiny clk en l a)
+    $(memBlobTH Nothing doubleAccumTinyRom)
+{-# ANN accumTinyTB (TestBench 'accumTiny) #-}
+
+-- | Accumulator with sums beyond the largest finite number
+accumHuge
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem AccumCustomDelay (Double, D.AccumFlags)
+accumHuge clk en lst x =
+  withClock clk $ withEnable en $
+    D.accumWithFlags (accumHugeConfig @Double) lst x
+{-# OPAQUE accumHuge #-}
+{-# ANN accumHuge (accumTopAnn "accumHuge") #-}
+
+accumHugeTB :: Signal XilinxSystem Bool
+accumHugeTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumHuge clk en l a)
+    $(memBlobTH Nothing doubleAccumHugeRom)
+{-# ANN accumHugeTB (TestBench 'accumHuge) #-}
