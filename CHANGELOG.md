@@ -26,9 +26,7 @@
   `AccumConfig`, `defAccumConfig` and `AccumFlags`) to the Xilinx
   Floating-Point core, in every precision. It sums in fixed point with
   configurable bounds and rounds its results towards zero; `accumWithFlags`
-  also outputs its overflow and invalid operation flags. The documentation of
-  `Clash.Cores.Xilinx.Floating` describes how to derive the exception
-  flags of the other operations from their inputs and results
-* Fix the operations of the Xilinx Floating-Point core at a latency of zero:
-  the IP is then combinational and has no clock or clock enable ports, but they
-  were connected anyway
+  also outputs its overflow and invalid operation flags
+* Fix the operations of the Xilinx Floating-Point core at a latency of zero,
+  which Vivado rejected: the IP then has no clock or clock enable ports, but
+  Clash connected them anyway

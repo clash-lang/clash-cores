@@ -92,6 +92,26 @@ mulMaxDspTB =
     $(memBlobTH Nothing doubleMulMaxDspSamples)
 {-# ANN mulMaxDspTB (TestBench 'mulMaxDsp) #-}
 
+-- | Multiplication with the IP's low-latency multiplier, at its maximum latency
+mulLowLatency
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem DoubleMulLowLatencyDelay Double
+mulLowLatency clk x y =
+  withClock clk $ withEnable enableGen $
+    D.mulWith D.defConfig{D.archOpt = D.LatencyArch} x y
+{-# OPAQUE mulLowLatency #-}
+{-# ANN mulLowLatency (binaryTopAnn "mulLowLatency") #-}
+
+mulLowLatencyTB :: Signal XilinxSystem Bool
+mulLowLatencyTB =
+  basicRomTB
+    (\clk a b -> pack <$> mulLowLatency clk a b)
+    0
+    $(memBlobTH Nothing doubleMulLowLatencySamples)
+{-# ANN mulLowLatencyTB (TestBench 'mulLowLatency) #-}
+
 -- | Addition at a latency of zero, where the IP is combinational: no clock or
 -- clock enable may be connected to it
 addComb

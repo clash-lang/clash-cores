@@ -51,13 +51,15 @@ The maximum latencies in double precision, as reported by Vivado 2022.1, for
 +----------------------+-----------------------------------------+------------+---------------+
 | 'addWith', 'subWith' | @LatencyArch@, any @DspUsage@           | 8          | 8             |
 +----------------------+-----------------------------------------+------------+---------------+
-| 'mulWith'            | @NoDspUsage@                            | 9          | 9             |
+| 'mulWith'            | @SpeedArch@, @NoDspUsage@               | 9          | 9             |
 +----------------------+-----------------------------------------+------------+---------------+
-| 'mulWith'            | @MediumDspUsage@                        | 15         | 12            |
+| 'mulWith'            | @SpeedArch@, @MediumDspUsage@           | 15         | 12            |
 +----------------------+-----------------------------------------+------------+---------------+
-| 'mulWith'            | @FullDspUsage@ (default)                | 15         | 12            |
+| 'mulWith'            | @SpeedArch@, @FullDspUsage@ (default)   | 15         | 12            |
 +----------------------+-----------------------------------------+------------+---------------+
-| 'mulWith'            | @MaxDspUsage@                           | 16         | 13            |
+| 'mulWith'            | @SpeedArch@, @MaxDspUsage@              | 16         | 13            |
++----------------------+-----------------------------------------+------------+---------------+
+| 'mulWith'            | @LatencyArch@, any @DspUsage@           | 10         | 10            |
 +----------------------+-----------------------------------------+------------+---------------+
 | 'divWith'            | any                                     | 57         | 57            |
 +----------------------+-----------------------------------------+------------+---------------+
@@ -123,29 +125,34 @@ The maximum latencies in double precision, as reported by Vivado 2022.1, for
 +----------------------+-----------------------------------------+------------+---------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
-latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
-ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only uses
-the @bMemUsage@ setting in half precision. In double precision, 'recipWith' and
-'rsqrtWith' always use @FullDspUsage@, whatever the configuration. 'logWith'
-only uses the @dspUsage@ setting, 'expWith' uses @dspUsage@ and @bMemUsage@.
-'abs' only supports a latency of zero. All other operations except the
-accumulator support a latency of zero as well: the IP is then combinational, and
-the 'Enable' has no effect. Multiplication, the reciprocal square root and the
-logarithm have different maximum latencies on 7-series devices than on
-UltraScale and UltraScale+ devices. The measured 7-series devices are Artix-7,
-Kintex-7 and Spartan-7; the UltraScale and UltraScale+ devices are Kintex
-UltraScale, Kintex UltraScale+ and Zynq UltraScale+. Other versions of Vivado
-might accept other latencies.
+latency. Notes on the table:
 
-For 'fmaWith', the IP accepts only @MediumDspUsage@ and @FullDspUsage@ and
-ignores @archOpt@. 'accumWith' and 'accumWithFlags' only use the @accumDspUsage@
-setting of their configuration, but their maximum latency also depends on its
-bounds: wider accumulators need more cycles. The table gives, for both, the
-range over all bounds the IP accepts, and in parentheses the maximum latency for
-the default bounds ('Clash.Cores.Xilinx.Floating.Double.defAccumConfig'). Their
-minimum latency is one. The maximum latencies of 'fmaWith' and 'accumWith' were
-measured on Kintex-7 and Kintex UltraScale+ devices, where they are the same,
-for the accumulator for a sample of the bounds.
+* With @LatencyArch@, Vivado ignores the @dspUsage@ setting of 'addWith',
+  'subWith' and 'mulWith'; for 'mulWith', it always uses @MaxDspUsage@.
+  'fmaWith' ignores @archOpt@.
+
+* 'sqrtWith' ignores its configuration, and 'recipWith' and 'rsqrtWith' always
+  use @FullDspUsage@, whatever the configuration. 'logWith' only uses
+  @dspUsage@, 'expWith' uses @dspUsage@ and @bMemUsage@.
+
+* 'abs' only supports a latency of zero. All other operations except the
+  accumulator support a latency of zero as well: the IP is then combinational,
+  and the 'Enable' has no effect. The accumulator needs a latency of at least
+  one: 'accumWith' and 'accumWithFlags' require @1 <= d@.
+
+* The maximum latency of 'accumWith' and 'accumWithFlags' also depends on
+  their bounds: wider accumulators need more cycles. The table gives the lowest
+  and the highest maximum latency over all bounds the IP accepts, and in
+  parentheses the maximum latency for the default bounds
+  ('Clash.Cores.Xilinx.Floating.Double.defAccumConfig').
+
+* Only 'mulWith', 'rsqrtWith' and 'logWith' have different maximum latencies
+  on 7-series devices (Artix-7, Kintex-7 and Spartan-7) than on UltraScale and
+  UltraScale+ devices (Kintex UltraScale, Kintex UltraScale+ and Zynq
+  UltraScale+). The maximum latencies of 'fmaWith' and the accumulator were
+  only measured on Kintex-7 and Kintex UltraScale+ devices, where they are the
+  same, and those of the accumulator only for a sample of the bounds. Other
+  versions of Vivado might accept other latencies.
 
 The functions without @With@ use
 'Clash.Cores.Xilinx.Floating.Double.defConfig' and the default delays

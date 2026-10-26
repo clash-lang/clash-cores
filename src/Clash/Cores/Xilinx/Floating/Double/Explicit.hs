@@ -211,7 +211,7 @@ mulWith
   -> DSignal dom n Double
   -> DSignal dom n Double
   -> DSignal dom (n + d) Double
-mulWith Config{dspUsage} clk en x y
+mulWith Config{archOpt, dspUsage} clk en x y
   | clashSimulation = sim
   | otherwise = synth
  where
@@ -219,6 +219,7 @@ mulWith Config{dspUsage} clk en x y
   sim = delayI und en clk (xilinxBinaryExact (*) <$> x <*> y)
   extraOpts =
        ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dspUsage))
+    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
     :> precisionOpts "Double"
   synth = binaryInst "mul" "Multiply" extraOpts clk en x y
 {-# INLINE mulWith #-}

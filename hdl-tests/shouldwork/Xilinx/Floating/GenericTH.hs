@@ -116,6 +116,13 @@ doubleMulMaxDspSamples :: [(Double, Double, BitVector 64)]
 doubleMulMaxDspSamples =
   romSamples (natToNum @DoubleMulMaxDspDelay) mulSamples
 
+-- | Latency of the @mulLowLatency@ test: the maximum for 'D.LatencyArch'
+type DoubleMulLowLatencyDelay = 10
+
+doubleMulLowLatencySamples :: [(Double, Double, BitVector 64)]
+doubleMulLowLatencySamples =
+  romSamples (natToNum @DoubleMulLowLatencyDelay) mulSamples
+
 -- | Samples of the tests at a latency of zero, where the IP is combinational
 doubleAddCombSamples :: [(Double, Double, BitVector 64)]
 doubleAddCombSamples = romSamples 0 addSamples
