@@ -40,10 +40,10 @@ module Clash.Cores.Xilinx.Floating.Internal
   , xilinxFromInteger
   , xilinxToS32
   , xilinxRoundScaled
-  , xilinxRecip
-  , xilinxRSqrt
-  , xilinxExp
-  , xilinxLog
+  , recipCorrectlyRounded
+  , rsqrtCorrectlyRounded
+  , expCorrectlyRounded
+  , logCorrectlyRounded
   , xilinxFma
   , AccumConfig(..)
   , AccumFlags(..)
@@ -66,10 +66,13 @@ module Clash.Cores.Xilinx.Floating.Internal
 
 import Clash.Prelude hiding (Ordering(..))
 import qualified Prelude as P
-import GHC.Float (double2Float, float2Double)
-import GHC.Num.Integer (integerLog2)
+import GHC.Float
+  ( castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble
+  , double2Float, float2Double )
+import Data.Word (Word16, Word32, Word64)
 import Numeric.Half (Half)
 
+import Clash.Cores.Xilinx.Floating.Internal.BitExact
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
 
 import qualified Clash.Signal.Delayed as D
@@ -230,14 +233,50 @@ class (BitPack a, NFDataX a, RealFloat a) => XilinxFloat a where
   xilinxBinary :: (forall b. Fractional b => b -> b -> b) -> a -> a -> a
   xilinxBinary = xilinxBinaryExact
 
+  -- | Model of the IP's reciprocal, @1 / x@, which Clash simulation uses. It
+  -- gives the IP's results bit for bit in every precision, see
+  -- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+  --
+  -- __NB__: Not synthesizable
+  xilinxRecip :: a -> a
+  xilinxRecip = recipCorrectlyRounded
+
+  -- | Model of the IP's reciprocal square root, @1 / sqrt x@, which Clash
+  -- simulation uses. It gives the IP's results bit for bit in every precision,
+  -- see "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+  --
+  -- __NB__: Not synthesizable
+  xilinxRSqrt :: a -> a
+  xilinxRSqrt = rsqrtCorrectlyRounded
+
+  -- | Model of the IP's exponential, @e^x@, which Clash simulation uses. It
+  -- gives the IP's results bit for bit in every precision, see
+  -- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+  --
+  -- __NB__: Not synthesizable
+  xilinxExp :: a -> a
+  xilinxExp = expCorrectlyRounded
+
+  -- | Model of the IP's natural logarithm, @log x@, which Clash simulation
+  -- uses. It gives the IP's results bit for bit in every precision, see
+  -- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+  --
+  -- __NB__: Not synthesizable
+  xilinxLog :: a -> a
+  xilinxLog = logCorrectlyRounded
+
+-- | In half precision, the IP rounds the reciprocal and the reciprocal square
+-- root correctly.
 instance XilinxFloat Half where
   precisionName _ = "Half"
   exponentWidth _ = 5
   fractionWidth _ = 11
   ipNaN = unpack 0x7E00
+  xilinxExp = onBits16 expHalf
+  xilinxLog = onBits16 logHalf
 
--- | For single precision, the model computes the result as a 'Double' and
--- rounds it to a 'Float' like the IP does. That gives the same result as
+-- | For single precision, 'xilinxBinary' computes the result as a 'Double'
+-- and rounds it to a 'Float' like the IP does. That gives the same result as
 -- computing the exact result, because a 'Double' has more than twice the
 -- precision of a 'Float' plus two bits, and it is much faster.
 instance XilinxFloat Float where
@@ -248,12 +287,32 @@ instance XilinxFloat Float where
   xilinxBinary f x y = xilinxRound (f (cond x) (cond y))
    where
     cond = float2Double . conditionFloat
+  xilinxRecip = onBits32 recipSingle
+  xilinxRSqrt = onBits32 rsqrtSingle
+  xilinxExp = onBits32 expSingle
+  xilinxLog = onBits32 logSingle
 
 instance XilinxFloat Double where
   precisionName _ = "Double"
   exponentWidth _ = 11
   fractionWidth _ = 53
   ipNaN = unpack 0x7FF8000000000000
+  xilinxRecip = onBits64 recipDouble
+  xilinxRSqrt = onBits64 rsqrtDouble
+  xilinxExp = onBits64 expDouble
+  xilinxLog = onBits64 logDouble
+
+-- | Apply a function on the bit pattern of a 'Half'
+onBits16 :: (Word16 -> Word16) -> Half -> Half
+onBits16 f = unpack . fromIntegral . f . fromIntegral . pack
+
+-- | Apply a function on the bit pattern of a 'Float'
+onBits32 :: (Word32 -> Word32) -> Float -> Float
+onBits32 f = castWord32ToFloat . f . castFloatToWord32
+
+-- | Apply a function on the bit pattern of a 'Double'
+onBits64 :: (Word64 -> Word64) -> Double -> Double
+onBits64 f = castWord64ToDouble . f . castDoubleToWord64
 
 -- | Condition an input the way the IP does: all NaNs become 'ipNaN', and all
 -- subnormal numbers become a zero of the same sign.
@@ -341,22 +400,6 @@ xilinxRoundScaled m e
   q = roundShiftR dropped m
   -- The rounded magnitude @q * 2^(e + dropped)@ lies in @[2^(top-1), 2^top)@
   top = e + dropped + bitLength q
-
--- | Number of bits of a positive integer
-bitLength :: Integer -> Int
-bitLength i = fromIntegral (integerLog2 i) + 1
-
--- | Shift a non-negative integer to the right by the given number of bits,
--- rounding to nearest, ties to even.
-roundShiftR :: Int -> Integer -> Integer
-roundShiftR s m
-  | s <= 0 = m
-  | rest > half || (rest == half && odd q) = q + 1
-  | otherwise = q
- where
-  q = m `shiftR` s
-  rest = m .&. (bit s - 1)
-  half = bit (s - 1)
 
 -- | Model of the IP's fused multiply-add, @x * y + z@ with a single rounding.
 --
@@ -661,11 +704,13 @@ xilinxToS32 (xilinxCondition -> x)
 The IP's reciprocal, reciprocal square root, exponential and logarithm are not
 correctly rounded: the datasheet only promises results accurate to one unit in
 the last place (except for the reciprocal and reciprocal square root in half
-precision, which are correctly rounded). The IP's exact algorithms are not
-documented, so instead of the IP's results, the models below give the correctly
-rounded results: the exact result rounded the way the other operations round
-theirs ('xilinxRoundScaled'), with the IP's treatment of NaNs, subnormal inputs
-and the special cases.
+precision, which are correctly rounded). The IP's algorithms are not
+documented. Where they are known, the models reproduce them bit for bit, see
+Note [Bit-exact models] in "Clash.Cores.Xilinx.Floating.Internal.BitExact".
+Elsewhere, the models below give the correctly rounded results instead: the
+exact result rounded the way the other operations round theirs
+('xilinxRoundScaled'), with the IP's treatment of NaNs, subnormal inputs and
+the special cases. These are the defaults of the methods of 'XilinxFloat'.
 
 The reciprocal and the reciprocal square root of a number with a significand
 of @p@ bits follow from an integer division and an integer square root with at
@@ -684,8 +729,8 @@ this always ends. All arithmetic is on 'Integer's, so the error bounds hold
 exactly.
 -}
 
--- | Model of the IP's reciprocal, @1 / x@, rounded correctly (see the
--- documentation of @recip@ in "Clash.Cores.Xilinx.Floating").
+-- | The reciprocal, @1 / x@, rounded correctly: the default of 'xilinxRecip', see
+-- Note [Correctly rounded models].
 --
 -- Like the IP, it treats every NaN input as the NaN the IP generates and
 -- subnormal inputs as a zero of the same sign. The reciprocal of a zero is an
@@ -693,8 +738,8 @@ exactly.
 -- Results below the smallest normal number become a zero of the same sign.
 --
 -- __NB__: Not synthesizable
-xilinxRecip :: XilinxFloat a => a -> a
-xilinxRecip (xilinxCondition -> x)
+recipCorrectlyRounded :: XilinxFloat a => a -> a
+recipCorrectlyRounded (xilinxCondition -> x)
   | isNaN x = ipNaN
   | x == 0 = if isNegativeZero x then -1 / 0 else 1 / 0
   | isInfinite x = if x < 0 then -0 else 0
@@ -710,8 +755,8 @@ xilinxRecip (xilinxCondition -> x)
   -- 2q + 1 stands for any number between 2q and 2q + 2.
   sticky = if r == 0 then 0 else 1
 
--- | Model of the IP's reciprocal square root, @1 / sqrt x@, rounded correctly
--- (see the documentation of @rsqrt@ in "Clash.Cores.Xilinx.Floating").
+-- | The reciprocal square root, @1 / sqrt x@, rounded correctly: the default of 'xilinxRSqrt', see
+-- Note [Correctly rounded models].
 --
 -- Like the IP, it treats every NaN input as the NaN the IP generates and
 -- subnormal inputs as a zero of the same sign. The reciprocal square root of a
@@ -720,8 +765,8 @@ xilinxRecip (xilinxCondition -> x)
 -- negative infinity, is NaN. That of positive infinity is positive zero.
 --
 -- __NB__: Not synthesizable
-xilinxRSqrt :: XilinxFloat a => a -> a
-xilinxRSqrt (xilinxCondition -> x)
+rsqrtCorrectlyRounded :: XilinxFloat a => a -> a
+rsqrtCorrectlyRounded (xilinxCondition -> x)
   | isNaN x = ipNaN
   | x == 0 = if isNegativeZero x then -1 / 0 else 1 / 0
   | x < 0 = ipNaN
@@ -740,8 +785,8 @@ xilinxRSqrt (xilinxCondition -> x)
   y = integerSqrt q
   sticky = if r == 0 && y * y == q then 0 else 1
 
--- | Model of the IP's exponential, @e^x@, rounded correctly (see the
--- documentation of @exp@ in "Clash.Cores.Xilinx.Floating").
+-- | The exponential, @e^x@, rounded correctly: the default of 'xilinxExp', see
+-- Note [Correctly rounded models].
 --
 -- Like the IP, it treats every NaN input as the NaN the IP generates and
 -- subnormal inputs as a zero of the same sign, whose exponential is one. The
@@ -750,8 +795,8 @@ xilinxRSqrt (xilinxCondition -> x)
 -- positive infinity, results below the smallest normal number positive zero.
 --
 -- __NB__: Not synthesizable
-xilinxExp :: forall a. XilinxFloat a => a -> a
-xilinxExp (xilinxCondition -> x)
+expCorrectlyRounded :: forall a. XilinxFloat a => a -> a
+expCorrectlyRounded (xilinxCondition -> x)
   | isNaN x = ipNaN
   | isInfinite x = if x > 0 then x else 0
   | x == 0 = 1
@@ -769,8 +814,8 @@ xilinxExp (xilinxCondition -> x)
   (emin, emax) = floatRange x
   (m, e) = decodeFloat x
 
--- | Model of the IP's natural logarithm, @log x@, rounded correctly (see the
--- documentation of @log@ in "Clash.Cores.Xilinx.Floating").
+-- | The natural logarithm, @log x@, rounded correctly: the default of 'xilinxLog', see
+-- Note [Correctly rounded models].
 --
 -- Like the IP, it treats every NaN input as the NaN the IP generates and
 -- subnormal inputs as a zero of the same sign. The logarithm of a zero of
@@ -779,8 +824,8 @@ xilinxExp (xilinxCondition -> x)
 -- positive infinity is positive infinity, and that of one positive zero.
 --
 -- __NB__: Not synthesizable
-xilinxLog :: XilinxFloat a => a -> a
-xilinxLog (xilinxCondition -> x)
+logCorrectlyRounded :: XilinxFloat a => a -> a
+logCorrectlyRounded (xilinxCondition -> x)
   | isNaN x = ipNaN
   | x == 0 = -1 / 0
   | x < 0 = ipNaN

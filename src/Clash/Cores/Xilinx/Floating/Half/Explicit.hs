@@ -593,12 +593,11 @@ type RSqrtDefDelay = G.RSqrtDefDelay Half
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- exponential rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for 3.9% of the inputs with a
--- finite result other than zero and one.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 3.9% of the inputs
+-- with a finite result other than zero and one. Clash simulation reproduces its
+-- algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
 -- The t'Config' makes no difference: in half precision, the IP always uses
 -- @FullDspUsage@ and no block memory for the exponential.
@@ -624,9 +623,7 @@ expWith = withFrozenCallStack G.expWith
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'expWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
 exp
   :: forall dom n
    . ( KnownDomain dom
@@ -652,12 +649,11 @@ type ExpDefDelay = G.ExpDefDelay Half
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- logarithm rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for 0.3% of the inputs with a
--- finite, non-zero result.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 0.3% of the inputs
+-- with a finite result other than zero. Clash simulation reproduces its
+-- algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
 -- Only the @dspUsage@ setting of the t'Config' matters. In half precision, the
 -- IP supports at most @MediumDspUsage@ for the logarithm: it rejects
@@ -686,9 +682,7 @@ logWith = withFrozenCallStack G.logWith
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'logWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
 log
   :: forall dom n
    . ( KnownDomain dom

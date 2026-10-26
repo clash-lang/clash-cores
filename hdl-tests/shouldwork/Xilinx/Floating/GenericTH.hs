@@ -8,9 +8,9 @@ Samples for the floating point HDL tests (@Floating@, @FloatingHalf@ and
 the simulation models in
 "Clash.Cores.Xilinx.Floating.Internal". The hand-written cases have their
 expected results written out, and are checked against the models at compile
-time. The reciprocal, reciprocal square root, exponential and logarithm only
-use inputs for which the models agree with the IP, see
-Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm].
+time. The models of the reciprocal, reciprocal square root, exponential and
+logarithm give the IP's results bit for bit too, see
+Note [Samples of recip, rsqrt, exp and log].
 -}
 
 {-# OPTIONS_GHC -Wall -Werror #-}
@@ -542,58 +542,86 @@ fromS64Inputs =
      , f <- [id, (`shiftR` 1), negate . (`shiftR` 1)]
      ]
 
-{- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
-Clash simulation gives the correctly rounded results of these operations,
-while the IP is only accurate to one unit in the last place (except for the
-reciprocal and reciprocal square root in half precision). So their samples only
-use inputs for which both give the same result: special cases, exact results,
-NaNs, and pseudo-random inputs that were checked offline against the IP's C
-model ('checkedFor'), which matches the IP bit for bit. In half precision, the
-reciprocal and reciprocal square root also get the other inputs used elsewhere.
+{- Note [Samples of recip, rsqrt, exp and log]
+The models of these operations give the IP's results bit for bit (see
+Note [Bit-exact models] in "Clash.Cores.Xilinx.Floating.Internal.BitExact"), so
+any input will do. Besides the hand-written cases, special values and NaNs, the
+samples have pseudo-random inputs, a few percent of which give results that
+differ from the correctly rounded ones, and the inputs in 'checkedFor'. The
+exponential and the logarithm get pseudo-random inputs in ranges per precision
+('onlyIn').
 -}
 
 -- | Inputs and results of the reciprocal, see
--- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+-- Note [Samples of recip, rsqrt, exp and log]
 recipSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
 recipSamples =
      checked1 "recip" xilinxRecip recipCases
   ++ modelled1 xilinxRecip
        (  nans
        ++ checkedFor @a halfRecipChecked singleRecipChecked doubleRecipChecked
-       ++ exactInHalf @a )
+       ++ interesting
+       ++ take 200 (randomBits 30)
+       ++ take 200 (randomNormals 31) )
 
 -- | Inputs and results of the reciprocal square root, see
--- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+-- Note [Samples of recip, rsqrt, exp and log]
 rsqrtSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
 rsqrtSamples =
      checked1 "rsqrt" xilinxRSqrt rsqrtCases
   ++ modelled1 xilinxRSqrt
        (  nans
        ++ checkedFor @a halfRSqrtChecked singleRSqrtChecked doubleRSqrtChecked
-       ++ exactInHalf @a )
+       ++ interesting
+       ++ take 200 (randomBits 30)
+       ++ take 200 (map abs (randomNormals 32)) )
 
 -- | Inputs and results of the exponential, see
--- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+-- Note [Samples of recip, rsqrt, exp and log]
 expSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
 expSamples =
      checked1 "exp" xilinxExp expCases
   ++ modelled1 xilinxExp
-       (nans ++ checkedFor @a halfExpChecked singleExpChecked doubleExpChecked)
+       (  nans
+       ++ checkedFor @a halfExpChecked singleExpChecked doubleExpChecked
+       ++ onlyIn @a [24, 53]
+            (  interesting
+            ++ take 400 (randomIn (-104, 89) 33)
+            ++ take 100 (randomIn (-1, 1) 34)
+            ++ take 200 (randomIn (-746, 710) 35) )
+       ++ onlyIn @a [11] (interesting ++ take 400 (randomIn (-11, 11) 36)) )
 
 -- | Inputs and results of the logarithm, see
--- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+-- Note [Samples of recip, rsqrt, exp and log]
 logSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
 logSamples =
      checked1 "log" xilinxLog logCases
   ++ modelled1 xilinxLog
-       (nans ++ checkedFor @a halfLogChecked singleLogChecked doubleLogChecked)
+       (  nans
+       ++ checkedFor @a halfLogChecked singleLogChecked doubleLogChecked
+       ++ onlyIn @a [11]
+            (  map abs interesting
+            ++ take 400 (randomIn (0, 60000) 37)
+            ++ take 200 (randomIn (0.9, 1.1) 38) )
+       ++ onlyIn @a [24]
+            (  interesting
+            ++ take 300 (map abs (randomNormals 39))
+            ++ take 200 (randomIn (0.5, 2) 40)
+            ++ take 100 (randomIn (0.999, 1.001) 41) )
+       ++ onlyIn @a [53]
+            (  interesting
+            ++ take 300 (map abs (randomNormals 42))
+            ++ take 200 (randomIn (0.5, 2) 43)
+            ++ take 100 (randomIn (0.999, 1.001) 44)
+            ++ take 100 (randomIn (1 - 2 ** (-20), 1 + 2 ** (-20)) 45)
+            ++ take 100 (randomIn (1 - 2 ** (-26), 1 + 2 ** (-26)) 46) ) )
 
--- | More inputs for the operations that the IP rounds correctly in half
--- precision: special values and pseudo-random numbers. None in other
--- precisions.
-exactInHalf :: forall a. XilinxFloat a => [a]
-exactInHalf
-  | digitsOf @a == 11 = interesting ++ take 100 (randomBits 30)
+-- | The given inputs in the precisions with the given numbers of significant
+-- bits ('digitsOf'), and none in other precisions. See
+-- Note [Samples of recip, rsqrt, exp and log].
+onlyIn :: forall a. RealFloat a => [Int] -> [a] -> [a]
+onlyIn digits xs
+  | digitsOf @a `elem` digits = xs
   | otherwise = []
 
 -- | The inputs of the given precision, from their bit patterns
@@ -1189,6 +1217,11 @@ sqrtsMod2 c t = [x `mod` 2 ^ t | x <- [r, negate r, r + half, half - r]]
     | (x * x - c) `mod` (2 ^ (k + 1)) == 0 = x
     | otherwise = x + 2 ^ (k - 1)
 
+-- | Pseudo-random numbers in the given interval
+randomIn :: RealFloat a => (Double, Double) -> Word64 -> [a]
+randomIn (lo, hi) =
+  map (\w -> realToFrac (lo + (hi - lo) * fromIntegral (w `shiftR` 11) / 2 ^ (53 :: Int))) . randoms
+
 -- | Pseudo-random bit patterns
 randomBits :: forall a. XilinxFloat a => Word64 -> [a]
 randomBits = map (unpack . fromIntegral) . randoms
@@ -1355,11 +1388,9 @@ checked name model = map check
    where
     actual = model x y
 
--- * Inputs checked against the C model
+-- * Inputs with finite, non-zero results
 
--- These inputs were checked offline: for each of them, the model and the IP's
--- C model (Vivado 2022.1) give the same, finite, non-zero result. They are
--- pseudo-random numbers in the ranges where the results are finite and
+-- Pseudo-random numbers in the ranges where the results are finite and
 -- non-zero, and for the logarithm also numbers close to one.
 
 halfRecipChecked :: [Word64]

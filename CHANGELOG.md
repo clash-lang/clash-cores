@@ -17,10 +17,9 @@
   `toDouble` in the per-precision modules) to the Xilinx Floating-Point core
 * Add reciprocal (`recip`), reciprocal square root (`rsqrt`), exponential
   (`exp`) and natural logarithm (`log`) to the Xilinx Floating-Point core, in
-  every precision. Unlike the other operations, Clash simulation does not match
-  the IP bit for bit: it gives the correctly rounded results, while the IP is
-  only accurate to one unit in the last place, so they can differ in the last
-  bit
+  every precision. The IP is only accurate to one unit in the last place for
+  these. Clash simulation reproduces the IP's algorithms, and so matches it bit
+  for bit
 * Add fused multiply-add (`fma`, `x * y + z` with a single rounding) to the
   Xilinx Floating-Point core, in every precision
 * Add the accumulator (`accum`, `accumWith` and `accumWithFlags`, with

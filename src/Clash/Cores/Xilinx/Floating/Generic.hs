@@ -12,16 +12,19 @@ generic in the precision, see
 t'Clash.Cores.Xilinx.Floating.Generic.XilinxFloat'. See
 "Clash.Cores.Xilinx.Floating" for how the functions instantiate the IP and how
 they behave. The default delays depend on the precision, so they are type
-families. The IP does not support conversions between integers and half
-precision, so 'fromU32' and 'fromS32' only produce 'Float' and 'Double', see
-t'Clash.Cores.Xilinx.Floating.Generic.FromInt32', and likewise for 'fromU64'
-and 'fromS64' (t'Clash.Cores.Xilinx.Floating.Generic.FromInt64') and 'toS32'
-(t'Clash.Cores.Xilinx.Floating.Generic.ToInt32'). 'convert' converts between
-any two precisions. Like in "Clash.Cores.Xilinx.Floating", Clash simulation
-gives the correctly rounded results for 'recip', 'rsqrt', 'exp' and 'log',
-which can differ in the last bit from the IP's, which are only accurate to one
-unit in the last place (except for 'recip' and 'rsqrt' in half precision, which
-the IP rounds correctly).
+families.
+
+The IP does not convert between integers and half precision, so the integer
+conversions only support 'Float' and 'Double': see
+t'Clash.Cores.Xilinx.Floating.Generic.FromInt32' ('fromU32', 'fromS32'),
+t'Clash.Cores.Xilinx.Floating.Generic.FromInt64' ('fromU64', 'fromS64') and
+t'Clash.Cores.Xilinx.Floating.Generic.ToInt32' ('toS32'). 'convert' converts
+between any two precisions.
+
+Like in "Clash.Cores.Xilinx.Floating", Clash simulation gives the IP's results
+bit for bit, also for the reciprocal, reciprocal square root, exponential and
+logarithm, which the IP only computes to one unit in the last place: see
+"Clash.Cores.Xilinx.Floating.Generic#accuracy".
 
 Related modules:
 
@@ -195,6 +198,33 @@ example for 'addWith' with @NoDspUsage@ in half and double precision. 'accum'
 uses 'Clash.Cores.Xilinx.Floating.Generic.defAccumConfig', and
 t'Clash.Cores.Xilinx.Floating.Generic.AccumDefDelay' is the maximum latency
 for those settings.
+
+= Accuracy of the reciprocal, reciprocal square root, exponential and logarithm #accuracy#
+
+The IP computes 'recipWith', 'rsqrtWith', 'expWith' and 'logWith' only to an
+accuracy of one unit in the last place (PG060), except for 'recipWith' and
+'rsqrtWith' in half precision, which it rounds correctly. So its results differ
+from the correctly rounded ones (the exact results rounded to nearest, ties to
+even) in the last bit for some inputs; the documentation of each function says
+how often. The datasheet does not say how the IP computes them, but Clash
+simulation reproduces the IP's algorithms, and so gives the IP's results bit
+for bit, for all four functions in every precision.
+
+The models implement published algorithms:
+
+* the reciprocal and the reciprocal square root in single and double
+  precision: Ercegovac, Lang, Muller and Tisserand (IEEE Transactions on
+  Computers, 2000);
+* the exponential: de Dinechin and Pasca (FPT 2010) in single and double
+  precision, two tables in half precision;
+* the logarithm: the iterative range reduction of Detrey and de Dinechin (as
+  in FloPoCo).
+
+Their parameters were found by comparing their results with those of the IP's
+C model, which matches the IP bit for bit, and the test suite compares them
+with the C model. In half and single precision, they were compared on every
+input, and in double precision on millions of inputs, including inputs whose
+results are close to a rounding boundary.
 
 = Exception flags #flags#
 
@@ -778,12 +808,17 @@ convert = withFrozenCallStack $ hideEnable $ hideClock E.convert
 -- subnormal inputs as a zero of the same sign and flushes results below the
 -- smallest normal number to a zero of the same sign.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place in single and double precision; in half precision it
--- rounds correctly too. See
--- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.recipWith' for how often they
--- differ and which settings matter.
+-- __Accuracy.__ In half precision, the IP rounds correctly. In single and
+-- double precision, it is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.2% of all inputs in
+-- single precision and for about 0.3% of random inputs in double precision.
+-- Clash simulation gives the IP's results bit for bit in every precision: it
+-- rounds correctly in half precision, and reproduces the IP's algorithm in
+-- single and double precision. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.recipWith' for which
+-- settings matter.
 recipWith
   :: forall a d dom n
    . ( E.XilinxFloat a
@@ -805,9 +840,7 @@ recipWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.recipWith cfg
 -- subnormal inputs as a zero of the same sign and flushes results below the
 -- smallest normal number to a zero of the same sign.
 --
--- Clash simulation gives the correctly rounded result, while the IP in single
--- and double precision is only accurate to one unit in the last place, so they
--- can differ in the last bit. See 'recipWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'recipWith'.
 recip
   :: forall a dom n
    . ( E.XilinxFloat a
@@ -829,12 +862,17 @@ recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
 -- negative infinity. That of any other negative number, including negative
 -- infinity, is NaN. That of positive infinity is positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal square root rounded to nearest, ties to even. The IP is only
--- accurate to one unit in the last place in single and double precision; in
--- half precision it rounds correctly too. See
--- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.rsqrtWith' for how often they
--- differ and which settings matter.
+-- __Accuracy.__ In half precision, the IP rounds correctly. In single and
+-- double precision, it is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.0% of all inputs in
+-- single precision and for about 5% of random inputs in double precision.
+-- Clash simulation gives the IP's results bit for bit in every precision: it
+-- rounds correctly in half precision, and reproduces the IP's algorithm in
+-- single and double precision. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.rsqrtWith' for which
+-- settings matter.
 rsqrtWith
   :: forall a d dom n
    . ( E.XilinxFloat a
@@ -857,9 +895,7 @@ rsqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.rsqrtWith cfg
 -- negative infinity. That of any other negative number, including negative
 -- infinity, is NaN. That of positive infinity is positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP in single
--- and double precision is only accurate to one unit in the last place, so they
--- can differ in the last bit. See 'rsqrtWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'rsqrtWith'.
 rsqrt
   :: forall a dom n
    . ( E.XilinxFloat a
@@ -881,11 +917,15 @@ rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- exponential rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place, so the hardware can differ from the simulation in
--- the last bit. See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.expWith' for
--- how often they differ and which settings matter.
+-- __Accuracy.__ Clash simulation gives the IP's results bit for bit, in every
+-- precision: it reproduces the IP's algorithm. The IP is only accurate to one
+-- unit in the last place (PG060): its results differ from the correctly rounded
+-- ones for 3.9% of the half precision inputs with a finite result other than
+-- zero and one, about 16% of random inputs in single precision and about 13% in
+-- double precision. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.expWith' for which settings
+-- matter.
 expWith
   :: forall a d dom n
    . ( E.XilinxFloat a
@@ -908,9 +948,7 @@ expWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.expWith cfg
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'expWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
 exp
   :: forall a dom n
    . ( E.XilinxFloat a
@@ -933,11 +971,21 @@ exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- logarithm rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place, so the hardware can differ from the simulation in
--- the last bit. See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.logWith' for
--- how often they differ and which settings matter.
+-- __Accuracy.__ Clash simulation gives the IP's results bit for bit, in every
+-- precision: it reproduces the IP's algorithm. The IP is only accurate to one
+-- unit in the last place (PG060). Its results differ from the correctly
+-- rounded ones for:
+--
+-- * 0.3% of the half precision inputs with a finite result other than zero;
+-- * about half of all inputs in single precision, where it mostly rounds
+--   towards zero;
+-- * about 0.01% of random inputs in double precision, but about 5% of the
+--   inputs close to one.
+--
+-- See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.logWith' for which settings
+-- matter.
 logWith
   :: forall a d dom n
    . ( E.XilinxFloat a
@@ -961,9 +1009,7 @@ logWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.logWith cfg
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'logWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
 log
   :: forall a dom n
    . ( E.XilinxFloat a

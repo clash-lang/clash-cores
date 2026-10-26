@@ -13,11 +13,11 @@ result to 11 significant bits before checking whether it is subnormal, and the
 maximum latencies are different (see below). The IP does not support
 conversions between integers and half precision, so this module has no
 @fromU32@, @fromS32@, @fromU64@, @fromS64@ and @toS32@. In half precision,
-'sqrtWith' can use block memory, see t'Clash.Cores.Xilinx.Floating.Half.BMemUsage'.
-Like in single precision, Clash simulation gives the correctly rounded results
-for 'exp' and 'log', which can differ in the last bit from the IP's, which are
-only accurate to one unit in the last place. In half precision, the IP rounds
-'recip' and 'rsqrt' correctly, so for them simulation and hardware agree.
+'sqrtWith' can use block memory, see
+t'Clash.Cores.Xilinx.Floating.Half.BMemUsage'. The IP rounds 'recip' and
+'rsqrt' correctly, but computes 'exp' and 'log' only to one unit in the last
+place. Clash simulation gives the IP's results bit for bit for all four: see
+"Clash.Cores.Xilinx.Floating.Generic#accuracy".
 
 The IP's exception flags are not available, except for the accumulator
 ('accumWithFlags'), but they follow cheaply from the inputs and the result:
@@ -630,15 +630,15 @@ rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- exponential rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for 3.9% of the inputs with a
--- finite result other than zero and one.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 3.9% of the inputs
+-- with a finite result other than zero and one. Clash simulation reproduces its
+-- algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
--- The t'Clash.Cores.Xilinx.Floating.Half.Config' makes no difference: in half precision, the IP always uses
--- @FullDspUsage@ and no block memory for the exponential.
+-- The t'Clash.Cores.Xilinx.Floating.Half.Config' makes no difference: in
+-- half precision, the IP always uses @FullDspUsage@ and no block memory for
+-- the exponential.
 expWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -659,9 +659,7 @@ expWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.expWith cfg
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'expWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
 exp
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -681,15 +679,15 @@ exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- logarithm rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for 0.3% of the inputs with a
--- finite, non-zero result.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 0.3% of the inputs
+-- with a finite result other than zero. Clash simulation reproduces its
+-- algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
--- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Half.Config' matters. In half precision,
--- the IP supports at most @MediumDspUsage@ for the logarithm: it rejects
+-- Only the @dspUsage@ setting of the
+-- t'Clash.Cores.Xilinx.Floating.Half.Config' matters. In half precision, the
+-- IP supports at most @MediumDspUsage@ for the logarithm: it rejects
 -- @MaxDspUsage@, and with @FullDspUsage@, the default, this function uses
 -- @MediumDspUsage@ instead.
 logWith
@@ -713,9 +711,7 @@ logWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.logWith cfg
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'logWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
 log
   :: ( HiddenClock dom
      , HiddenEnable dom

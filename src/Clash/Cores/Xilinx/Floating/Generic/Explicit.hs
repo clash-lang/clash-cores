@@ -902,14 +902,14 @@ logDspUsage p dsp
 -- smallest normal number to a zero of the same sign (the reciprocals of the
 -- largest numbers).
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal rounded to nearest, ties to even. In single and double precision,
--- the IP is only accurate to one unit in the last place (PG060), so the
--- hardware can differ from the simulation in the last bit: the IP's C model,
--- which matches the IP bit for bit, differs from the correctly rounded result
--- for 2.2% of all inputs in single precision and for about 0.3% of random
--- inputs in double precision. In half precision, the IP rounds correctly, so
--- simulation and hardware agree.
+-- __Accuracy.__ In half precision, the IP rounds correctly. In single and
+-- double precision, it is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.2% of all inputs in
+-- single precision and for about 0.3% of random inputs in double precision.
+-- Clash simulation gives the IP's results bit for bit in every precision: it
+-- rounds correctly in half precision, and reproduces the IP's algorithm in
+-- single and double precision. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
 -- Only the @dspUsage@ setting of the t'Config' matters, and only in single
 -- precision, where the IP rejects 'MediumDspUsage' and 'MaxDspUsage'. In half
@@ -946,9 +946,7 @@ recipWith Config{dspUsage} clk en x
 -- infinity a zero of the same sign. Results below the smallest normal number
 -- become a zero of the same sign.
 --
--- Clash simulation gives the correctly rounded result, while the IP in single
--- and double precision is only accurate to one unit in the last place, so they
--- can differ in the last bit. See 'recipWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'recipWith'.
 recip
   :: forall a dom n
    . ( XilinxFloat a
@@ -978,14 +976,14 @@ type family RecipDefDelay a :: Nat where
 -- negative infinity. That of any other negative number, including negative
 -- infinity, is 'xilinxNaN'. That of positive infinity is positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal square root rounded to nearest, ties to even. In single and
--- double precision, the IP is only accurate to one unit in the last place
--- (PG060), so the hardware can differ from the simulation in the last bit: the
--- IP's C model, which matches the IP bit for bit, differs from the correctly
--- rounded result for 2.0% of all inputs in single precision and for about 5%
--- of random inputs in double precision. In half precision, the IP rounds
--- correctly, so simulation and hardware agree.
+-- __Accuracy.__ In half precision, the IP rounds correctly. In single and
+-- double precision, it is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.0% of all inputs in
+-- single precision and for about 5% of random inputs in double precision.
+-- Clash simulation gives the IP's results bit for bit in every precision: it
+-- rounds correctly in half precision, and reproduces the IP's algorithm in
+-- single and double precision. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
 -- Only the @dspUsage@ setting of the t'Config' matters, and only in single
 -- precision, where the IP rejects 'MediumDspUsage' and 'MaxDspUsage'. In half
@@ -1025,9 +1023,7 @@ rsqrtWith Config{dspUsage} clk en x
 -- any other negative number, including negative infinity, is 'xilinxNaN'.
 -- That of positive infinity is positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP in single
--- and double precision is only accurate to one unit in the last place, so they
--- can differ in the last bit. See 'rsqrtWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'rsqrtWith'.
 rsqrt
   :: forall a dom n
    . ( XilinxFloat a
@@ -1061,14 +1057,12 @@ type family RSqrtDefDelay a :: Nat where
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- exponential rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for 3.9% of the half
--- precision inputs with a finite, non-zero result other than one, for about
--- 16% of random inputs in single precision and for about 13% in double
--- precision.
+-- __Accuracy.__ Clash simulation gives the IP's results bit for bit, in every
+-- precision: it reproduces the IP's algorithm. The IP is only accurate to one
+-- unit in the last place (PG060): its results differ from the correctly rounded
+-- ones for 3.9% of the half precision inputs with a finite result other than
+-- zero and one, about 16% of random inputs in single precision and about 13% in
+-- double precision. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
 -- The @dspUsage@ and @bMemUsage@ settings of the t'Config' matter in single
 -- and double precision, where the IP rejects 'MaxDspUsage'. In half
@@ -1107,9 +1101,7 @@ expWith Config{dspUsage, bMemUsage} clk en x
 -- zero. Results beyond the largest finite number become positive infinity,
 -- results below the smallest normal number positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'expWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
 exp
   :: forall a dom n
    . ( XilinxFloat a
@@ -1140,15 +1132,18 @@ type family ExpDefDelay a :: Nat where
 -- infinity, is 'xilinxNaN'. That of positive infinity is positive infinity,
 -- and that of one positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- logarithm rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for 0.3% of the half
--- precision inputs with a finite, non-zero result, for about half of all
--- inputs in single precision (where the IP mostly rounds towards zero), and
--- in double precision for about 0.01% of random inputs, but for about 5% of
--- the inputs close to one.
+-- __Accuracy.__ Clash simulation gives the IP's results bit for bit, in every
+-- precision: it reproduces the IP's algorithm. The IP is only accurate to one
+-- unit in the last place (PG060). Its results differ from the correctly
+-- rounded ones for:
+--
+-- * 0.3% of the half precision inputs with a finite result other than zero;
+-- * about half of all inputs in single precision, where it mostly rounds
+--   towards zero;
+-- * about 0.01% of random inputs in double precision, but about 5% of the
+--   inputs close to one.
+--
+-- See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
 --
 -- Only the @dspUsage@ setting of the t'Config' matters. The IP rejects
 -- 'MaxDspUsage'. In half precision, it supports at most 'MediumDspUsage', and
@@ -1186,9 +1181,7 @@ logWith Config{dspUsage} clk en x
 -- infinity, is 'xilinxNaN'. That of positive infinity is positive infinity,
 -- and that of one positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'logWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
 log
   :: forall a dom n
    . ( XilinxFloat a
