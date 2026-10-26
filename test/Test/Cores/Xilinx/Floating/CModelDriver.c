@@ -15,13 +15,16 @@
  * and then reads requests, one per line:
  *
  *   <precision> <op> <a> <b>
+ *   <precision> fma <a> <b> <c>
+ *   <precision> accum <msb> <input msb> <lsb> <n> <x1> <last1> ... <xn> <lastn>
  *
  * where <precision> is one of half, single, double, <op> is one of add, sub,
  * mul, div, cmp, sqrt, abs, recip, rsqrt, exp, log, u32, s32, u64, s64, tos32,
- * tohalf, tosingle, todouble, and <a> and <b> are operands in hexadecimal. For add, sub, mul,
- * div and cmp the operands are the bit patterns of floating point numbers of
- * the given precision. The other operations have one operand, <a>, and ignore
- * <b>:
+ * tohalf, tosingle, todouble, and <a>, <b> and <c> are operands in
+ * hexadecimal. For add, sub, mul, div and cmp the operands are the bit
+ * patterns of floating point numbers of the given precision. fma computes
+ * <a> * <b> + <c>, on bit patterns of floating point numbers of the given
+ * precision. The other operations have one operand, <a>, and ignore <b>:
  *
  * - sqrt, abs, recip (reciprocal), rsqrt (reciprocal square root), exp
  *   (exponential), log (natural logarithm): <a> is the bit pattern of a
@@ -41,19 +44,33 @@
  *   number of the given precision, converted to the precision in the name of
  *   the operation.
  *
+ * accum runs a sequence of <n> inputs <xi> (bit patterns of floating point
+ * numbers of the given precision) through the C model's accumulator, with the
+ * bounds C_Accum_Msb <msb>, C_Accum_Input_Msb <input msb> and C_Accum_Lsb
+ * <lsb> (in decimal). The C model's accumulator has no last flag: the driver
+ * resets its state after every input whose <lasti> is 1, so that the next
+ * input starts a new accumulation, like the IP does after an input with its
+ * TLAST set. The reply is a single line with the result and the exception
+ * flags (see below) of every input:
+ *
+ *   <result1> <exceptions1> ... <resultn> <exceptionsn>
+ *
+ * The accumulator's exception flags have two more bits: bit 5, accumulator
+ * input overflow, and bit 6, accumulator overflow.
+ *
  * The IP cannot convert between integers and half precision, so neither can
- * the driver. For every request it prints
+ * the driver. For every other request it prints
  *
  *   <result> <exceptions>
  *
  * where <result> is the bit pattern of the resulting floating point number in
  * hexadecimal, for tos32 the bit pattern of the 32-bit integer, or for cmp the
  * 4-bit condition code (bit 0: equal, bit 1: less than, bit 2: greater than,
- * bit 3: unordered). <exceptions> are the exception
- * flags returned by the C model in decimal (bit 0: underflow, bit 1: overflow,
- * bit 2: invalid operation, bit 3: divide by zero, bit 4: operation not
- * supported); they are informational only. Invalid requests get a single line
- * starting with "error".
+ * bit 3: unordered). <exceptions> are the exception flags returned by the C
+ * model in decimal (bit 0: underflow, bit 1: overflow, bit 2: invalid
+ * operation, bit 3: divide by zero, bit 4: operation not supported); the flags
+ * tests check bits 0 to 3. Invalid requests get a single line starting with
+ * "error".
  *
  * Getting bits in and out of the C model. The C model represents numbers in
  * any precision as MPFR numbers with a limited exponent range, and converts
@@ -91,6 +108,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "floating_point_v7_1_bitacc_cmodel.h"
@@ -323,22 +341,100 @@ static xip_fpo_exc_t absolute(enum precision p, uint64_t a, uint64_t *result) {
   return exc;
 }
 
+/* Skip the rest of the current line of input, after an invalid request */
+static void skip_line(void) {
+  int ch;
+  while ((ch = getchar()) != EOF && ch != '\n') {
+  }
+}
+
+/* A sample of the accumulator: its input and last flag, and its result and
+   exception flags */
+struct accum_sample {
+  uint64_t input;
+  int last;
+  uint64_t result;
+  xip_fpo_exc_t exc;
+};
+
+/* Run a sequence of samples through the C model's accumulator, see the
+   comment at the top of this file. It reads all samples before it replies, so
+   that an invalid request gets only an error. Returns 0 if the request was
+   invalid, after replying with an error. */
+static int accumulate(enum precision p, xip_fpo_ptr x, xip_fpo_ptr r) {
+  long msb, input_msb, lsb;
+  unsigned long n, i;
+  struct accum_sample *samples;
+  xil_fpo_accum_state *state;
+  int ok = 1;
+
+  if (scanf("%ld %ld %ld %lu", &msb, &input_msb, &lsb, &n) != 4) {
+    fail("expected the accumulator's bounds and the number of samples");
+    return 0;
+  }
+  samples = calloc(n ? n : 1, sizeof *samples);
+  if (!samples) {
+    fail("cannot allocate %lu samples", n);
+    return 0;
+  }
+  for (i = 0; i < n; i++) {
+    if (scanf(" %" SCNx64 " %d", &samples[i].input, &samples[i].last) != 2) {
+      free(samples);
+      fail("expected a sample and its last flag");
+      return 0;
+    }
+  }
+  state = xip_fpo_accum_create_state(precisions[p].exponent_width,
+                                     precisions[p].fraction_width,
+                                     (int) msb, (int) input_msb, (int) lsb);
+  if (!state) {
+    free(samples);
+    fail("could not create the accumulator's state");
+    return 0;
+  }
+  for (i = 0; i < n; i++) {
+    set_bits(p, x, samples[i].input);
+    samples[i].exc = xip_fpo_accum_sample(r, x, false, state);
+    if (!get_bits(p, r, &samples[i].result)) {
+      ok = 0;
+      break;
+    }
+    if (samples[i].last) {
+      xip_fpo_accum_reset_state(state);
+    }
+  }
+  xip_fpo_accum_destroy_state(state);
+  if (ok) {
+    for (i = 0; i < n; i++) {
+      printf("%s%" PRIx64 " %d", i ? " " : "", samples[i].result,
+             (int) samples[i].exc);
+    }
+    printf("\n");
+    fflush(stdout);
+  } else {
+    fail("result of sample %lu not representable in %s precision", i,
+         precisions[p].name);
+  }
+  free(samples);
+  return ok;
+}
+
 int main(void) {
   char precision_name[8], op[16];
-  uint64_t a, b;
-  xip_fpo_t x[N_PRECISIONS], y[N_PRECISIONS], r[N_PRECISIONS];
+  uint64_t a, b, c;
+  xip_fpo_t x[N_PRECISIONS], y[N_PRECISIONS], z[N_PRECISIONS], r[N_PRECISIONS];
   xip_fpo_fix_t fix32;
 
   for (unsigned int p = 0; p < N_PRECISIONS; p++) {
     xip_fpo_inits2(precisions[p].exponent_width, precisions[p].fraction_width,
-                   x[p], y[p], r[p], (xip_fpo_ptr) 0);
+                   x[p], y[p], z[p], r[p], (xip_fpo_ptr) 0);
   }
   /* A 32-bit signed integer: 32 integer bits, no fractional bits */
   xip_fpo_fix_init2(fix32, 32, 0);
   printf("ready %s\n", xip_fpo_get_version());
   fflush(stdout);
 
-  while (scanf("%7s %15s %" SCNx64 " %" SCNx64, precision_name, op, &a, &b) == 4) {
+  while (scanf("%7s %15s", precision_name, op) == 2) {
     uint64_t result = 0;
     xip_fpo_exc_t exc = 0;
     enum precision p, target;
@@ -346,16 +442,32 @@ int main(void) {
 
     if (!find_precision(precision_name, &p)) {
       fail("unknown precision '%s'", precision_name);
+      skip_line();
       continue;
     }
     width = total_width(p);
+
+    if (!strcmp(op, "accum")) {
+      if (!accumulate(p, x[p], r[p])) {
+        skip_line();
+      }
+      continue;
+    }
+
+    c = 0;
+    if (scanf(" %" SCNx64 " %" SCNx64, &a, &b) != 2
+        || (!strcmp(op, "fma") && scanf(" %" SCNx64, &c) != 1)) {
+      fail("expected operands");
+      skip_line();
+      continue;
+    }
 
     if (!strcmp(op, "u32") || !strcmp(op, "s32") || !strcmp(op, "u64") || !strcmp(op, "s64")) {
       if (!convert_integer(p, op, a, &result, &exc)) {
         fail("integer conversions not supported in %s precision", precision_name);
         continue;
       }
-    } else if (width < 64 && ((a >> width) | (b >> width)) != 0) {
+    } else if (width < 64 && ((a >> width) | (b >> width) | (c >> width)) != 0) {
       fail("operands wider than the %s precision", precision_name);
       continue;
     } else if (!strcmp(op, "abs")) {
@@ -363,6 +475,7 @@ int main(void) {
     } else {
       set_bits(p, x[p], a);
       set_bits(p, y[p], b);
+      set_bits(p, z[p], c);
       target = p;
 
       if (!strcmp(op, "cmp")) {
@@ -385,6 +498,8 @@ int main(void) {
           exc = xip_fpo_mul(r[p], x[p], y[p]);
         } else if (!strcmp(op, "div")) {
           exc = xip_fpo_div(r[p], x[p], y[p]);
+        } else if (!strcmp(op, "fma")) {
+          exc = xip_fpo_fma(r[p], x[p], y[p], z[p]);
         } else if (!strcmp(op, "sqrt")) {
           exc = xip_fpo_sqrt(r[p], x[p]);
         } else if (!strcmp(op, "recip")) {
@@ -413,7 +528,7 @@ int main(void) {
   }
 
   for (unsigned int p = 0; p < N_PRECISIONS; p++) {
-    xip_fpo_clears(x[p], y[p], r[p], (xip_fpo_ptr) 0);
+    xip_fpo_clears(x[p], y[p], z[p], r[p], (xip_fpo_ptr) 0);
   }
   xip_fpo_fix_clear(fix32);
   return 0;

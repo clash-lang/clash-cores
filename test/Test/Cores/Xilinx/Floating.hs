@@ -1,9 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 
 {- |
@@ -16,14 +18,14 @@
   against the bit-accurate C model of the Xilinx Floating-Point LogiCORE IP
   v7.1. Covers addition, subtraction, multiplication, division, comparison
   (condition code), square root, absolute value, conversion to the other
-  precisions, reciprocal, reciprocal square root, exponential and natural
-  logarithm in half, single and double precision, and conversions from
-  @Unsigned 32@, @Signed 32@, @Unsigned 64@ and @Signed 64@ to single and
-  double precision and from those to @Signed 32@ (the IP cannot convert between
-  integers and half precision), all with round to nearest even, the
-  configuration the modules instantiate. The tests run the actual functions in
-  Clash simulation and compare the bits of their output with the output of the
-  C model. Single precision runs the functions from
+  precisions, reciprocal, reciprocal square root, exponential, natural
+  logarithm, fused multiply-add and the accumulator in half, single and double
+  precision, and conversions from @Unsigned 32@, @Signed 32@, @Unsigned 64@ and
+  @Signed 64@ to single and double precision and from those to @Signed 32@ (the
+  IP cannot convert between integers and half precision), all with round to
+  nearest even, the configuration the modules instantiate. The tests run the
+  actual functions in Clash simulation and compare the bits of their output with
+  the output of the C model. Single precision runs the functions from
   "Clash.Cores.Xilinx.Floating.Explicit", half and double precision the ones
   from "Clash.Cores.Xilinx.Floating.Half.Explicit" and
   "Clash.Cores.Xilinx.Floating.Double.Explicit".
@@ -88,6 +90,14 @@
   driver converts them from double precision, which turns NaN into @0x7E00@
   (see the C file). The binary operations compare all NaN results bit for bit,
   and a separate property checks that @xilinxNaN@ is the C model's NaN.
+
+  Some NaN checks compare with the driver or the models rather than with the
+  IP: the half precision NaN @0x7E00@ is the driver's conversion, and so are
+  the NaN payloads of the half precision absolute value (see the C file). The
+  tests of the fused multiply-add and the accumulator replace every NaN from
+  the C model by @xilinxNaN@ ('normaliseNaN'), so they only check that the
+  models give @xilinxNaN@ where the C model gives a NaN. The HDL tests check
+  these NaNs against the IP.
 
   = Results just below the smallest normal number
 
@@ -165,15 +175,45 @@
   The coverage reports show for how many of the generated inputs the model and
   the C model differ. The tests on every half precision input print the number
   of differences.
+
+  = Fused multiply-add
+
+  The fused multiply-add is compared bit for bit. Besides numbers of every
+  class, it gets operands whose exact result cancels (exactly or nearly), lies
+  (close to) halfway between two numbers, has a product exactly halfway whose
+  tie the addend breaks, lies near or in the windows just below the smallest
+  normal number or near the overflow threshold, has a product beyond the
+  largest finite number while the result is not, or depends on flushing a
+  subnormal operand; and the special cases, see 'genFmaOperands'.
+
+  = Accumulator
+
+  The C model's accumulator works on a sequence of inputs; the driver starts a
+  new accumulation after each input with its last flag set. The tests run the
+  accumulator with random, valid bounds ('genAccumConfig') on random sequences
+  with random last flags and deasserted enables ('genAccumCycles'), and compare
+  every output and the flags the IP outputs (invalid operation, accumulator
+  input overflow and accumulator overflow) with the C model, see
+  'prop_accum'.
+
+  = Exception flags
+
+  For the other operations, the flags follow from the inputs and the result
+  (see the documentation of "Clash.Cores.Xilinx.Floating"). The
+  @flags@ tests check these rules against the C model's exception flags,
+  using the C model's results, for every operation in every precision
+  ('derivedFlags').
 -}
 module Test.Cores.Xilinx.Floating (mkTests) where
 
 import Prelude
 
-import Control.Concurrent.MVar (MVar, newMVar, withMVar)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, withMVar)
 import Control.Exception (IOException, SomeException, catch, onException, try)
 import Control.Monad (forM, forM_, unless, void, when)
-import Data.Bits (bit, clearBit, complement, shiftL, shiftR, testBit, xor, (.&.), (.|.))
+import Data.Bits (bit, complement, shiftL, shiftR, testBit, xor, (.&.), (.|.))
+import Data.Char (toUpper)
 import Data.Int (Int32, Int64)
 import Data.List (isPrefixOf, nub, subsequences)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
@@ -197,7 +237,7 @@ import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.Info (arch, os)
 import System.Process
   ( CreateProcess (..), ProcessHandle, StdStream (..), createProcess, proc
-  , readProcessWithExitCode, waitForProcess )
+  , getProcessExitCode, readProcessWithExitCode, waitForProcess )
 
 import qualified Language.Haskell.TH.Syntax as TH
 
@@ -266,12 +306,14 @@ mkTests = do
     Right path ->
       withResource (prepareDriver path) cleanupDriver $ \getPrepared ->
         testGroup groupName
-          [ precisionTests @Float getPrepared (integerTests @Float getPrepared)
+          [ precisionTests @Float getPrepared (integerTests @Float getPrepared <> [integerFlags @Float getPrepared])
           , precisionTests @Half getPrepared (exhaustiveHalfTests getPrepared)
-          , precisionTests @Double getPrepared (integerTests @Double getPrepared)
+          , precisionTests @Double getPrepared (integerTests @Double getPrepared <> [integerFlags @Double getPrepared])
           ]
  where
   groupName = "Xilinx floating point vs. C model"
+  integerFlags :: forall a. TestInteger a => IO Prepared -> TestTree
+  integerFlags = testGroup "flags of integer conversions" . integerFlagTests @a
 
 -- | Tests of one precision, followed by the given extra tests
 precisionTests :: forall a. TestFloat a => IO Prepared -> [TestTree] -> TestTree
@@ -294,6 +336,9 @@ precisionTests getPrepared extraTests =
          , property "rsqrt" "rsqrt" (prop_elementary @a RSqrt)
          , property "exp" "exp" (prop_elementary @a Exp)
          , property "log" "log" (prop_elementary @a Log)
+         , property "fma" "fma" (prop_fma @a)
+         , property "accum" "accum" (prop_accum @a)
+         , testGroup "flags" (flagTests @a getPrepared)
          ]
       <> extraTests
       <> [ property "NaN" "nan" (prop_nan @a)
@@ -302,9 +347,7 @@ precisionTests getPrepared extraTests =
          , roundsUpTest
          ]
  where
-  property name propName prop =
-    withDriver getPrepared $ \getDriver ->
-      testPropertyNamed name (propertyName @a propName) (prop getDriver)
+  property = driverProperty @a getPrepared
 
   binaryTest op =
     property (opName op) (opName op) $ \getDriver ->
@@ -341,16 +384,10 @@ precisionTests getPrepared extraTests =
 -- | Tests of conversions from and to integers
 integerTests :: forall a. TestInteger a => IO Prepared -> [TestTree]
 integerTests getPrepared =
-  [ property "fromU32" (prop_fromU32 @a)
-  , property "fromS32" (prop_fromS32 @a)
-  , property "fromU64" (prop_fromU64 @a)
-  , property "fromS64" (prop_fromS64 @a)
-  , property "toS32" (prop_toS32 @a)
-  ]
+  map (\c -> property (fromIntName c) (prop_fromInt c)) (fromIntConversions @a)
+    <> [property "toS32" (prop_toS32 @a)]
  where
-  property name prop =
-    withDriver getPrepared $ \getDriver ->
-      testPropertyNamed name (propertyName @a name) (prop getDriver)
+  property name = driverProperty @a getPrepared name name
 
 {- | Tests of the operations with one input in half precision on every
 possible input. There are only 65,536 of them.
@@ -415,6 +452,16 @@ exhaustiveHalfTests getPrepared =
 propertyName :: forall a. TestFloat a => String -> H.PropertyName
 propertyName name = fromString ("prop_" <> precisionName @a <> "_" <> name)
 
+-- | A property of precision @a@ with its own instance of the driver, given the
+-- name of the test and the name to rerun it by ('propertyName')
+driverProperty ::
+  forall a.
+  TestFloat a =>
+  IO Prepared -> TestName -> String -> (IO Driver -> Property) -> TestTree
+driverProperty getPrepared name propName prop =
+  withDriver getPrepared $ \getDriver ->
+    testPropertyNamed name (propertyName @a propName) (prop getDriver)
+
 {- | Find the C model, see the module documentation. Returns either a path to
 the zip file or directory, or the reason the tests are skipped.
 -}
@@ -454,7 +501,8 @@ data Prepared = Prepared
 -- | A running instance of the C driver
 data Driver = Driver
   { driverProcess :: ProcessHandle
-  , driverPipes :: MVar (Handle, Handle)
+  , driverPipes :: MVar (Either String (Handle, Handle))
+  -- ^ The driver's stdin and stdout, or why it can no longer be used
   }
 
 -- | Source of the C driver, embedded at compile time
@@ -555,28 +603,88 @@ startDriver Prepared{preparedExecutable, preparedEnvironment} = do
   ready <- hGetLine hOut
   unless ("ready " `isPrefixOf` ready) $
     fail ("Unexpected start-up message from C model driver: " <> show ready)
-  pipes <- newMVar (hIn, hOut)
+  pipes <- newMVar (Right (hIn, hOut))
   pure Driver{driverProcess = ph, driverPipes = pipes}
 
 stopDriver :: Driver -> IO ()
 stopDriver Driver{driverProcess, driverPipes} = do
-  withMVar driverPipes (hClose . fst)
+  -- A failed request closed stdin already
+  withMVar driverPipes (mapM_ (hClose . fst))
   void (waitForProcess driverProcess)
 
 -- | Run tests with their own instance of the driver
 withDriver :: IO Prepared -> (IO Driver -> TestTree) -> TestTree
 withDriver getPrepared = withResource (getPrepared >>= startDriver) stopDriver
 
+{- | Send a request, one line, to the driver and read its reply. If that fails,
+for example because the C model crashed, this and every later request to this
+driver fail with the request and the driver's exit code. So when Hedgehog
+shrinks a counterexample after such a failure, it still shows the request that
+failed first.
+-}
+request :: Driver -> String -> IO String
+request Driver{driverProcess, driverPipes} line = do
+  reply <- modifyMVar driverPipes $ \case
+    Left failure -> pure (Left failure, Left failure)
+    Right (hIn, hOut) ->
+      try (hPutStr hIn (line <> "\n") >> hFlush hIn >> hGetLine hOut) >>= \case
+        Right reply -> pure (Right (hIn, hOut), Right reply)
+        Left (e :: IOException) -> do
+          void (try @IOException (hClose hIn))
+          code <- exitCodeWithin driverProcess
+          let
+            failure =
+              "The C model driver failed on the request " <> show line <> " (" <> show e
+                <> "), exit code: " <> maybe "none, it is still running" show code
+          pure (Left failure, Left failure)
+  either fail pure reply
+
+-- | The exit code of a process, if it exits within a second
+exitCodeWithin :: ProcessHandle -> IO (Maybe ExitCode)
+exitCodeWithin ph = go (10 :: Int)
+ where
+  go n =
+    getProcessExitCode ph >>= \case
+      Nothing | n > 0 -> threadDelay 100_000 >> go (n - 1)
+      code -> pure code
+
 -- | Ask the C model. Returns the result and the exception flags.
 query :: Driver -> String -> String -> Word64 -> Word64 -> IO (Word64, Int)
-query Driver{driverPipes} precision op a b =
-  withMVar driverPipes $ \(hIn, hOut) -> do
-    hPutStr hIn (unwords [precision, op, showHex a "", showHex b ""] <> "\n")
-    hFlush hIn
-    response <- hGetLine hOut
-    case words response of
-      [readHex -> [(result, "")], read -> exceptions] -> pure (result, exceptions)
-      _ -> fail ("Unexpected response from C model driver: " <> show response)
+query driver precision op a b = queryOps driver precision op [a, b]
+
+-- | Ask the C model, for an operation with any number of operands (the driver
+-- expects two, except for @fma@, which has three). Returns the result and the
+-- exception flags.
+queryOps :: Driver -> String -> String -> [Word64] -> IO (Word64, Int)
+queryOps driver precision op operands = do
+  response <- request driver (unwords (precision : op : map (`showHex` "") operands))
+  case words response of
+    [readHex -> [(result, "")], read -> exceptions] -> pure (result, exceptions)
+    _ -> fail ("Unexpected response from C model driver: " <> show response)
+
+-- | Run a sequence of inputs, with their last flags, through the C model's
+-- accumulator with the given bounds. Returns the result and the exception
+-- flags for every input.
+queryAccum :: Driver -> String -> F.AccumConfig -> [(Word64, Bool)] -> IO [(Word64, Int)]
+queryAccum driver precision F.AccumConfig{..} samples = do
+  response <-
+    request driver . unwords $
+      [ precision, "accum", show accumMsb, show accumInputMsb, show accumLsb
+      , show (length samples) ]
+        <> concat [[showHex w "", if l then "1" else "0"] | (w, l) <- samples]
+  let
+    pairs (r : e : rest) = (,) <$> readHexWord r <*> readMaybeInt e >>= \p -> (p :) <$> pairs rest
+    pairs [] = Just []
+    pairs _ = Nothing
+    readHexWord w = case readHex w of
+      [(v, "")] -> Just v
+      _ -> Nothing
+    readMaybeInt e = case reads e of
+      [(v, "")] -> Just v
+      _ -> Nothing
+  case pairs (words response) of
+    Just results | length results == length samples -> pure results
+    _ -> fail ("Unexpected response from C model driver: " <> show response)
 
 ------------------------------------------------------------------------------
 -- Precisions
@@ -619,6 +727,15 @@ class (RealFloat a, Show a) => TestFloat a where
   modelToSingle :: Maybe (a -> Float)
   modelToDouble :: Maybe (a -> Double)
   modelElementary :: ElemOp -> a -> a
+  modelFma :: a -> a -> a -> a
+
+  -- | Model of the accumulator with exception flags, with a latency of two
+  -- cycles, run on the enables, last flags and inputs of every cycle. Gives the
+  -- output of every cycle.
+  modelAccum :: F.AccumConfig -> [Bool] -> [Bool] -> [a] -> [(a, F.AccumFlags)]
+
+  -- | The default bounds of the accumulator, @defAccumConfig@
+  modelAccumDefaults :: F.AccumConfig
 
   -- | The NaN the models produce, @xilinxNaN@
   modelNaN :: a
@@ -658,6 +775,9 @@ instance TestFloat Float where
     RSqrt -> afterPipeline (F.rsqrt clk en (constant x))
     Exp -> afterPipeline (F.exp clk en (constant x))
     Log -> afterPipeline (F.log clk en (constant x))
+  modelFma x y z = afterPipeline (F.fma clk en (constant x) (constant y) (constant z))
+  modelAccum cfg = runAccum (F.accumWithFlags @2 cfg)
+  modelAccumDefaults = F.defAccumConfig
   modelNaN = F.xilinxNaN
   minNormalTieFactors = [31, 601, 1801]
 
@@ -692,6 +812,9 @@ instance TestFloat Half where
     RSqrt -> afterPipeline (HE.rsqrt clk en (constant x))
     Exp -> afterPipeline (HE.exp clk en (constant x))
     Log -> afterPipeline (HE.log clk en (constant x))
+  modelFma x y z = afterPipeline (HE.fma clk en (constant x) (constant y) (constant z))
+  modelAccum cfg = runAccum (HE.accumWithFlags @2 cfg)
+  modelAccumDefaults = HE.defAccumConfig
   modelNaN = HE.xilinxNaN
   minNormalTieFactors = [3, 3, 5, 7, 13]
 
@@ -719,6 +842,9 @@ instance TestFloat Double where
     RSqrt -> afterPipeline (DE.rsqrt clk en (constant x))
     Exp -> afterPipeline (DE.exp clk en (constant x))
     Log -> afterPipeline (DE.log clk en (constant x))
+  modelFma x y z = afterPipeline (DE.fma clk en (constant x) (constant y) (constant z))
+  modelAccum cfg = runAccum (DE.accumWithFlags @2 cfg)
+  modelAccumDefaults = DE.defAccumConfig
   modelNaN = DE.xilinxNaN
   minNormalTieFactors = [3, 3, 3, 3, 7, 19, 73, 87211, 262657]
 
@@ -728,6 +854,27 @@ instance TestInteger Double where
   modelFromU64 w = afterPipeline (DE.fromU64 clk en (constant (fromIntegral w)))
   modelFromS64 i = afterPipeline (DE.fromS64 clk en (constant (fromIntegral i)))
   modelToS32 x = fromIntegral (afterPipeline (DE.toS32 clk en (constant x)))
+
+-- | Run an accumulator with a latency of two cycles on lists of enables, last
+-- flags and inputs, one per cycle. The output is lazy: the outputs of the first
+-- cycles are undefined.
+runAccum ::
+  C.NFDataX a =>
+  ( Clock System ->
+    Enable System ->
+    DSignal System 0 Bool ->
+    DSignal System 0 a ->
+    DSignal System 2 (a, F.AccumFlags)
+  ) ->
+  [Bool] ->
+  [Bool] ->
+  [a] ->
+  [(a, F.AccumFlags)]
+runAccum f ens lasts xs =
+  take (length xs) . C.sample_lazy . D.toSignal $
+    f clk (C.toEnable (C.fromList (ens <> repeat False)))
+      (D.fromSignal (C.fromList (lasts <> repeat False)))
+      (D.fromSignal (C.fromList (xs <> repeat (last xs))))
 
 -- | Output of a pipelined operator, run on constant inputs, once its pipeline
 -- has filled up.
@@ -776,6 +923,10 @@ minExponent = 1 - bias @a
 -- | Exponent of the largest finite numbers
 maxExponent :: forall a. TestFloat a => Int
 maxExponent = bias @a
+
+-- | The largest finite number
+maxFinite :: forall a. TestFloat a => Rational
+maxFinite = 2 ^^ (maxExponent @a + 1) - 2 ^^ (maxExponent @a + 1 - significandWidth @a)
 
 -- | Biased exponent of a bit pattern
 biasedExponent :: forall a. TestFloat a => Word64 -> Int
@@ -999,33 +1150,30 @@ prop_nan getDriver = H.withTests nTestsTargeted $ H.property $ do
   FloatBits cBits === floatBits (modelNaN @a)
   floatBits (modelBinary op x y) === FloatBits cBits
 
-prop_fromU32 :: forall a. TestInteger a => IO Driver -> Property
-prop_fromU32 getDriver = H.withTests nTests $ H.property $ do
-  driver <- H.evalIO getDriver
-  w <- H.forAll genWord32
-  (cmodel, _) <- H.evalIO (query driver (precisionName @a) "u32" (fromIntegral w) 0)
-  floatBits (modelFromU32 @a w) === FloatBits cmodel
+-- | A conversion from an integer type to precision @a@: the name of the
+-- operation, as understood by the C driver, a generator of inputs, the bit
+-- pattern of an input as the C driver expects it, and the model
+data FromInt a = forall i. Show i => FromInt String (Gen i) (i -> Word64) (i -> a)
 
-prop_fromS32 :: forall a. TestInteger a => IO Driver -> Property
-prop_fromS32 getDriver = H.withTests nTests $ H.property $ do
-  driver <- H.evalIO getDriver
-  i <- H.forAll genInt32
-  (cmodel, _) <- H.evalIO (query driver (precisionName @a) "s32" (fromIntegral (fromIntegral i :: Word32)) 0)
-  floatBits (modelFromS32 @a i) === FloatBits cmodel
+-- | The conversions from integers
+fromIntConversions :: TestInteger a => [FromInt a]
+fromIntConversions =
+  [ FromInt "u32" genWord32 fromIntegral modelFromU32
+  , FromInt "s32" genInt32 (fromIntegral . (fromIntegral :: Int32 -> Word32)) modelFromS32
+  , FromInt "u64" genWord64 id modelFromU64
+  , FromInt "s64" genInt64 fromIntegral modelFromS64
+  ]
 
-prop_fromU64 :: forall a. TestInteger a => IO Driver -> Property
-prop_fromU64 getDriver = H.withTests nTests $ H.property $ do
-  driver <- H.evalIO getDriver
-  w <- H.forAll genWord64
-  (cmodel, _) <- H.evalIO (query driver (precisionName @a) "u64" w 0)
-  floatBits (modelFromU64 @a w) === FloatBits cmodel
+-- | Name of the test of a conversion from integers, like @fromU32@
+fromIntName :: FromInt a -> String
+fromIntName (FromInt op _ _ _) = "from" <> map toUpper op
 
-prop_fromS64 :: forall a. TestInteger a => IO Driver -> Property
-prop_fromS64 getDriver = H.withTests nTests $ H.property $ do
+prop_fromInt :: forall a. TestInteger a => FromInt a -> IO Driver -> Property
+prop_fromInt (FromInt op gen bits model) getDriver = H.withTests nTests $ H.property $ do
   driver <- H.evalIO getDriver
-  i <- H.forAll genInt64
-  (cmodel, _) <- H.evalIO (query driver (precisionName @a) "s64" (fromIntegral i) 0)
-  floatBits (modelFromS64 @a i) === FloatBits cmodel
+  i <- H.forAll gen
+  (cmodel, _) <- H.evalIO (query driver (precisionName @a) op (bits i) 0)
+  floatBits (model i) === FloatBits cmodel
 
 prop_toS32 :: forall a. TestInteger a => IO Driver -> Property
 prop_toS32 getDriver =
@@ -1226,6 +1374,10 @@ genNaN = mkFloat <$> Gen.bool <*> pure (maxBiasedExponent @a + 1) <*> genPayload
       , Gen.element [quiet, fractionMask @a, 1, quiet `shiftR` 1]
       ]
 
+-- | Zeros and subnormal numbers, which the IP flushes to zero
+genZeroish :: forall a. TestFloat a => Gen (FloatBits a)
+genZeroish = Gen.choice [genZero, genSubnormal]
+
 -- | Number of any class, both signs
 genFloat :: forall a. TestFloat a => Gen (FloatBits a)
 genFloat =
@@ -1245,6 +1397,16 @@ genNormalWithExponent lo hi = do
   e <- Gen.int (Range.constant lo hi)
   let biased = max 1 (min (fromIntegral (maxBiasedExponent @a)) (e + bias @a))
   mkFloat <$> Gen.bool <*> pure (fromIntegral biased) <*> genFraction @a
+
+-- | A number with the given sign: negative if 'True'
+withSign :: forall a. TestFloat a => Bool -> FloatBits a -> FloatBits a
+withSign negative (FloatBits w)
+  | negative = FloatBits (w .|. signBit @a)
+  | otherwise = FloatBits (w .&. complement (signBit @a))
+
+-- | A number with its sign bit cleared
+positive :: TestFloat a => FloatBits a -> FloatBits a
+positive = withSign False
 
 -- | Add a (small) integer to a bit pattern, which gives an adjacent number
 nudge :: forall a. TestFloat a => Int -> FloatBits a -> FloatBits a
@@ -1492,14 +1654,12 @@ genNaNOperation =
     [ (,) <$> Gen.element [Add, Sub, Mul, Div] <*> eitherOrder genNaN genFloat
     , (\s -> (Add, (inf s, inf (not s)))) <$> Gen.bool
     , (\s -> (Sub, (inf s, inf s))) <$> Gen.bool
-    , (,) Mul <$> eitherOrder zeroish genInfinity
-    , (,) Div <$> ((,) <$> zeroish <*> zeroish)
+    , (,) Mul <$> eitherOrder genZeroish genInfinity
+    , (,) Div <$> ((,) <$> genZeroish <*> genZeroish)
     , (,) Div <$> ((,) <$> genInfinity <*> genInfinity)
     ]
  where
   inf s = mkFloat s (maxBiasedExponent @a + 1) 0
-  -- Zeros and subnormal numbers, which the IP flushes to zero
-  zeroish = Gen.choice [genZero, genSubnormal]
   eitherOrder genA genB = do
     a <- genA
     b <- genB
@@ -1686,8 +1846,6 @@ genSqrtOperand =
     ]
  where
   p = significandWidth @a
-  positive :: FloatBits a -> FloatBits a
-  positive (FloatBits w) = FloatBits (clearBit w (totalWidth @a - 1))
 
   -- A number with an even exponent, so that its square root is a power of two
   -- times the square root of the integer. The integer must have at most 'p'
@@ -2104,8 +2262,6 @@ genElemOperand op =
   eMin = minExponent @a
   eMax = maxExponent @a
   ln2 = toRational (log 2 :: Double)
-  positive :: FloatBits a -> FloatBits a
-  positive (FloatBits w) = FloatBits (w .&. complement (signBit @a))
   -- 2^k, with a random sign, for k in the given range, clamped to the normal
   -- range
   powerOfTwo lo hi = do
@@ -2123,3 +2279,568 @@ genElemOperand op =
     r <- Gen.integral (Range.constant 0 (2 ^ p :: Integer))
     s <- Gen.element [1, -1]
     pure (approx (1 + s * fromInteger r / 2 ^ (p + k)))
+
+------------------------------------------------------------------------------
+-- Fused multiply-add
+------------------------------------------------------------------------------
+
+{- | Exact result of a fused multiply-add on finite operands, after flushing
+subnormal operands to zero like the IP does.
+-}
+fmaExact :: RealFloat a => a -> a -> a -> Maybe Rational
+fmaExact (flushSubnormal -> x) (flushSubnormal -> y) (flushSubnormal -> z)
+  | any (\v -> isNaN v || isInfinite v) [x, y, z] = Nothing
+  | otherwise = Just (toRational x * toRational y + toRational z)
+
+-- | Any NaN from the C model as the model's NaN ('prop_nan' checks that they
+-- are the same)
+normaliseNaN :: forall a. TestFloat a => Word64 -> Word64
+normaliseNaN w = if isNaN (fromWord @a w) then toWord (modelNaN @a) else w
+
+{- | Compare the fused multiply-add with the C model, bit for bit. The coverage
+report labels the hard cases.
+-}
+prop_fma :: forall a. TestFloat a => IO Driver -> Property
+prop_fma getDriver = H.withTests nTests $ H.property $ do
+  driver <- H.evalIO getDriver
+  (a, b, c) <- H.forAll (genFmaOperands @a)
+  let
+    x = bitsFloat a
+    y = bitsFloat b
+    z = bitsFloat c
+    exact = fmaExact x y z
+    is f = maybe False f exact
+    productR = toRational (flushSubnormal x) * toRational (flushSubnormal y)
+    finite v = not (isNaN v || isInfinite v)
+  H.classify "an operand is zero" (any (== 0) [x, y, z])
+  H.classify "an operand is subnormal" (any isDenormalized [x, y, z])
+  H.classify "an operand is infinite" (any isInfinite [x, y, z])
+  H.classify "an operand is NaN" (any isNaN [x, y, z])
+  H.classify "exact result zero" (is (== 0))
+  H.classify "exact result zero, product not zero" (is (== 0) && productR /= 0)
+  H.classify "cancellation: exact result below 2^-p times the product" $
+    is (\r -> r /= 0 && abs r * 2 ^^ significandWidth @a < abs productR)
+  H.classify "exact result near smallest normal number" (is (nearMinNormal @a))
+  H.classify "exact result just below smallest normal number" (is (justBelowMinNormal @a))
+  H.classify "exact result rounds up to smallest normal number" (is (roundsUpToMinNormal @a))
+  H.classify "exact result near overflow threshold" (is (nearOverflow @a))
+  H.classify "exact result rounds to infinity" (is (roundsToInfinity @a))
+  H.classify "product beyond largest finite number, result finite" $
+    all finite [x, y, z] && abs productR > maxFinite @a && is (not . roundsToInfinity @a)
+  H.classify "exact result halfway between two numbers" (is (halfway @a))
+  H.classify "exact result very close to halfway between two numbers" (is (nearHalfway @a))
+
+  (cBits, exceptions) <-
+    H.evalIO (queryOps driver (precisionName @a) "fma" [toWord x, toWord y, toWord z])
+  H.footnote ("C model exception flags: " <> show exceptions)
+  floatBits (modelFma x y z) === FloatBits (normaliseNaN @a cBits)
+
+{- | Operands of the fused multiply-add: numbers of every class, and operands
+for which the exact result cancels (to zero or almost), lies (close to)
+halfway between two numbers, has a halfway product whose tie the addend breaks,
+lies near the smallest normal number or near the overflow threshold, or for
+which flushing a subnormal operand matters; and the special cases.
+-}
+genFmaOperands :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaOperands =
+  Gen.frequency
+    [ (4, (,,) <$> genFloat <*> genFloat <*> genFloat)
+    , (3, genFmaCancel)
+    , (2, genFmaZero)
+    , (3, genFmaHalfway)
+    , (2, genFmaTieBreak)
+    , (2, genFmaNearTarget (2 ^^ minExponent @a) (minExponent @a - 2, minExponent @a + p + 2) (minExponent @a `quot` 2, 0))
+    , (2, genFmaNearTarget (2 ^^ (maxExponent @a + 1)) (maxExponent @a - p - 2, maxExponent @a) (0, maxExponent @a `quot` 2 + 1))
+    , (2, genFmaMinNormalWindows)
+    , (1, genFmaBigProduct)
+    , (1, genFmaSubnormal)
+    , (1, genFmaSpecial)
+    ]
+ where
+  p = significandWidth @a
+
+{- | The exact result is in or near the windows just below the smallest normal
+number @2^e@, where it is flushed to zero ('justBelowMinNormal') or rounded up
+to @2^e@ ('roundsUpToMinNormal'): products in these windows (see
+'genMulWindow' and 'genMulRoundsUp') plus a zero, and targets in steps of
+@2^(e-p-3)@ from @2^e - 2^(e-p)@ up to @2^e@, reached approximately by a
+product plus a normal addend.
+-}
+genFmaMinNormalWindows :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaMinNormalWindows =
+  Gen.choice
+    [ do
+        (x, y) <- Gen.choice [genMulWindow @a, genMulRoundsUp @a]
+        z <- genZero
+        pure (x, y, z)
+    , do
+        k <- Gen.integral (Range.constant 0 8)
+        negative <- Gen.bool
+        let t0 = 2 ^^ e - 2 ^^ (e - p) + fromInteger k * 2 ^^ (e - p - 3)
+            t = if negative then negate t0 else t0
+        z <- genNormalWithExponent @a e (e + 3)
+        x <- genNormalWithExponent @a (e `quot` 2) 0
+        let y = approx @a ((t - toRational (bitsFloat z)) / toRational (bitsFloat x))
+        d <- Gen.integral (Range.constant (-2) 2)
+        swapFactors (x, nudge d y, z)
+    ]
+ where
+  e = minExponent @a
+  p = significandWidth @a
+
+{- | A product beyond the largest finite number, between @2^(emax+1)@ and
+@1.9 * 2^(emax+1)@, plus a finite addend of the opposite sign, which brings the
+result back in range: close to a number of at least @2^(emax-2)@ with the sign
+of the product.
+-}
+genFmaBigProduct :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaBigProduct = do
+  ex <- Gen.int (Range.constant 1 (eMax - 1))
+  x <- genNormalWithExponent @a ex ex
+  r <- Gen.integral (Range.constant 0 (2 ^ p :: Integer))
+  let target = 2 ^^ (eMax + 1) * (1 + 0.9 * fromInteger r / 2 ^ p)
+      y = approx @a (target / toRational (abs (bitsFloat x)))
+      productR = toRational (bitsFloat x) * toRational (bitsFloat y)
+  t <- genNormalWithExponent @a (eMax - 2) eMax
+  let
+    -- The magnitude of the result, large enough that the addend is finite
+    result = max (toRational (abs (bitsFloat t))) (abs productR - maxFinite @a)
+    z = approx @a (signum productR * result - productR)
+  swapFactors (x, y, z)
+ where
+  eMax = maxExponent @a
+  p = significandWidth @a
+
+-- | Shuffle the factors of a fused multiply-add
+swapFactors :: (b, b, c) -> Gen (b, b, c)
+swapFactors (x, y, z) = Gen.element [(x, y, z), (y, x, z)]
+
+{- | An addend close to minus the product, or equal to it. Products of
+significands with few bits are exact, so then the result can be exactly zero.
+-}
+genFmaCancel :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaCancel = do
+  x <- Gen.choice [genNormalWithExponent (negate large) large, genShort]
+  y <- Gen.choice [genNormalWithExponent (negate large) large, genShort]
+  d <- Gen.frequency [(2, pure 0), (3, Gen.int (Range.constant (-3) 3))]
+  let z = nudge d (approx @a (negate (toRational (bitsFloat x) * toRational (bitsFloat y))))
+  pure (x, y, z)
+ where
+  large = maxExponent @a `quot` 2
+  -- A number with at most half the significant bits of the precision
+  genShort = do
+    m <- genOdd =<< Gen.int (Range.constant 0 (significandWidth @a `quot` 2 - 1))
+    e <- Gen.int (Range.constant (-20) 20)
+    signed m e
+
+-- | Zero products and addends (zeros and subnormal numbers, of both signs)
+genFmaZero :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaZero =
+  Gen.choice
+    [ swapFactors =<< ((,,) <$> genZeroish <*> genFloat <*> genZeroish)
+    , swapFactors =<< ((,,) <$> genZeroish <*> genNormal <*> genNormal)
+    , swapFactors =<< ((,,) <$> genZeroish <*> genZeroish <*> genZeroish)
+    ]
+
+{- | The exact result is (close to) halfway between two numbers: the addend
+@z = m * 2^e@, with an integer significand @m@ of @p@ bits, plus a product of
+@(2j + 1) * 2^(e - 1)@, so that the sum is halfway if it has the exponent of
+@z@. Nudging the first factor by an ulp makes the sum close to halfway.
+-}
+genFmaHalfway :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaHalfway = do
+  (x, y, z) <- Gen.just $ do
+    z <- genNormalWithExponent (minExponent @a + 2 * p) (maxExponent @a - 4)
+    let (_, e) = decodeFloat (bitsFloat z)
+    j <- Gen.integral (Range.constant 0 7)
+    eb <- Gen.int (Range.constant (-8) 8)
+    negative <- Gen.bool
+    let
+      xv = encodeFloat ((if negative then negate else id) (2 * j + 1)) (e - 1 - eb) :: a
+      yv = encodeFloat 1 eb :: a
+    pure $
+      if isDenormalized xv || xv == 0 || isInfinite xv
+        then Nothing
+        else Just (floatBits xv, floatBits yv, z)
+  d <- Gen.element [0, 0, -1, 1]
+  swapFactors (nudge d x, y, z)
+ where
+  p = significandWidth @a
+
+{- | A product exactly halfway between two numbers (see 'genHalfway'), plus a
+small addend that breaks the tie, or a zero.
+-}
+genFmaTieBreak :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaTieBreak = do
+  (x, y) <- genHalfway @a Mul
+  let pr = abs (toRational (bitsFloat x) * toRational (bitsFloat y))
+  k <- Gen.int (Range.constant 1 (2 * p + 4))
+  s <- Gen.element [1, -1]
+  z <-
+    Gen.frequency
+      [ (4, pure (approx (s * 2 ^^ (exponentOf pr - p - k))))
+      , (1, genZero)
+      ]
+  pure (x, y, z)
+ where
+  p = significandWidth @a
+
+{- | The exact result is close to plus or minus the target: an addend (or
+zero) with an unbiased exponent in the given range, and a product close to the
+target minus the addend, see 'genNearTarget'. The second range is that of the
+exponent of the first factor.
+-}
+genFmaNearTarget ::
+  forall a. TestFloat a => Rational -> (Int, Int) -> (Int, Int) -> Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaNearTarget t0 zExps xExps = do
+  offset <- genOffset @a
+  negative <- Gen.bool
+  let t = (if negative then negate t0 else t0) * (1 + offset)
+  z <- Gen.frequency [(1, genZero), (4, uncurry genNormalWithExponent zExps)]
+  x <- uncurry genNormalWithExponent xExps
+  let y = approx @a ((t - toRational (bitsFloat z)) / toRational (bitsFloat x))
+  d <- Gen.integral (Range.constant (-3) 3)
+  (x', y') <- Gen.element [(nudge d x, y), (x, nudge d y)]
+  swapFactors (x', y', z)
+
+{- | A subnormal operand where flushing it to zero matters: times a large
+power of two, or as an addend to a product close to the smallest normal
+number.
+-}
+genFmaSubnormal :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaSubnormal =
+  Gen.choice
+    [ do
+        s <- genSubnormal
+        k <- Gen.int (Range.constant p (maxExponent @a))
+        big <- signed 1 k
+        z <- Gen.choice [genZero, genNormalWithExponent (minExponent @a) (minExponent @a + p + 4)]
+        swapFactors (s, big, z)
+    , do
+        x <- genNormalWithExponent (minExponent @a) (minExponent @a + 2)
+        y <- Gen.element [floatBits (1 :: a), floatBits (-1 :: a), floatBits (0.5 :: a)]
+        s <- genSubnormal
+        swapFactors (x, y, s)
+    ]
+ where
+  p = significandWidth @a
+
+-- | NaN operands, infinities times zeros, and infinite products plus
+-- infinities
+genFmaSpecial :: forall a. TestFloat a => Gen (FloatBits a, FloatBits a, FloatBits a)
+genFmaSpecial =
+  Gen.choice
+    [ swapFactors =<< ((,,) <$> genInfinity <*> genZeroish <*> genFloat)
+    , swapFactors =<< ((,,) <$> genInfinity <*> genNormal <*> genInfinity)
+    , swapFactors =<< ((,,) <$> genNormal <*> genNormal <*> genInfinity)
+    , do
+        (n, o1, o2) <- (,,) <$> genNaN <*> genFloat <*> genFloat
+        Gen.element [(n, o1, o2), (o1, n, o2), (o1, o2, n)]
+    ]
+
+------------------------------------------------------------------------------
+-- Accumulator
+------------------------------------------------------------------------------
+
+-- | Number of random sequences for the accumulator, unless overridden by
+-- @--hedgehog-tests@
+nTestsAccum :: H.TestLimit
+nTestsAccum = 5_000
+
+{- | Bounds of the accumulator that Vivado accepts (see
+'Clash.Cores.Xilinx.Floating.Explicit.accumWith'), mostly narrow ones,
+so that inputs get truncated and sums overflow, and the defaults.
+-}
+genAccumConfig :: forall a. TestFloat a => Gen F.AccumConfig
+genAccumConfig =
+  Gen.frequency
+    [ (1, pure (modelAccumDefaults @a))
+    , (6, genBounds)
+    , (1, genLarge)
+    , (1, genSmall)
+    ]
+ where
+  emin = toInteger (minExponent @a)
+  emax = toInteger (maxExponent @a)
+  p = toInteger (significandWidth @a)
+  genBounds = do
+    lsb <-
+      Gen.frequency
+        [ (3, Gen.integral (Range.constant (emin - p + 1) (emax - 1)))
+        , (3, Gen.integral (Range.constant (max (emin - p + 1) (-40)) (min (emax - 1) 20)))
+        , (1, pure (emin - p + 1))
+        ]
+    imsb <- Gen.integral (Range.constant (lsb + 1) (min emax (lsb + 2 * p + 8)))
+    let lo = max emin imsb
+    msb <-
+      Gen.frequency
+        [ (3, Gen.integral (Range.constant lo (max lo (min (emax + 54) (imsb + 4)))))
+        , (2, Gen.integral (Range.constant lo (max lo (min (emax + 54) (imsb + 2 * p)))))
+        , (1, pure (emax + 54))
+        ]
+    mk msb lsb imsb
+  -- Sums beyond the largest finite number
+  genLarge = do
+    lsb <- Gen.integral (Range.constant (emax - 2 * p) (emax - 1))
+    msb <- Gen.integral (Range.constant (emax + 1) (min (emax + 54) (emax + 4)))
+    mk msb lsb emax
+  -- Sums below the smallest normal number
+  genSmall = do
+    lsb <- Gen.integral (Range.constant (emin - p + 1) (emin - 1))
+    imsb <- Gen.integral (Range.constant (lsb + 1) (emin + 2))
+    msb <- Gen.integral (Range.constant (max emin imsb) (emin + 4))
+    mk msb lsb imsb
+  mk msb lsb imsb = do
+    dsp <- Gen.element [F.NoDspUsage, F.MediumDspUsage, F.FullDspUsage]
+    pure F.AccumConfig{accumMsb = msb, accumLsb = lsb, accumInputMsb = imsb, accumDspUsage = dsp}
+
+{- | The cycles of a test of the accumulator: enables, last flags and inputs.
+The inputs are mostly numbers between the bounds of the accumulator, with
+large numbers of one sign, which make it overflow, numbers below its least
+significant bit, which get truncated, and sometimes input overflows,
+infinities, NaNs, zeros and subnormal numbers.
+-}
+genAccumCycles :: forall a. TestFloat a => F.AccumConfig -> Gen [(Bool, Bool, FloatBits a)]
+genAccumCycles F.AccumConfig{..} = do
+  negative <- Gen.bool
+  Gen.list (Range.linear 1 64) $ do
+    enabled <- Gen.frequency [(6, pure True), (1, pure False)]
+    l <- Gen.frequency [(9, pure False), (1, pure True)]
+    x <-
+      Gen.frequency
+        [ (12, genNormalWithExponent @a (lsb - 3) imsb)
+        , (4, fmap (withSign negative) (genNormalWithExponent @a (imsb - 2) imsb))
+        , (2, genNormalWithExponent @a (lsb - p) (lsb - 1))
+        , (2, genZero @a)
+        , (1, genSubnormal @a)
+        , (1, genNormalWithExponent @a (imsb + 1) (imsb + 3))
+        , (1, genInfinity @a)
+        , (1, genNaN @a)
+        ]
+    pure (enabled, l, x)
+ where
+  lsb = fromInteger accumLsb
+  imsb = fromInteger accumInputMsb
+  p = significandWidth @a
+
+-- | The accumulator's flags as the C model's exception bits: invalid
+-- operation (4), accumulator input overflow (32) and accumulator overflow (64)
+accumFlagBits :: F.AccumFlags -> Int
+accumFlagBits F.AccumFlags{..} =
+  (if accumInvalid then 4 else 0)
+    .|. (if accumInputOverflow then 32 else 0)
+    .|. (if accumOverflow then 64 else 0)
+
+{- | Compare the accumulator, cycle by cycle, with the C model: the results and
+the flags. The model runs with a latency of two cycles and random enables, so
+the result of the @k@-th enabled input appears in the cycles after the
+@(k + 2)@-th enabled clock edge. Two more enabled cycles after the inputs show
+the results of the last two enabled inputs. The C model gets the enabled
+inputs only, and starts a new accumulation after each input with its last flag
+set. Of its
+exception bits, only those that the IP can output are compared: the C model
+also reports underflow (1) and overflow (2), for sums below the smallest
+normal number or beyond the largest finite number.
+-}
+prop_accum :: forall a. TestFloat a => IO Driver -> Property
+prop_accum getDriver = H.withTests nTestsAccum $ H.property $ do
+  driver <- H.evalIO getDriver
+  cfg <- H.forAll (genAccumConfig @a)
+  cycles <- H.forAll (genAccumCycles @a cfg)
+  let
+    ens = map (\(e, _, _) -> e) cycles
+    lasts = map (\(_, l, _) -> l) cycles
+    xs = map (\(_, _, x) -> bitsFloat x) cycles
+    enabled = [(w, l) | (True, l, FloatBits w) <- cycles]
+  cmodel <- H.evalIO (queryAccum driver (precisionName @a) cfg enabled)
+  let
+    padded = ens <> [True, True]
+    outs = modelAccum @a cfg padded (lasts <> [False, False]) (xs <> [0, 0])
+    -- The number of enabled clock edges before each cycle
+    edges = scanl (\n e -> if e then n + 1 else n) (0 :: Int) padded
+    checked = [(t, k - 2, out) | (t, k, out) <- zip3 [0 :: Int ..] edges outs, k >= 2]
+    haskell = [(t, floatBits r, accumFlagBits fl) | (t, _, (r, fl)) <- checked]
+    expected =
+      [ (t, FloatBits (normaliseNaN @a w), e .&. (4 .|. 32 .|. 64))
+      | (t, k, _) <- checked
+      , let (w, e) = cmodel !! k
+      ]
+    excs = map snd cmodel
+  H.classify "an enable deasserted" (not (and ens))
+  H.classify "more than one accumulation" (or (init lasts))
+  H.classify "accumulator overflow" (any (\e -> e .&. 64 /= 0) excs)
+  H.classify "accumulator input overflow" (any (\e -> e .&. 32 /= 0) excs)
+  H.classify "invalid operation" (any (\e -> e .&. 4 /= 0) excs)
+  H.classify "underflow (C model only)" (any (\e -> e .&. 1 /= 0) excs)
+  H.classify "overflow (C model only)" (any (\e -> e .&. 2 /= 0) excs)
+  H.classify "a finite, non-zero result" $
+    any (\(w, _) -> let v = fromWord @a w in not (isNaN v || isInfinite v || v == 0)) cmodel
+  H.classify "default bounds" (cfg == modelAccumDefaults @a)
+  haskell === expected
+
+------------------------------------------------------------------------------
+-- Exception flags of the other operations
+------------------------------------------------------------------------------
+
+-- | The operations whose exception flags 'derivedFlags' derives
+data FlagOp
+  = FlagBinary BinOp
+  | FlagFma
+  | FlagSqrt
+  | FlagElem ElemOp
+  | FlagConvert
+  | FlagCompare
+  | FlagAbs
+  deriving (Show)
+
+{- | Derive the flags of an operation from its (conditioned) inputs and its
+result (of precision @b@, which is the precision of the inputs except for
+conversions), like the documentation of "Clash.Cores.Xilinx.Floating"
+describes, as the C model's exception bits: underflow (1), overflow (2),
+invalid operation (4) and divide by zero (8).
+-}
+derivedFlags :: forall a b. (TestFloat a, TestFloat b) => FlagOp -> [a] -> b -> Int
+derivedFlags op inputs r =
+  (if underflow then 1 else 0)
+    .|. (if overflow then 2 else 0)
+    .|. (if invalid then 4 else 0)
+    .|. (if divByZero then 8 else 0)
+ where
+  xs = map condition inputs
+  finite v = not (isNaN v || isInfinite v)
+  allFinite = all finite xs
+  invalid = case op of
+    FlagCompare -> False
+    FlagAbs -> False
+    _ -> isNaN r && not (any isNaN xs)
+  divByZero = case (op, xs) of
+    (FlagBinary Div, [x, y]) -> finite x && x /= 0 && y == 0
+    (FlagElem e, [x]) -> e `elem` [Recip, RSqrt, Log] && x == 0
+    _ -> False
+  overflow = case op of
+    FlagCompare -> False
+    FlagAbs -> False
+    _ -> allFinite && isInfinite r && not divByZero
+  underflow =
+    allFinite && r == 0 && case (op, xs) of
+      (FlagBinary Add, [x, y]) -> x /= negate y
+      (FlagBinary Sub, [x, y]) -> x /= y
+      (FlagBinary Mul, [x, y]) -> x /= 0 && y /= 0
+      (FlagBinary Div, [x, _]) -> x /= 0
+      (FlagFma, [x, y, z]) -> toRational x * toRational y + toRational z /= 0
+      (FlagElem Recip, _) -> True
+      (FlagElem Exp, _) -> True
+      (FlagConvert, [x]) -> x /= 0
+      _ -> False
+
+{- | Check that the flags derived from the inputs and the C model's result
+('derivedFlags') are the C model's exception flags. The C model matches the
+IP bit for bit, so this checks the rules in the documentation.
+-}
+prop_flags ::
+  forall a b.
+  (TestFloat a, TestFloat b) =>
+  -- | Name of the operation, as understood by the C driver
+  String ->
+  FlagOp ->
+  -- | Inputs
+  Gen [FloatBits a] ->
+  IO Driver ->
+  Property
+prop_flags opName' op genInputs getDriver = H.withTests nTests $ H.property $ do
+  driver <- H.evalIO getDriver
+  inputs <- H.forAll genInputs
+  let
+    xs = map bitsFloat inputs
+    operands = map toWord xs <> replicate (2 - length xs) 0
+  (cBits, exceptions) <- H.evalIO (queryOps driver (precisionName @a) opName' operands)
+  let
+    -- The comparison's result is a condition code, not a number
+    r = case op of
+      FlagCompare -> 0
+      _ -> fromWord @b cBits
+    flags = exceptions .&. 15
+  H.classify "underflow" (flags .&. 1 /= 0)
+  H.classify "overflow" (flags .&. 2 /= 0)
+  H.classify "invalid operation" (flags .&. 4 /= 0)
+  H.classify "divide by zero" (flags .&. 8 /= 0)
+  H.footnote ("C model result: " <> show (FloatBits cBits :: FloatBits b))
+  derivedFlags @a @b op xs r === flags
+
+-- | Flags of the conversion to @Signed 32@: invalid operation for NaN and the
+-- infinities, overflow for inputs that round to a number out of range, which
+-- are those of at least @2^31 - 1/2@ and those below @-2^31 - 1/2@ (ties round
+-- to even), infinities included.
+prop_toS32Flags :: forall a. TestInteger a => IO Driver -> Property
+prop_toS32Flags getDriver = H.withTests nTests $ H.property $ do
+  driver <- H.evalIO getDriver
+  a <- H.forAll (genToS32Operand @a)
+  let x = condition (bitsFloat a)
+  (_, exceptions) <- H.evalIO (query driver (precisionName @a) "tos32" (toWord x) 0)
+  let
+    -- Infinities raise both
+    invalid = isNaN x || isInfinite x
+    overflow =
+      not (isNaN x)
+        && (x >= 2 ^ (31 :: Int) - 0.5 || x < negate (2 ^ (31 :: Int)) - 0.5)
+    derived = (if overflow then 2 else 0) .|. (if invalid then 4 else 0)
+  H.classify "overflow" overflow
+  H.classify "invalid operation" invalid
+  derived === exceptions .&. 15
+
+-- | The conversions from integers never raise flags
+prop_fromIntFlags :: forall a. TestInteger a => IO Driver -> Property
+prop_fromIntFlags getDriver = H.withTests nTests $ H.property $ do
+  driver <- H.evalIO getDriver
+  (op, w) <-
+    H.forAll . Gen.choice $
+      map (\(FromInt name gen bits _) -> (,) name . bits <$> gen) (fromIntConversions @a)
+  (_, exceptions) <- H.evalIO (query driver (precisionName @a) op w 0)
+  exceptions === 0
+
+-- | Tests of the flags of the operations of one precision
+flagTests :: forall a. TestFloat a => IO Prepared -> [TestTree]
+flagTests getPrepared =
+  [ binary Add
+  , binary Sub
+  , binary Mul
+  , binary Div
+  , property "fma" (prop_flags @a @a "fma" FlagFma (triple <$> genFmaOperands @a))
+  , property "sqrt" (prop_flags @a @a "sqrt" FlagSqrt (pure <$> genSqrtOperand @a))
+  , elementary Recip
+  , elementary RSqrt
+  , elementary Exp
+  , elementary Log
+  , property "compare" (prop_flags @a @a "cmp" FlagCompare (pair <$> genCompareOperands @a))
+  , property "abs" (prop_flags @a @a "abs" FlagAbs (pure <$> genFloat @a))
+  ]
+    -- Only the conversions to the other precisions exist
+    <> catMaybes
+      [ property "convert to half" (prop_flags @a @Half "tohalf" FlagConvert (pure <$> genConvertOperand @a @Half))
+          <$ modelToHalf @a
+      , property "convert to single" (prop_flags @a @Float "tosingle" FlagConvert (pure <$> genConvertOperand @a @Float))
+          <$ modelToSingle @a
+      , property "convert to double" (prop_flags @a @Double "todouble" FlagConvert (pure <$> genConvertOperand @a @Double))
+          <$ modelToDouble @a
+      ]
+ where
+  binary op =
+    property (opName op) . prop_flags @a @a (opName op) (FlagBinary op) $
+      Gen.frequency
+        [ (6, pair <$> genBinaryOperands @a op)
+        , (1, pair . snd <$> Gen.filter ((== op) . fst) (genNaNOperation @a))
+        ]
+  elementary op =
+    property (elemOpName op) (prop_flags @a @a (elemOpName op) (FlagElem op) (pure <$> genElemOperand @a op))
+  pair (x, y) = [x, y]
+  triple (x, y, z) = [x, y, z]
+  property name = driverProperty @a getPrepared name ("flags_" <> name)
+
+-- | Tests of the flags of the conversions from and to integers
+integerFlagTests :: forall a. TestInteger a => IO Prepared -> [TestTree]
+integerFlagTests getPrepared =
+  [ property "toS32" (prop_toS32Flags @a)
+  , property "fromU32, fromS32, fromU64, fromS64" (prop_fromIntFlags @a)
+  ]
+ where
+  property name = driverProperty @a getPrepared name ("flags_" <> name)
