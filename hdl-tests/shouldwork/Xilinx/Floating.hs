@@ -23,9 +23,11 @@ import Numeric.Half (Half)
 
 import Floating.Annotations
 import Floating.GenericTH
-  ( singleAbsSamples, singleFromS64Samples, singleFromU64Samples
-  , singleSqrtSamples, singleToDoubleSamples, singleToHalfSamples
-  , singleToS32Samples )
+  ( SingleExpBramDelay, SingleRecipNoDspDelay, singleAbsSamples
+  , singleExpBramSamples, singleExpSamples, singleFromS64Samples
+  , singleFromU64Samples, singleLogSamples, singleRSqrtSamples
+  , singleRecipNoDspSamples, singleRecipSamples, singleSqrtSamples
+  , singleToDoubleSamples, singleToHalfSamples, singleToS32Samples )
 import Floating.RomTB
 import Floating.TH
 
@@ -427,3 +429,113 @@ toS32BasicTB =
     0
     $(memBlobTH Nothing singleToS32Samples)
 {-# ANN toS32BasicTB (TestBench 'toS32Basic) #-}
+
+recipBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.RecipDefDelay Float
+recipBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.recip x
+{-# OPAQUE recipBasic #-}
+{-# ANN recipBasic (unaryTopAnn "recipBasic") #-}
+
+recipBasicTB :: Signal XilinxSystem Bool
+recipBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> recipBasic clk a)
+    0
+    $(memBlobTH Nothing singleRecipSamples)
+{-# ANN recipBasicTB (TestBench 'recipBasic) #-}
+
+-- | Reciprocal without DSP slices
+recipNoDsp
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem SingleRecipNoDspDelay Float
+recipNoDsp clk x =
+  withClock clk $ withEnable enableGen $
+    F.recipWith F.defConfig{F.dspUsage = F.NoDspUsage} x
+{-# OPAQUE recipNoDsp #-}
+{-# ANN recipNoDsp (unaryTopAnn "recipNoDsp") #-}
+
+recipNoDspTB :: Signal XilinxSystem Bool
+recipNoDspTB =
+  unaryRomTB
+    (\clk a -> pack <$> recipNoDsp clk a)
+    0
+    $(memBlobTH Nothing singleRecipNoDspSamples)
+{-# ANN recipNoDspTB (TestBench 'recipNoDsp) #-}
+
+rsqrtBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.RSqrtDefDelay Float
+rsqrtBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.rsqrt x
+{-# OPAQUE rsqrtBasic #-}
+{-# ANN rsqrtBasic (unaryTopAnn "rsqrtBasic") #-}
+
+rsqrtBasicTB :: Signal XilinxSystem Bool
+rsqrtBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> rsqrtBasic clk a)
+    0
+    $(memBlobTH Nothing singleRSqrtSamples)
+{-# ANN rsqrtBasicTB (TestBench 'rsqrtBasic) #-}
+
+expBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ExpDefDelay Float
+expBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.exp x
+{-# OPAQUE expBasic #-}
+{-# ANN expBasic (unaryTopAnn "expBasic") #-}
+
+expBasicTB :: Signal XilinxSystem Bool
+expBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> expBasic clk a)
+    0
+    $(memBlobTH Nothing singleExpSamples)
+{-# ANN expBasicTB (TestBench 'expBasic) #-}
+
+-- | Exponential with block memory and medium DSP slice usage
+expBram
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem SingleExpBramDelay Float
+expBram clk x =
+  withClock clk $ withEnable enableGen $
+    F.expWith F.defConfig{F.dspUsage = F.MediumDspUsage, F.bMemUsage = F.FullBMemUsage} x
+{-# OPAQUE expBram #-}
+{-# ANN expBram (unaryTopAnn "expBram") #-}
+
+expBramTB :: Signal XilinxSystem Bool
+expBramTB =
+  unaryRomTB
+    (\clk a -> pack <$> expBram clk a)
+    0
+    $(memBlobTH Nothing singleExpBramSamples)
+{-# ANN expBramTB (TestBench 'expBram) #-}
+
+logBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.LogDefDelay Float
+logBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.log x
+{-# OPAQUE logBasic #-}
+{-# ANN logBasic (unaryTopAnn "logBasic") #-}
+
+logBasicTB :: Signal XilinxSystem Bool
+logBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> logBasic clk a)
+    0
+    $(memBlobTH Nothing singleLogSamples)
+{-# ANN logBasicTB (TestBench 'logBasic) #-}

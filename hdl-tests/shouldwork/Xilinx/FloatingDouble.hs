@@ -267,3 +267,113 @@ toS32BasicTB =
     0
     $(memBlobTH Nothing doubleToS32Samples)
 {-# ANN toS32BasicTB (TestBench 'toS32Basic) #-}
+
+recipBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem D.RecipDefDelay Double
+recipBasic clk x =
+  withClock clk $ withEnable enableGen $
+    D.recip x
+{-# OPAQUE recipBasic #-}
+{-# ANN recipBasic (unaryTopAnn "recipBasic") #-}
+
+recipBasicTB :: Signal XilinxSystem Bool
+recipBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> recipBasic clk a)
+    0
+    $(memBlobTH Nothing doubleRecipSamples)
+{-# ANN recipBasicTB (TestBench 'recipBasic) #-}
+
+rsqrtBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem D.RSqrtDefDelay Double
+rsqrtBasic clk x =
+  withClock clk $ withEnable enableGen $
+    D.rsqrt x
+{-# OPAQUE rsqrtBasic #-}
+{-# ANN rsqrtBasic (unaryTopAnn "rsqrtBasic") #-}
+
+rsqrtBasicTB :: Signal XilinxSystem Bool
+rsqrtBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> rsqrtBasic clk a)
+    0
+    $(memBlobTH Nothing doubleRSqrtSamples)
+{-# ANN rsqrtBasicTB (TestBench 'rsqrtBasic) #-}
+
+expBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem D.ExpDefDelay Double
+expBasic clk x =
+  withClock clk $ withEnable enableGen $
+    D.exp x
+{-# OPAQUE expBasic #-}
+{-# ANN expBasic (unaryTopAnn "expBasic") #-}
+
+expBasicTB :: Signal XilinxSystem Bool
+expBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> expBasic clk a)
+    0
+    $(memBlobTH Nothing doubleExpSamples)
+{-# ANN expBasicTB (TestBench 'expBasic) #-}
+
+-- | Exponential with block memory
+expBram
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem DoubleExpBramDelay Double
+expBram clk x =
+  withClock clk $ withEnable enableGen $
+    D.expWith D.defConfig{D.bMemUsage = D.FullBMemUsage} x
+{-# OPAQUE expBram #-}
+{-# ANN expBram (unaryTopAnn "expBram") #-}
+
+expBramTB :: Signal XilinxSystem Bool
+expBramTB =
+  unaryRomTB
+    (\clk a -> pack <$> expBram clk a)
+    0
+    $(memBlobTH Nothing doubleExpBramSamples)
+{-# ANN expBramTB (TestBench 'expBram) #-}
+
+logBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem D.LogDefDelay Double
+logBasic clk x =
+  withClock clk $ withEnable enableGen $
+    D.log x
+{-# OPAQUE logBasic #-}
+{-# ANN logBasic (unaryTopAnn "logBasic") #-}
+
+logBasicTB :: Signal XilinxSystem Bool
+logBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> logBasic clk a)
+    0
+    $(memBlobTH Nothing doubleLogSamples)
+{-# ANN logBasicTB (TestBench 'logBasic) #-}
+
+-- | Logarithm without DSP slices
+logNoDsp
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Double
+  -> DSignal XilinxSystem DoubleLogNoDspDelay Double
+logNoDsp clk x =
+  withClock clk $ withEnable enableGen $
+    D.logWith D.defConfig{D.dspUsage = D.NoDspUsage} x
+{-# OPAQUE logNoDsp #-}
+{-# ANN logNoDsp (unaryTopAnn "logNoDsp") #-}
+
+logNoDspTB :: Signal XilinxSystem Bool
+logNoDspTB =
+  unaryRomTB
+    (\clk a -> pack <$> logNoDsp clk a)
+    0
+    $(memBlobTH Nothing doubleLogNoDspSamples)
+{-# ANN logNoDspTB (TestBench 'logNoDsp) #-}
