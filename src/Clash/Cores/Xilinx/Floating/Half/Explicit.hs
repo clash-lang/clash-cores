@@ -67,12 +67,19 @@ module Clash.Cores.Xilinx.Floating.Half.Explicit
   , fmaWith
   , fma
   , FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , AccumDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
   , ArchOpt(..)
   , DspUsage(..)
   , BMemUsage(..)
+  , AccumConfig(..)
+  , defAccumConfig
+  , AccumFlags(..)
     -- * Additional functions
   , xilinxNaN
   ) where
@@ -837,3 +844,100 @@ fma = withFrozenCallStack $ fmaWith defConfig
 
 -- | The default delay for fused multiply-add with default customization.
 type FmaDefDelay = 17
+
+-- | Customizable accumulator: @accumWith cfg clk en lst x@ gives the running
+-- sum of the inputs @x@. An input with @lst@ set is the last one of its
+-- accumulation: its result is the complete sum, and the next input starts a
+-- new accumulation. De-asserting the 'Enable' stalls the IP: the input of that
+-- cycle is ignored.
+--
+-- The IP adds in fixed point, with the bounds of the t'AccumConfig': inputs
+-- are truncated towards zero to a multiple of @2^accumLsb@ and added exactly,
+-- and the result is the sum rounded __towards zero__. Inputs whose magnitude
+-- reaches @2^(accumInputMsb + 1)@ and sums whose magnitude reaches
+-- @2^(accumMsb + 1)@ make the result NaN until the end of the accumulation.
+-- See 'Clash.Cores.Xilinx.Floating.Explicit.accumWith' for the details and
+-- the bounds the IP accepts.
+accumWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+accumWith cfg clk en lst x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (fst <$> accumModel "Half" cfg en lst x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of accum undefined"
+  synth = accumInst (accumOpts "Half" False cfg) clk en lst x
+{-# INLINE accumWith #-}
+
+-- | Accumulator with the IP's default settings ('defAccumConfig'). See
+-- 'accumWith'.
+accum
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Half
+  -> DSignal dom (n + AccumDefDelay) Half
+accum = withFrozenCallStack $ accumWith defAccumConfig
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags, see
+-- t'AccumFlags' and 'Clash.Cores.Xilinx.Floating.Explicit.accumWithFlags'.
+accumWithFlags
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) (Half, AccumFlags)
+accumWithFlags cfg clk en lst x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (accumModel "Half" cfg en lst x)
+  und = withFrozenCallStack $
+    deepErrorX "Initial values of accumWithFlags undefined"
+  synth = accumFlagsInst (accumOpts "Half" True cfg) clk en lst x
+{-# INLINE accumWithFlags #-}
+
+-- | The default delay of the accumulator with the default settings
+-- ('defAccumConfig'): the maximum latency for them, the same on all measured
+-- devices.
+type AccumDefDelay = 21
+
+-- | The IP's default settings of the accumulator in half precision:
+-- @accumMsb = 32@, @accumLsb = -24@ and @accumInputMsb = 15@, so that every
+-- input fits, and 'MediumDspUsage'. See
+-- 'Clash.Cores.Xilinx.Floating.Explicit.defAccumConfig'.
+defAccumConfig :: AccumConfig
+defAccumConfig =
+  AccumConfig
+    { accumMsb = 32
+    , accumLsb = -24
+    , accumInputMsb = 15
+    , accumDspUsage = MediumDspUsage
+    }
+{-# INLINE defAccumConfig #-}

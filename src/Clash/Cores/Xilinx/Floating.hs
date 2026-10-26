@@ -27,7 +27,9 @@ All IP instantiated by this module always has the following properties:
   conversions take or produce
 * Non-blocking
 * No reset input
-* No optional output fields, no @TLAST@, no @TUSER@
+* No optional output fields, no @TLAST@, no @TUSER@, except for the
+  accumulator: its inputs have a @TLAST@ (the last input of an accumulation),
+  and 'accumWithFlags' outputs its exception flags on @TUSER@
 * @TVALID@ on the inputs is always asserted, @TVALID@ on the output is ignored.
 Note that it would appear the Xilinx IP does not use these signals in
 non-blocking mode anyway.
@@ -83,11 +85,23 @@ The operations round to nearest, ties to even. Some have further details:
 * 'fma' computes @x * y + z@ with a single rounding, like C's @fma@: the
   product is exact, and the sum is rounded once.
 
+* 'accum' gives the running sum of its inputs, in fixed point: inputs are
+  truncated towards zero to a multiple of a power of two, added exactly, and
+  the sum is rounded __towards zero__. Inputs and sums beyond the bounds of the
+  accumulator make the result NaN until the end of the accumulation. See
+  'accumWith'.
+
+The IP's exception flags are not available, except for the accumulator
+('accumWithFlags'), but they follow cheaply from the inputs and the result:
+see "Clash.Cores.Xilinx.Floating#flags".
+
 For each customizable operation, there also exists a function that uses the
 defaults. These functions use the settings from
-'Clash.Cores.Xilinx.Floating.defConfig' and the maximum delay for the Xilinx IP
-with that configuration. That delay is also defined as a type variable for
-delay annotation in circuits.
+'Clash.Cores.Xilinx.Floating.defConfig' (for 'accum':
+'Clash.Cores.Xilinx.Floating.defAccumConfig') and the maximum delay for the
+Xilinx IP with that configuration. That delay is also exported as a type
+synonym, such as t'Clash.Cores.Xilinx.Floating.AddDefDelay', for delay
+annotations in circuits.
 
 Related modules:
 
@@ -189,6 +203,14 @@ The maximum latencies in single precision, as reported by Vivado 2022.1:
 +----------------------+-----------------------------------------+-----------------+
 | 'fmaWith'            | @FullDspUsage@ (default)                | 19              |
 +----------------------+-----------------------------------------+-----------------+
+| 'accumWith'          | @NoDspUsage@                            | 12-33 (19)      |
++----------------------+-----------------------------------------+-----------------+
+| 'accumWith'          | @MediumDspUsage@ (default)              | 14-40 (22)      |
++----------------------+-----------------------------------------+-----------------+
+| 'accumWith'          | @FullDspUsage@                          | 15-41 (23)      |
++----------------------+-----------------------------------------+-----------------+
+| 'accumWith'          | @MaxDspUsage@                           | /rejected/      |
++----------------------+-----------------------------------------+-----------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
@@ -202,11 +224,63 @@ UltraScale+ and Zynq UltraScale+). Other versions of Vivado might accept other
 latencies.
 
 For 'fmaWith', the IP accepts only @MediumDspUsage@ and @FullDspUsage@ and
-ignores @archOpt@. Its maximum latencies were measured on Kintex-7 and Kintex
-UltraScale+ devices, where they are the same.
+ignores @archOpt@. 'accumWith' and 'accumWithFlags' only use the @accumDspUsage@
+setting of their configuration, but their maximum latency also depends on its
+bounds: wider accumulators need more cycles. The table gives, for both, the
+range over all bounds the IP accepts, and in parentheses the maximum latency for
+the default bounds ('Clash.Cores.Xilinx.Floating.defAccumConfig'). Their minimum
+latency is one. The maximum latencies of 'fmaWith' and 'accumWith' were measured
+on Kintex-7 and Kintex UltraScale+ devices, where they are the same, for the
+accumulator for a sample of the bounds.
 
 When changing the configuration, note that the maximum latency can be lower
 than the default delay, for example for 'mulWith' with @MaxDspUsage@.
+
+= Exception flags #flags#
+
+The IP can output exception flags (underflow, overflow, invalid operation and
+divide by zero), but the functions in these modules do not, except for the
+accumulator ('accumWithFlags'). The flags of the other operations follow
+cheaply from their inputs and result, as described below, in every precision
+(the names link to the single-precision functions). Here @x@, @y@ and @z@ are
+the inputs the way the IP sees them: a subnormal input counts as a zero of the
+same sign. These rules give exactly the flags of the IP's C model, which
+matches the IP bit for bit; the test suite checks them for every operation.
+
+* __Invalid operation__ is raised if the result is NaN while no input is NaN:
+  for adding infinities of opposite signs (in 'addWith' and 'fmaWith') or
+  subtracting infinities of the same sign (in 'subWith'), for an infinity
+  times a zero (in 'mulWith' and 'fmaWith'), for zero divided by zero and
+  infinity divided by infinity, and for the square root, the reciprocal square
+  root and the logarithm of a number below zero (not of negative zero).
+  'toS32With' raises it for NaN and the infinities.
+  'compareWith' and 'abs' never raise it, not even for signalling NaNs.
+
+* __Divide by zero__ is raised by 'divWith' if @x@ is finite and not zero and
+  @y@ is a zero, and by 'recipWith', 'rsqrtWith' and 'logWith' if @x@ is a
+  zero. The result is then an infinity.
+
+* __Overflow__ is raised if the result is an infinity while all inputs are
+  finite and there was no division by zero: the result rounded beyond the
+  largest finite number. 'toS32With' raises it if @x@ rounds to a number out
+  of range, that is if @x >= 2^31 - 1/2@ or @x < -2^31 - 1/2@, which includes
+  the infinities (which also raise invalid operation).
+
+* __Underflow__ is raised if the result is a zero while all inputs are finite
+  but the exact result is not zero: the IP flushed a result below the smallest
+  normal number to zero. It is not raised for exact results that round up to
+  the smallest normal number. Per operation, if the result is a zero and all
+  inputs are finite, underflow is raised by: 'addWith' if @x /= negate y@;
+  'subWith' if @x /= y@; 'mulWith' if @x /= 0@ and @y /= 0@; 'divWith' if
+  @x /= 0@; 'fmaWith' if the exact @x * y + z@ is not zero, which is cheap to
+  tell only if @z@ is zero (then like 'mulWith'); 'recipWith' and 'expWith'
+  always; and the conversions to a narrower precision ('toHalfWith', and
+  @toFloatWith@ in "Clash.Cores.Xilinx.Floating.Double") if @x /= 0@. The
+  square root, the reciprocal square root and the logarithm never underflow.
+
+* The conversions from integers, 'compareWith' and 'abs' never raise any flag,
+  and neither do the conversions to a wider precision ('toDoubleWith', and
+  @toFloatWith@ in "Clash.Cores.Xilinx.Floating.Half").
 -}
 
 module Clash.Cores.Xilinx.Floating
@@ -268,12 +342,19 @@ module Clash.Cores.Xilinx.Floating
   , fmaWith
   , fma
   , E.FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , E.AccumDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
   , E.ArchOpt(..)
   , E.DspUsage(..)
   , E.BMemUsage(..)
+  , E.AccumConfig(..)
+  , E.defAccumConfig
+  , E.AccumFlags(..)
     -- * Additional functions
   , E.xilinxNaN
   ) where
@@ -937,3 +1018,65 @@ fma
   -> DSignal dom (n + E.FmaDefDelay) Float
 fma = withFrozenCallStack $ hideEnable $ hideClock E.fma
 {-# INLINE fma #-}
+
+-- | Customizable accumulator: @accumWith cfg lst x@ gives the running sum of
+-- the inputs @x@. An input with @lst@ set is the last one of its
+-- accumulation: its result is the complete sum, and the next input starts a
+-- new accumulation. De-asserting the 'Enable' stalls the IP: the input of that
+-- cycle is ignored.
+--
+-- The IP adds in fixed point, with the bounds of the
+-- t'Clash.Cores.Xilinx.Floating.AccumConfig': inputs are truncated towards zero
+-- to a multiple of @2^accumLsb@ and added exactly, and the result is the sum
+-- rounded __towards zero__. Inputs whose magnitude reaches
+-- @2^(accumInputMsb + 1)@ and sums whose magnitude reaches
+-- @2^(accumMsb + 1)@ make the result NaN until the end of the accumulation.
+-- See 'Clash.Cores.Xilinx.Floating.Explicit.accumWith' for the details and
+-- the bounds the IP accepts.
+accumWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => E.AccumConfig
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+accumWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.accumWith cfg
+{-# INLINE accumWith #-}
+
+-- | Accumulator with the IP's default settings
+-- ('Clash.Cores.Xilinx.Floating.defAccumConfig'). See 'accumWith'.
+accum
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.AccumDefDelay) Float
+accum = withFrozenCallStack $ hideEnable $ hideClock E.accum
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags, see
+-- t'Clash.Cores.Xilinx.Floating.AccumFlags' and
+-- 'Clash.Cores.Xilinx.Floating.Explicit.accumWithFlags'.
+accumWithFlags
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => E.AccumConfig
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Float, E.AccumFlags)
+accumWithFlags cfg =
+  withFrozenCallStack $ hideEnable . hideClock $ E.accumWithFlags cfg
+{-# INLINE accumWithFlags #-}

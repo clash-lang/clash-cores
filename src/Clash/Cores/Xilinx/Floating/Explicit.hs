@@ -80,12 +80,19 @@ module Clash.Cores.Xilinx.Floating.Explicit
   , fmaWith
   , fma
   , FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , AccumDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
   , ArchOpt(..)
   , DspUsage(..)
   , BMemUsage(..)
+  , AccumConfig(..)
+  , defAccumConfig
+  , AccumFlags(..)
     -- * Additional functions
   , xilinxNaN
   ) where
@@ -1046,3 +1053,159 @@ fma = withFrozenCallStack $ fmaWith defConfig
 
 -- | The default delay for fused multiply-add with default customization.
 type FmaDefDelay = 19
+
+-- | Customizable accumulator: @accumWith cfg clk en lst x@ gives the running
+-- sum of the inputs @x@. The result for an input is the sum of that input and
+-- the inputs before it, back to the start of the accumulation. An input with
+-- @lst@ set is the last one of its accumulation: its result is the complete
+-- sum, and the next input starts a new accumulation. The first input after
+-- configuration starts one too.
+--
+-- De-asserting the 'Enable' stalls the IP: the input of that cycle is ignored,
+-- @lst@ included, and the output holds, like for the other operations.
+--
+-- __Fixed point.__ The IP does not add in floating point: it adds into a
+-- fixed-point number whose bounds are set by the t'AccumConfig'.
+--
+-- * Every input is first truncated towards zero to a multiple of
+--   @2^accumLsb@, so inputs whose magnitude is below @2^accumLsb@ count as
+--   zero. Like in the other operations, subnormal inputs count as zero too.
+--
+-- * The sum of the truncated inputs is exact: no rounding errors accumulate,
+--   and the order of the inputs does not matter.
+--
+-- * The result is the sum, rounded __towards zero__ to the precision (not to
+--   nearest, like the other operations). A sum of zero gives a positive zero,
+--   even for negative zero inputs. A sum below the smallest normal number
+--   gives a zero of the same sign; that needs an @accumLsb@ smaller than the
+--   smallest exponent of the precision (-14, -126 or -1022). A sum beyond the
+--   largest finite number gives the largest finite number of the same sign
+--   (rounding towards zero never gives an infinity); that needs an
+--   @accumMsb@ of at least the largest exponent (15, 127 or 1023).
+--
+-- __Overflow.__ A finite input whose magnitude is at least
+-- @2^(accumInputMsb + 1)@ overflows the input, and the sum overflows once its
+-- magnitude reaches @2^(accumMsb + 1)@. The IP does not wrap or saturate:
+-- either overflow makes the result NaN ('xilinxNaN'), up to and including the
+-- last input of the accumulation. 'accumWithFlags' tells them apart.
+--
+-- __Special inputs.__ A NaN input makes the result NaN until the end of the
+-- accumulation, and so does seeing infinities of both signs. Otherwise, an
+-- infinite input makes the result an infinity of the same sign until the end
+-- of the accumulation. The IP keeps adding finite inputs to its fixed-point
+-- sum meanwhile, so that sum (or an input) can still overflow and turn the
+-- result into NaN.
+--
+-- __Bounds.__ Vivado accepts bounds with
+--
+-- > emin <= accumMsb <= emax + 54
+-- > emin - p + 1 <= accumLsb < accumInputMsb <= min accumMsb emax
+--
+-- where @emin@ is the exponent of the smallest normal number (-14, -126 or
+-- -1022), @emax@ that of the largest finite numbers (15, 127 or 1023) and @p@
+-- the number of significant bits (11, 24 or 53). Clash simulation reports an
+-- error for other bounds. Vivado rejects most of them, but it silently
+-- changes some into valid ones: in half precision, for example, it raises an
+-- @accumMsb@ of -15 to -14. The hardware would then not match the simulation.
+--
+-- __Latency.__ The latency @d@ must be at least one: unlike the other
+-- operations, the accumulator does not support a latency of zero. The maximum
+-- latency depends on the bounds and on the DSP usage (@accumDspUsage@, which
+-- can be 'NoDspUsage', 'MediumDspUsage' or 'FullDspUsage'), see
+-- "Clash.Cores.Xilinx.Floating", "Clash.Cores.Xilinx.Floating.Half" and
+-- "Clash.Cores.Xilinx.Floating.Double".
+accumWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+accumWith cfg clk en lst x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (fst <$> accumModel "Single" cfg en lst x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of accum undefined"
+  synth = accumInst (accumOpts "Single" False cfg) clk en lst x
+{-# INLINE accumWith #-}
+
+-- | Accumulator with the IP's default settings ('defAccumConfig'): the running
+-- sum of the inputs, see 'accumWith'. Inputs are truncated towards zero to a
+-- multiple of @2^-31@, and the result is rounded towards zero. Inputs and sums
+-- with a magnitude of @2^33@ or more give NaN.
+accum
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + AccumDefDelay) Float
+accum = withFrozenCallStack $ accumWith defAccumConfig
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags: like
+-- 'accumWith', with the flags of the accumulation so far next to each result,
+-- see t'AccumFlags'.
+--
+-- This function does not output the IP's underflow and overflow flags (a sum
+-- below the smallest normal number or beyond the largest finite number): the
+-- IP only has them for bounds that make them possible, and they change the
+-- width of its flag output. Underflow needs an @accumLsb@ smaller than the
+-- smallest exponent of the precision, overflow an @accumMsb@ larger than the
+-- largest one, see 'accumWith'.
+accumWithFlags
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Float, AccumFlags)
+accumWithFlags cfg clk en lst x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (accumModel "Single" cfg en lst x)
+  und = withFrozenCallStack $
+    deepErrorX "Initial values of accumWithFlags undefined"
+  synth = accumFlagsInst (accumOpts "Single" True cfg) clk en lst x
+{-# INLINE accumWithFlags #-}
+
+-- | The default delay of the accumulator with the default settings
+-- ('defAccumConfig'): the maximum latency for them, the same on all measured
+-- devices.
+type AccumDefDelay = 22
+
+-- | The IP's default settings of the accumulator in single precision, see
+-- 'accumWith': @accumMsb = 32@, @accumLsb = -31@ and @accumInputMsb = 32@, and
+-- 'MediumDspUsage'. Double precision has the same defaults
+-- ('Clash.Cores.Xilinx.Floating.Double.Explicit.defAccumConfig'). In half
+-- precision ('Clash.Cores.Xilinx.Floating.Half.Explicit.defAccumConfig'),
+-- @accumLsb = -24@ and @accumInputMsb = 15@, so that every input fits.
+defAccumConfig :: AccumConfig
+defAccumConfig =
+  AccumConfig
+    { accumMsb = 32
+    , accumLsb = -31
+    , accumInputMsb = 32
+    , accumDspUsage = MediumDspUsage
+    }
+{-# INLINE defAccumConfig #-}
