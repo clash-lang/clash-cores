@@ -11,9 +11,9 @@ This module has the same functions as "Clash.Cores.Xilinx.Floating", but for
 and how they behave. The differences follow from the precision: the IP rounds a
 result to 53 significant bits before checking whether it is subnormal, and the
 maximum latencies are different (see below). Like in single precision, Clash
-simulation gives the correctly rounded results for 'recip', 'rsqrt', 'exp' and
-'log', which can differ in the last bit from the IP's, which are only accurate
-to one unit in the last place.
+simulation gives the IP's results bit for bit for 'recip', 'rsqrt', 'exp' and
+'log', which are only accurate to one unit in the last place: see
+"Clash.Cores.Xilinx.Floating#accuracy".
 
 The IP's exception flags are not available, except for the accumulator
 ('accumWithFlags'), but they follow cheaply from the inputs and the result:
@@ -675,12 +675,10 @@ toFloat = withFrozenCallStack $ hideEnable $ hideClock E.toFloat
 -- subnormal inputs as a zero of the same sign and flushes results below the
 -- smallest normal number to a zero of the same sign.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for about 0.3% of random
--- inputs.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 0.3% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- The t'Clash.Cores.Xilinx.Floating.Double.Config' makes no difference: in
 -- double precision, the IP always uses @FullDspUsage@ for the reciprocal.
@@ -703,9 +701,7 @@ recipWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.recipWith cfg
 -- subnormal inputs as a zero of the same sign and flushes results below the
 -- smallest normal number to a zero of the same sign.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'recipWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'recipWith'.
 recip
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -724,16 +720,14 @@ recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
 -- negative infinity. That of any other negative number, including negative
 -- infinity, is NaN. That of positive infinity is positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal square root rounded to nearest, ties to even. The IP is only
--- accurate to one unit in the last place (PG060), so the hardware can differ
--- from the simulation in the last bit: the IP's C model, which matches the IP
--- bit for bit, differs from the correctly rounded result for about 5% of
--- random inputs.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 5% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- The t'Clash.Cores.Xilinx.Floating.Double.Config' makes no difference: in
--- double precision, the IP always uses @FullDspUsage@ for the reciprocal square
--- root.
+-- double precision, the IP always uses @FullDspUsage@ for the reciprocal
+-- square root.
 rsqrtWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -754,9 +748,7 @@ rsqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.rsqrtWith cfg
 -- negative infinity. That of any other negative number, including negative
 -- infinity, is NaN. That of positive infinity is positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'rsqrtWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'rsqrtWith'.
 rsqrt
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -775,12 +767,10 @@ rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- exponential rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for about 13% of random
--- inputs.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 13% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- The @dspUsage@ and @bMemUsage@ settings of the
 -- t'Clash.Cores.Xilinx.Floating.Double.Config' matter. The IP rejects
@@ -805,9 +795,7 @@ expWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.expWith cfg
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'expWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
 exp
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -827,12 +815,11 @@ exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- logarithm rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for about 0.01% of random
--- inputs, but for about 5% of the inputs close to one.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 0.01% of random
+-- inputs, and for about 5% of the inputs close to one. Clash simulation
+-- reproduces its algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- Only the @dspUsage@ setting of the
 -- t'Clash.Cores.Xilinx.Floating.Double.Config' matters. The IP rejects
@@ -858,9 +845,7 @@ logWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.logWith cfg
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'logWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
 log
   :: ( HiddenClock dom
      , HiddenEnable dom

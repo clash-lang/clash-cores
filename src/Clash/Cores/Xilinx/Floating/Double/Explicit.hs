@@ -733,12 +733,10 @@ type ToFloatDefDelay = 3
 -- subnormal inputs as a zero of the same sign and flushes results below the
 -- smallest normal number to a zero of the same sign.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for about 0.3% of random
--- inputs.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 0.3% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- The t'Config' makes no difference: in double precision, the IP always uses
 -- @FullDspUsage@ for the reciprocal.
@@ -757,7 +755,7 @@ recipWith !_ clk en x
   | clashSimulation = sim
   | otherwise = synth
  where
-  sim = delayI und en clk (xilinxRecip <$> x)
+  sim = delayI und en clk (xilinxRecipDouble <$> x)
   und = withFrozenCallStack $ deepErrorX "Initial values of recip undefined"
   -- In double precision, the IP always uses 'FullDspUsage' for the reciprocal.
   -- It ignores the setting (with a warning when it differs), so pass what it
@@ -775,9 +773,7 @@ recipWith !_ clk en x
 -- subnormal inputs as a zero of the same sign and flushes results below the
 -- smallest normal number to a zero of the same sign.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'recipWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'recipWith'.
 recip
   :: forall dom n
    . ( KnownDomain dom
@@ -802,12 +798,10 @@ type RecipDefDelay = 35
 -- negative infinity. That of any other negative number, including negative
 -- infinity, is NaN. That of positive infinity is positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- reciprocal square root rounded to nearest, ties to even. The IP is only
--- accurate to one unit in the last place (PG060), so the hardware can differ
--- from the simulation in the last bit: the IP's C model, which matches the IP
--- bit for bit, differs from the correctly rounded result for about 5% of
--- random inputs.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 5% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- The t'Config' makes no difference: in double precision, the IP always uses
 -- @FullDspUsage@ for the reciprocal square root.
@@ -826,7 +820,7 @@ rsqrtWith !_ clk en x
   | clashSimulation = sim
   | otherwise = synth
  where
-  sim = delayI und en clk (xilinxRSqrt <$> x)
+  sim = delayI und en clk (xilinxRSqrtDouble <$> x)
   und = withFrozenCallStack $ deepErrorX "Initial values of rsqrt undefined"
   -- In double precision, the IP always uses 'FullDspUsage' for the reciprocal
   -- square root. It ignores the setting (with a warning when it differs),
@@ -845,9 +839,7 @@ rsqrtWith !_ clk en x
 -- negative infinity. That of any other negative number, including negative
 -- infinity, is NaN. That of positive infinity is positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'rsqrtWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'rsqrtWith'.
 rsqrt
   :: forall dom n
    . ( KnownDomain dom
@@ -876,12 +868,10 @@ type RSqrtDefDelay = 110
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- exponential rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for about 13% of random
--- inputs.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 13% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- The @dspUsage@ and @bMemUsage@ settings of the t'Config' matter. The IP
 -- rejects @MaxDspUsage@.
@@ -900,7 +890,7 @@ expWith Config{dspUsage, bMemUsage} clk en x
   | clashSimulation = sim
   | otherwise = synth
  where
-  sim = delayI und en clk (xilinxExp <$> x)
+  sim = delayI und en clk (xilinxExpDouble <$> x)
   und = withFrozenCallStack $ deepErrorX "Initial values of exp undefined"
   extraOpts =
        ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dspUsage))
@@ -917,9 +907,7 @@ expWith Config{dspUsage, bMemUsage} clk en x
 -- largest finite number become positive infinity, results below the smallest
 -- normal number positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'expWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
 exp
   :: forall dom n
    . ( KnownDomain dom
@@ -945,12 +933,11 @@ type ExpDefDelay = 56
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
--- logarithm rounded to nearest, ties to even. The IP is only accurate to one
--- unit in the last place (PG060), so the hardware can differ from the
--- simulation in the last bit: the IP's C model, which matches the IP bit for
--- bit, differs from the correctly rounded result for about 0.01% of random
--- inputs, but for about 5% of the inputs close to one.
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 0.01% of random
+-- inputs, and for about 5% of the inputs close to one. Clash simulation
+-- reproduces its algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating#accuracy".
 --
 -- Only the @dspUsage@ setting of the t'Config' matters. The IP rejects
 -- @MaxDspUsage@.
@@ -969,7 +956,7 @@ logWith Config{dspUsage} clk en x
   | clashSimulation = sim
   | otherwise = synth
  where
-  sim = delayI und en clk (xilinxLog <$> x)
+  sim = delayI und en clk (xilinxLogDouble <$> x)
   und = withFrozenCallStack $ deepErrorX "Initial values of log undefined"
   extraOpts =
        ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dspUsage))
@@ -986,9 +973,7 @@ logWith Config{dspUsage} clk en x
 -- infinity, is NaN. That of positive infinity is positive infinity, and that
 -- of one positive zero.
 --
--- Clash simulation gives the correctly rounded result, while the IP is only
--- accurate to one unit in the last place, so they can differ in the last bit.
--- See 'logWith'.
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
 log
   :: forall dom n
    . ( KnownDomain dom
