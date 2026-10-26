@@ -193,6 +193,12 @@ runClashTest = defaultMain $ clashTestRoot
                                                       , "fromU64BasicTB"
                                                       , "fromS64BasicTB"
                                                       , "toS32BasicTB"
+                                                      , "recipBasicTB"
+                                                      , "recipNoDspTB"
+                                                      , "rsqrtBasicTB"
+                                                      , "expBasicTB"
+                                                      , "expBramTB"
+                                                      , "logBasicTB"
                                                       ]
                           }
           in runTest "Floating" _opts
@@ -216,6 +222,12 @@ runClashTest = defaultMain $ clashTestRoot
                                          , "fromU64BasicTB"
                                          , "fromS64BasicTB"
                                          , "toS32BasicTB"
+                                         , "recipBasicTB"
+                                         , "rsqrtBasicTB"
+                                         , "expBasicTB"
+                                         , "expBramTB"
+                                         , "logBasicTB"
+                                         , "logNoDspTB"
                                          ]
             }
         , runTest "FloatingHalf" def
@@ -236,6 +248,12 @@ runClashTest = defaultMain $ clashTestRoot
                                          , "toFloatBasicTB"
                                          , "toDoubleBasicTB"
                                          , "toDoubleGenericTB"
+                                         , "recipBasicTB"
+                                         , "rsqrtBasicTB"
+                                         , "rsqrtMinLatencyTB"
+                                         , "expBasicTB"
+                                         , "logBasicTB"
+                                         , "logGenericTB"
                                          ]
             }
         , runTest "Ibufds" def

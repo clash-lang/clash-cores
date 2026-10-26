@@ -8,7 +8,9 @@ Samples for the floating point HDL tests (@Floating@, @FloatingHalf@ and
 the simulation models in
 "Clash.Cores.Xilinx.Floating.Internal". The hand-written cases have their
 expected results written out, and are checked against the models at compile
-time.
+time. The reciprocal, reciprocal square root, exponential and logarithm only
+use inputs for which the models agree with the IP, see
+Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm].
 -}
 
 {-# OPTIONS_GHC -Wall -Werror #-}
@@ -32,8 +34,9 @@ import qualified Clash.Cores.Xilinx.Floating as S
 import qualified Clash.Cores.Xilinx.Floating.Double as D
 import qualified Clash.Cores.Xilinx.Floating.Half as H
 import Clash.Cores.Xilinx.Floating.Internal
-  ( XilinxFloat(..), xilinxAbs, xilinxCompare, xilinxConvert, xilinxFromInteger
-  , xilinxSqrt, xilinxToS32 )
+  ( XilinxFloat(..), xilinxAbs, xilinxCompare, xilinxConvert, xilinxExp
+  , xilinxFromInteger, xilinxLog, xilinxRSqrt, xilinxRecip, xilinxSqrt
+  , xilinxToS32 )
 import qualified Clash.Cores.Xilinx.Floating.Internal as F
 
 -- * Samples per test
@@ -174,6 +177,76 @@ doubleFromS64Samples =
 
 doubleToS32Samples :: [(Double, Signed 32)]
 doubleToS32Samples = delayOutput1 (natToNum @D.ToS32DefDelay) 0 toS32Samples
+
+-- | Latency of the @rsqrtMinLatency@ test: the minimum in half precision
+type HalfRSqrtMinLatencyDelay = 1
+
+-- | Latency of the @recipNoDsp@ test: the maximum for 'S.NoDspUsage'
+type SingleRecipNoDspDelay = 36
+
+-- | Latency of the @expBram@ test in single precision: the maximum for
+-- 'S.MediumDspUsage' and 'S.FullBMemUsage'
+type SingleExpBramDelay = 21
+
+-- | Latency of the @expBram@ test in double precision: the maximum for
+-- 'D.FullDspUsage' and 'D.FullBMemUsage'
+type DoubleExpBramDelay = 57
+
+-- | Latency of the @logNoDsp@ test: the maximum for 'D.NoDspUsage'
+type DoubleLogNoDspDelay = 37
+
+halfRecipSamples :: [(Half, BitVector 16)]
+halfRecipSamples = romSamples1 (natToNum @H.RecipDefDelay) recipSamples
+
+halfRSqrtSamples :: [(Half, BitVector 16)]
+halfRSqrtSamples = romSamples1 (natToNum @H.RSqrtDefDelay) rsqrtSamples
+
+halfRSqrtMinLatencySamples :: [(Half, BitVector 16)]
+halfRSqrtMinLatencySamples =
+  romSamples1 (natToNum @HalfRSqrtMinLatencyDelay) rsqrtSamples
+
+halfExpSamples :: [(Half, BitVector 16)]
+halfExpSamples = romSamples1 (natToNum @H.ExpDefDelay) expSamples
+
+halfLogSamples :: [(Half, BitVector 16)]
+halfLogSamples = romSamples1 (natToNum @H.LogDefDelay) logSamples
+
+singleRecipSamples :: [(Float, BitVector 32)]
+singleRecipSamples = romSamples1 (natToNum @S.RecipDefDelay) recipSamples
+
+singleRecipNoDspSamples :: [(Float, BitVector 32)]
+singleRecipNoDspSamples =
+  romSamples1 (natToNum @SingleRecipNoDspDelay) recipSamples
+
+singleRSqrtSamples :: [(Float, BitVector 32)]
+singleRSqrtSamples = romSamples1 (natToNum @S.RSqrtDefDelay) rsqrtSamples
+
+singleExpSamples :: [(Float, BitVector 32)]
+singleExpSamples = romSamples1 (natToNum @S.ExpDefDelay) expSamples
+
+singleExpBramSamples :: [(Float, BitVector 32)]
+singleExpBramSamples = romSamples1 (natToNum @SingleExpBramDelay) expSamples
+
+singleLogSamples :: [(Float, BitVector 32)]
+singleLogSamples = romSamples1 (natToNum @S.LogDefDelay) logSamples
+
+doubleRecipSamples :: [(Double, BitVector 64)]
+doubleRecipSamples = romSamples1 (natToNum @D.RecipDefDelay) recipSamples
+
+doubleRSqrtSamples :: [(Double, BitVector 64)]
+doubleRSqrtSamples = romSamples1 (natToNum @D.RSqrtDefDelay) rsqrtSamples
+
+doubleExpSamples :: [(Double, BitVector 64)]
+doubleExpSamples = romSamples1 (natToNum @D.ExpDefDelay) expSamples
+
+doubleExpBramSamples :: [(Double, BitVector 64)]
+doubleExpBramSamples = romSamples1 (natToNum @DoubleExpBramDelay) expSamples
+
+doubleLogSamples :: [(Double, BitVector 64)]
+doubleLogSamples = romSamples1 (natToNum @D.LogDefDelay) logSamples
+
+doubleLogNoDspSamples :: [(Double, BitVector 64)]
+doubleLogNoDspSamples = romSamples1 (natToNum @DoubleLogNoDspDelay) logSamples
 
 -- | Like 'romSamples', for functions with one input.
 romSamples1 :: BitPack b => Int -> [(a, b)] -> [(a, BitVector (BitSize b))]
@@ -434,6 +507,67 @@ fromS64Inputs =
      | w <- fromU64Inputs
      , f <- [id, (`shiftR` 1), negate . (`shiftR` 1)]
      ]
+
+{- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+Clash simulation gives the correctly rounded results of these operations,
+while the IP is only accurate to one unit in the last place (except for the
+reciprocal and reciprocal square root in half precision). So their samples only
+use inputs for which both give the same result: special cases, exact results,
+NaNs, and pseudo-random inputs that were checked offline against the IP's C
+model ('checkedFor'), which matches the IP bit for bit. In half precision, the
+reciprocal and reciprocal square root also get the other inputs used elsewhere.
+-}
+
+-- | Inputs and results of the reciprocal, see
+-- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+recipSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
+recipSamples =
+     checked1 "recip" xilinxRecip recipCases
+  ++ modelled1 xilinxRecip
+       (  nans
+       ++ checkedFor @a halfRecipChecked singleRecipChecked doubleRecipChecked
+       ++ exactInHalf @a )
+
+-- | Inputs and results of the reciprocal square root, see
+-- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+rsqrtSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
+rsqrtSamples =
+     checked1 "rsqrt" xilinxRSqrt rsqrtCases
+  ++ modelled1 xilinxRSqrt
+       (  nans
+       ++ checkedFor @a halfRSqrtChecked singleRSqrtChecked doubleRSqrtChecked
+       ++ exactInHalf @a )
+
+-- | Inputs and results of the exponential, see
+-- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+expSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
+expSamples =
+     checked1 "exp" xilinxExp expCases
+  ++ modelled1 xilinxExp
+       (nans ++ checkedFor @a halfExpChecked singleExpChecked doubleExpChecked)
+
+-- | Inputs and results of the logarithm, see
+-- Note [Samples of the reciprocal, reciprocal square root, exponential and logarithm]
+logSamples :: forall a. (XilinxFloat a, Show a) => [(a, a)]
+logSamples =
+     checked1 "log" xilinxLog logCases
+  ++ modelled1 xilinxLog
+       (nans ++ checkedFor @a halfLogChecked singleLogChecked doubleLogChecked)
+
+-- | More inputs for the operations that the IP rounds correctly in half
+-- precision: special values and pseudo-random numbers. None in other
+-- precisions.
+exactInHalf :: forall a. XilinxFloat a => [a]
+exactInHalf
+  | digitsOf @a == 11 = interesting ++ take 100 (randomBits 30)
+  | otherwise = []
+
+-- | The inputs of the given precision, from their bit patterns
+checkedFor :: forall a. XilinxFloat a => [Word64] -> [Word64] -> [Word64] -> [a]
+checkedFor h s d = map (unpack . fromIntegral) $ case digitsOf @a of
+  11 -> h
+  24 -> s
+  _ -> d
 
 -- * Hand-written cases
 
@@ -789,6 +923,86 @@ toS32Cases =
   , (mkNaN True False 1, minBound)
   ]
 
+recipCases :: forall a. XilinxFloat a => [(a, a)]
+recipCases =
+  [ (1, 1)
+  , (-1, -1)
+  , (2, 0.5)
+  , (-4, -0.25)
+  , (0.5, 2)
+  , (minNormal, encodeFloat 1 (1 - eMin @a))
+    -- The reciprocal of a zero is an infinity of the same sign
+  , (0, infinity)
+  , (-0, -infinity)
+    -- Subnormal inputs are flushed to zero, keeping their sign
+  , (minDenormal, infinity)
+  , (-maxDenormal, -infinity)
+  , (infinity, 0)
+  , (-infinity, -0)
+    -- Results below the smallest normal number are flushed to zero
+  , (maxFinite, 0)
+  , (-maxFinite, -0)
+  , (encodeFloat 1 (eMax @a - 1), 0)
+  ]
+
+rsqrtCases :: forall a. XilinxFloat a => [(a, a)]
+rsqrtCases =
+  [ (1, 1)
+  , (4, 0.5)
+  , (0.25, 2)
+  , (16, 0.25)
+    -- The exponent of the smallest normal number is even
+  , (minNormal, encodeFloat 1 ((1 - eMin @a) `div` 2))
+    -- The reciprocal square root of a zero is an infinity of the same sign
+  , (0, infinity)
+  , (-0, -infinity)
+    -- Subnormal inputs are flushed to zero, keeping their sign
+  , (minDenormal, infinity)
+  , (-maxDenormal, -infinity)
+  , (infinity, 0)
+    -- Other negative numbers give NaN
+  , (-1, ipNaN)
+  , (-minNormal, ipNaN)
+  , (-infinity, ipNaN)
+  ]
+
+expCases :: forall a. XilinxFloat a => [(a, a)]
+expCases =
+  [ (0, 1)
+  , (-0, 1)
+    -- Subnormal inputs are flushed to zero
+  , (minDenormal, 1)
+  , (-maxDenormal, 1)
+    -- e^x rounds to one for |x| < 2^-(digits+2)
+  , (minNormal, 1)
+  , (-minNormal, 1)
+  , (encodeFloat 1 (negate (digitsOf @a) - 3), 1)
+  , (encodeFloat (-1) (negate (digitsOf @a) - 3), 1)
+  , (infinity, infinity)
+  , (-infinity, 0)
+    -- Overflow, and results below the smallest normal number
+  , (maxFinite, infinity)
+  , (-maxFinite, 0)
+  , (fromIntegral (eMax @a), infinity)
+  , (fromIntegral (eMin @a - 3), 0)
+  ]
+
+logCases :: forall a. XilinxFloat a => [(a, a)]
+logCases =
+  [ (1, 0)
+    -- The logarithm of a zero of either sign is negative infinity
+  , (0, -infinity)
+  , (-0, -infinity)
+    -- Subnormal inputs are flushed to zero
+  , (minDenormal, -infinity)
+  , (-maxDenormal, -infinity)
+  , (infinity, infinity)
+    -- Other negative numbers give NaN
+  , (-1, ipNaN)
+  , (-minNormal, ipNaN)
+  , (-infinity, ipNaN)
+  ]
+
 -- * Generated inputs
 
 -- | Inputs whose products are close to the smallest normal number, where the
@@ -1106,3 +1320,162 @@ checked name model = map check
           <> show expected <> ", but the model gives " <> show actual
    where
     actual = model x y
+
+-- * Inputs checked against the C model
+
+-- These inputs were checked offline: for each of them, the model and the IP's
+-- C model (Vivado 2022.1) give the same, finite, non-zero result. They are
+-- pseudo-random numbers in the ranges where the results are finite and
+-- non-zero, and for the logarithm also numbers close to one.
+
+halfRecipChecked :: [Word64]
+halfRecipChecked =
+  [ 0x1f0b, 0x91c6, 0x1781, 0x2754, 0x301b, 0xb4f8, 0x4b9f, 0xb7af, 0x8d5a
+  , 0x4e97, 0x4dc3, 0x9a6e, 0x9601, 0xbdbc, 0x60f8, 0x2449, 0x2b22, 0x72d0
+  , 0xdb11, 0x04cf, 0x2669, 0xbf06, 0x5cf0, 0x4582, 0xaf6c, 0xe89a, 0x2bf5
+  , 0xb3aa, 0x65f0, 0x5397, 0xae34, 0x36e6, 0x2f35, 0x8d79, 0xc153, 0x8cb3
+  , 0x3454, 0xd380, 0x6d76, 0x501a
+  ]
+
+singleRecipChecked :: [Word64]
+singleRecipChecked =
+  [ 0x1355a4fd, 0x4e1f71dd, 0x4f7fa906, 0x65f27807, 0x9e6e5e4e, 0xc405976e
+  , 0x0b2ce6a8, 0xb3ae254c, 0x6f29c346, 0xa3860464, 0x5b73dafa, 0x87eb9c0d
+  , 0x1eb3382a, 0x45c32dee, 0x100cc187, 0xd053ed71, 0x8b99367f, 0xd6374c16
+  , 0x5ca5e701, 0x29f9c402, 0xba543acf, 0xb15fa4b5, 0x0e318bf0, 0x63a79961
+  , 0x881269e2, 0x7b81ae4a, 0x1ea7446c, 0x25b7835e, 0x924afc87, 0x47793b1a
+  , 0x07561659, 0xd6456d56, 0xc8873d1a, 0xbf95914b, 0x12768874, 0xd8963cb6
+  , 0x5f12a2e3, 0x87aede00, 0x6cb8ec58, 0x040b3963
+  ]
+
+doubleRecipChecked :: [Word64]
+doubleRecipChecked =
+  [ 0x85fabc42ecc90c06, 0xf8046cfa63a59c90, 0x19b583d2364b3c43
+  , 0x9d968f738dd1e155, 0x03b427e4879970b2, 0xcdfa693e1ffb629c
+  , 0x9594c04096019d01, 0x59610c4a45e5b71d, 0xc63ac61f9f01cd2f
+  , 0x86824600e4d64ba4, 0x70107f75eb9c3363, 0x189251f4f7a8b1a0
+  , 0x5c02b5159a481b4d, 0xfc5386106b236261, 0xb29c67f9c673594f
+  , 0x6420665934834ca8, 0x021de73851adbb16, 0x9be9626b2a1742b4
+  , 0x5089fb193d4790b0, 0xb702d4c59709fcda, 0x896159e007be5169
+  , 0xb3fbf2efdb587509, 0x30177384d82f6ef6, 0x8682b5a2603f0de1
+  , 0x6d8b9a3641773470, 0xdc90088e083ed81d, 0x0a0cccb0ad285813
+  , 0xe72a259351dafba3, 0x9821499aeca9bbdb, 0xcddb6ccdf9ad1d85
+  , 0x9e274aa3caab68c2, 0xd5c91552d9dd8743, 0x5d82ae96154f23bd
+  , 0x618093143d4de8f7, 0x92deb5fac73f1838, 0x14ab1a697a83fa5c
+  , 0xf161c930d5446954, 0x357e0eee25eafd6b, 0x66808461478ad855
+  , 0xe1f41709f990f053
+  ]
+
+halfRSqrtChecked :: [Word64]
+halfRSqrtChecked =
+  [ 0x25f4, 0x09ff, 0x4cf2, 0x0925, 0x4a5c, 0x60fd, 0x5a52, 0x344b, 0x4c1a
+  , 0x5e05, 0x1106, 0x376a, 0x7bb4, 0x6c85, 0x1f0b, 0x4000, 0x42a2, 0x04b1
+  , 0x5dea, 0x43a8, 0x5b4b, 0x4c05, 0x4a6b, 0x720d, 0x13c8, 0x5721, 0x0f65
+  , 0x7156, 0x787b, 0x589a, 0x7bc0, 0x3f3d, 0x17e0, 0x0b07, 0x5019, 0x05d8
+  , 0x1f59, 0x0975, 0x409e, 0x5f05
+  ]
+
+singleRSqrtChecked :: [Word64]
+singleRSqrtChecked =
+  [ 0x610ef2ac, 0x3fe2de03, 0x1aaf13a7, 0x51d722d5, 0x514b49c0, 0x756c48ba
+  , 0x36449547, 0x42984224, 0x3839d442, 0x60928ca0, 0x121e69d2, 0x783b9988
+  , 0x635d97ec, 0x365edf6a, 0x6bbd0fda, 0x459938ca, 0x618ff237, 0x1498931d
+  , 0x33949efe, 0x67453666, 0x02de7b32, 0x3463e9ea, 0x3ebd96b0, 0x0fb628da
+  , 0x781ba7ae, 0x7f349561, 0x320922bc, 0x19b99339, 0x42aa72fd, 0x042ab4a3
+  , 0x5a81c73b, 0x20a75e15, 0x707943e7, 0x3d0a5822, 0x34c9c379, 0x38724a40
+  , 0x3eeb4703, 0x07121cff, 0x0d97b451, 0x1c04c126
+  ]
+
+doubleRSqrtChecked :: [Word64]
+doubleRSqrtChecked =
+  [ 0x54f24580265d2759, 0x65f66e1c510c78c4, 0x58911095b5b4981f
+  , 0x3ce699700ce5966f, 0x180f74f0a64330ea, 0x5672ecad56b2f64b
+  , 0x0b3e2b5b55f6d8fb, 0x507f5d5dfee66c14, 0x04d53620522774ca
+  , 0x724d342c0aeb90b1, 0x358789a1db311446, 0x5daa783aa523024c
+  , 0x3c06d0f1b798c8c6, 0x538060a78b0e0d8e, 0x661f3dabb88b8bc1
+  , 0x76965432107ccf64, 0x7356b6cc634f066d, 0x6fa42ba1590a0b4d
+  , 0x00ddcd0a78d46cdc, 0x77b2beb5e07f8389, 0x185c6015d24eaf06
+  , 0x3d222fe32c0b5ec9, 0x304be8948f52e8fe, 0x7f9ade1056f20aa1
+  , 0x2a19f002d3207757, 0x7e55cecc739c3eae, 0x36ce11907d3e1fa0
+  , 0x3581b6e5433ac4b6, 0x39554e800b2f1d2d, 0x71fc6719f152edbc
+  , 0x41409f7b1b4ba653, 0x0f51fc996d4db949, 0x6698ff2277afba70
+  , 0x6bfba34b93c5ebc4, 0x3a090f078c04cb14, 0x7454c4fdbd6ccabf
+  , 0x32b741d8e48ad83e, 0x6f2b4a9f06df902f, 0x2da2a6dfa25943aa
+  , 0x1661e2e0ad719af3
+  ]
+
+halfExpChecked :: [Word64]
+halfExpChecked =
+  [ 0x492f, 0xc20f, 0x483b, 0x45cd, 0xb40f, 0x48a3, 0x33cb, 0x44c1, 0xc595
+  , 0x43ba, 0xabd2, 0xc4f9, 0x44a3, 0xc4a3, 0xc8aa, 0x4821, 0x4659, 0x456a
+  , 0xc835, 0xc682, 0x4908, 0x4974, 0xc1d7, 0xc4ba, 0x4559, 0xbcbc, 0xc4ca
+  , 0xc76d, 0x47b4, 0xc66f, 0xc824, 0xbe00, 0x47ee, 0xb69f, 0x3e6b, 0xc5e5
+  , 0x4928, 0x4858, 0xc4cd, 0xbeec
+  ]
+
+singleExpChecked :: [Word64]
+singleExpChecked =
+  [ 0xc2290695, 0x42a71f54, 0xc2883499, 0xc29ce851, 0x42a6a07f, 0x42533dae
+  , 0x425d3bb2, 0x40b39ca7, 0x415fe4b4, 0x420ecae5, 0x423fc432, 0x42443efe
+  , 0x40f98ee4, 0x428e5b71, 0x4160f2f2, 0xc210b7f8, 0xc20cf68b, 0x41c28ee6
+  , 0x429c8650, 0xc243a831, 0x422fe8d9, 0x426a0248, 0xc2a0554b, 0x411bfd7f
+  , 0x42a65a95, 0x4207c0ed, 0xc1a3b5d1, 0x4166f1c2, 0xc13d8b42, 0x42177c5a
+  , 0xc28594f1, 0xc292d22f, 0xc2997ebb, 0x42937a57, 0xc18fcfd6, 0xc2203623
+  , 0xc25b4d24, 0x429fc4f8, 0xc19bd051, 0xc22b258c
+  ]
+
+doubleExpChecked :: [Word64]
+doubleExpChecked =
+  [ 0x40749b4aa310a180, 0x40780ae2d66c8444, 0xc0366a3c6afe7d40
+  , 0x4079b5cb79c2e030, 0x4074110d0925a04c, 0x4075e402b67a684c
+  , 0x40738aa86c7782c0, 0xc07eab1ac26a0924, 0x4070be371bc7cf1a
+  , 0xc055309451649a08, 0x4071e4ba97f060ae, 0x4085c3d614e07b0e
+  , 0x407919c9b32ee610, 0xc0820a4c3398d2ad, 0xc0830770a239760e
+  , 0x407a14f400195fdc, 0xc07d3ba3374e23c6, 0x407805d1790c8ef8
+  , 0x4080340b427dc2f4, 0xc056ee07ab248a08, 0x4073ab2290fa42b0
+  , 0xc07208fc32de46cb, 0x4072467f2145f806, 0x408472f3ffff7650
+  , 0xc068ccd9adf707ca, 0xc06786d22c86967c, 0xc07c19219d4689ca
+  , 0x4080e455c280d31c, 0x407599f0be53de80, 0x407f675174ac43e8
+  , 0x4080421af488ee82, 0x4077a27b7ddf26a0, 0xc079368ae8fc4aef
+  , 0x408355413998fb54, 0xc0758de6d33b245c, 0x40664d2ba3e5f5a8
+  , 0xc07182c33f369567, 0x4059516cb6d87168, 0x408155c6871f15f8
+  , 0x405828fed58f2e08
+  ]
+
+halfLogChecked :: [Word64]
+halfLogChecked =
+  [ 0x65a6, 0x1b41, 0x37e7, 0x2f33, 0x5eb2, 0x3d1a, 0x4d0c, 0x6ef2, 0x6170
+  , 0x4e85, 0x3133, 0x70f0, 0x4b0e, 0x1fd0, 0x5284, 0x530c, 0x04b8, 0x6811
+  , 0x4c25, 0x4d44, 0x2546, 0x362e, 0x3c66, 0x2161, 0x73c6, 0x5140, 0x0517
+  , 0x6701, 0x06d4, 0x18b6, 0x2193, 0x43a4, 0x213e, 0x7095, 0x15ea, 0x38fd
+  , 0x45e0, 0x2a37, 0x265a, 0x338d
+  ]
+
+singleLogChecked :: [Word64]
+singleLogChecked =
+  [ 0x2fb9ed8a, 0x20e3ad0f, 0x599c2c53, 0x4f93eca6, 0x01e319d4, 0x46f5d0fe
+  , 0x0b8f7751, 0x658db860, 0x42ebac95, 0x1e338655, 0x25245331, 0x2a99e7ec
+  , 0x48cafcb3, 0x4ac9a098, 0x555e26a5, 0x2a8a779f, 0x3a8b3d7a, 0x62c45652
+  , 0x51f8ce8e, 0x2ad5943b, 0x6c5e1352, 0x4b423918, 0x1a5d6d66, 0x3dad8ac3
+  , 0x1edaf1be, 0x6b9a03ba, 0x2886fb3b, 0x55f61665, 0x1133e616, 0x5fc66d9e
+  , 0x3f800d86, 0x3f61263e, 0x3f7ff801, 0x3f800063, 0x3f798d53, 0x3f7d778d
+  , 0x3f416e06, 0x3f80b2bb, 0x3f9d2f7e, 0x3f800002
+  ]
+
+doubleLogChecked :: [Word64]
+doubleLogChecked =
+  [ 0x53225af425093e1c, 0x583074fe2394fac4, 0x4317a6fe19239d5c
+  , 0x301413cebfcfa405, 0x2def9298f2b2eccc, 0x52dbf767d32757a7
+  , 0x0cdaab35de9a65be, 0x3e07fa04cb67d186, 0x6e2bfd7d0801d969
+  , 0x0cfd70698ad6323c, 0x6312530ec38cc44f, 0x2b57d15711fb10ce
+  , 0x6de47e572444f45f, 0x3d49e34b0fd573de, 0x68f41a25bc5a358f
+  , 0x5e6c099a3b8dd320, 0x5852ea650ec7ef6e, 0x5a79e01487558727
+  , 0x05c56970f0e81ba6, 0x0d8c22c51c69e853, 0x1a71d22da0232f90
+  , 0x0388c05bce53f555, 0x110a36aa0bf760fc, 0x1485d51cae0923a4
+  , 0x3430eae242a85706, 0x17e2bb3fa181eb57, 0x017237470c8222c1
+  , 0x13d388d10cdc481e, 0x35d88883e2c6f45b, 0x46473abab9b84e44
+  , 0x3ff00012b76b4a43, 0x3fefffffffc9a96d, 0x3ff000003a66b7b8
+  , 0x3ff0000006740c1e, 0x3fed6eca36703b91, 0x3ff01a2f2d0b0fab
+  , 0x3feffffffffff202, 0x3feffffffff5c1d4, 0x3ff0000000037205
+  , 0x3fefffffffffa5ae
+  ]
