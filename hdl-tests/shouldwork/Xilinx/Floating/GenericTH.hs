@@ -26,6 +26,7 @@ import Prelude
 
 import Clash.Prelude (BitPack(..), BitSize, BitVector, Signed, Unsigned, natToNum)
 import Data.Bits (bit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
+import Data.List (unzip4, zip4)
 import Data.Word (Word64)
 import Numeric.Half (Half)
 
@@ -34,8 +35,8 @@ import qualified Clash.Cores.Xilinx.Floating.Double as D
 import qualified Clash.Cores.Xilinx.Floating.Half as H
 import Clash.Cores.Xilinx.Floating.Internal
   ( ipNaN, xilinxAbs, xilinxBinaryExact, xilinxCompare, xilinxConvert
-  , xilinxExp, xilinxFromInteger, xilinxLog, xilinxRSqrt, xilinxRecip
-  , xilinxSqrt, xilinxToS32 )
+  , xilinxExp, xilinxFma, xilinxFromInteger, xilinxLog, xilinxRSqrt
+  , xilinxRecip, xilinxSqrt, xilinxToS32 )
 import qualified Clash.Cores.Xilinx.Floating.Internal as F
 
 -- * Precisions
@@ -82,6 +83,25 @@ halfDivSamples = romSamples (natToNum @H.DivDefDelay) divSamples
 halfCompareSamples :: [(Half, Half, F.Ordering)]
 halfCompareSamples =
   delayOutput (natToNum @H.CompareDefDelay) F.NaN compareSamples
+
+-- | Latency of the @addShortPL@ test: below 'S.AddDefDelay'
+type SingleAddShortPLDelay = 6
+
+singleAddSamples :: [(Float, Float, BitVector 32)]
+singleAddSamples = romSamples (natToNum @S.AddDefDelay) addSamples
+
+singleAddShortPLSamples :: [(Float, Float, BitVector 32)]
+singleAddShortPLSamples =
+  romSamples (natToNum @SingleAddShortPLDelay) addSamples
+
+singleSubSamples :: [(Float, Float, BitVector 32)]
+singleSubSamples = romSamples (natToNum @S.SubDefDelay) subSamples
+
+singleMulSamples :: [(Float, Float, BitVector 32)]
+singleMulSamples = romSamples (natToNum @S.MulDefDelay) mulSamples
+
+singleDivSamples :: [(Float, Float, BitVector 32)]
+singleDivSamples = romSamples (natToNum @S.DivDefDelay) divSamples
 
 doubleAddSamples :: [(Double, Double, BitVector 64)]
 doubleAddSamples = romSamples (natToNum @D.AddDefDelay) addSamples
@@ -1483,3 +1503,415 @@ doubleLogChecked =
   , 0x3feffffffffff202, 0x3feffffffff5c1d4, 0x3ff0000000037205
   , 0x3fefffffffffa5ae
   ]
+
+-- * Fused multiply-add
+
+-- | Latency of the @fmaMedium@ tests: the maximum for 'H.MediumDspUsage'
+type HalfFmaMediumDelay = 15
+
+-- | Latency of the @fmaMedium@ tests: the maximum for 'S.MediumDspUsage'
+type SingleFmaMediumDelay = 16
+
+-- | Latency of the @fmaMedium@ tests: the maximum for 'D.MediumDspUsage'
+type DoubleFmaMediumDelay = 26
+
+halfFmaSamples :: [(Half, Half, Half, BitVector 16)]
+halfFmaSamples = romSamples3 (natToNum @H.FmaDefDelay) fmaSamples
+
+halfFmaMediumSamples :: [(Half, Half, Half, BitVector 16)]
+halfFmaMediumSamples = romSamples3 (natToNum @HalfFmaMediumDelay) fmaSamples
+
+singleFmaSamples :: [(Float, Float, Float, BitVector 32)]
+singleFmaSamples = romSamples3 (natToNum @S.FmaDefDelay) fmaSamples
+
+singleFmaMediumSamples :: [(Float, Float, Float, BitVector 32)]
+singleFmaMediumSamples = romSamples3 (natToNum @SingleFmaMediumDelay) fmaSamples
+
+doubleFmaSamples :: [(Double, Double, Double, BitVector 64)]
+doubleFmaSamples = romSamples3 (natToNum @D.FmaDefDelay) fmaSamples
+
+doubleFmaMediumSamples :: [(Double, Double, Double, BitVector 64)]
+doubleFmaMediumSamples = romSamples3 (natToNum @DoubleFmaMediumDelay) fmaSamples
+
+-- | Like 'romSamples', for functions with three inputs.
+romSamples3 ::
+  TestFloat a => Int -> [(a, a, a, a)] -> [(a, a, a, BitVector (BitSize a))]
+romSamples3 d es = zip4 xs ys zs rs
+ where
+  (xs0, ys0, zs0, rs0) = unzip4 (map (\(x, y, z, r) -> (x, y, z, pack r)) es)
+  xs = xs0 ++ repeat (last xs0)
+  ys = ys0 ++ repeat (last ys0)
+  zs = zs0 ++ repeat (last zs0)
+  rs = replicate d 0 ++ rs0
+
+-- | Inputs and results of the fused multiply-add: the hand-written cases,
+-- combinations of special values, NaNs, and pseudo-random inputs whose exact
+-- results cancel, lie (close to) halfway between two numbers, or lie close to
+-- the smallest normal number or the overflow threshold.
+fmaSamples :: forall a. (TestFloat a, Show a) => [(a, a, a, a)]
+fmaSamples =
+     checked3 "fma" xilinxFma fmaCases
+  ++ modelled3 xilinxFma
+       (  [(x, y, z) | x <- few, y <- few, z <- few]
+       ++ [ r
+          | nan <- nans
+          , r <- [(nan, 1, 1), (1, nan, 1), (1, 1, nan)]
+          ]
+       ++ take 60 (fmaCancel 40)
+       ++ take 60 (fmaHalfway 41)
+       ++ take 60 (fmaNear (2 ^^ (eMin @a - 1)) (eMin @a - 1) 42)
+       ++ take 60 (fmaNear (2 ^^ eMax @a) (eMax @a - 1) 43)
+       ++ take 100 (triples (randomBits 44)) )
+ where
+  few =
+    [0, -0, 1, -3, minNormal, -maxDenormal, maxFinite, infinity, -infinity, ipNaN]
+
+-- | Hand-written cases of the fused multiply-add
+fmaCases :: forall a. TestFloat a => [(a, a, a, a)]
+fmaCases =
+  [ (2, 3, 4, 10)
+  , (-2, 3, 4, -2)
+    -- Exact zeros: positive, unless both the product and the addend are
+    -- negative zeros
+  , (1, 1, -1, 0)
+  , (-1, 1, 1, 0)
+  , (-0, 1, -0, -0)
+  , (0, -1, -0, -0)
+  , (-0, -0, -0, 0)
+  , (0, 0, -0, 0)
+    -- A single rounding: (1 + eps) (1 - eps) = 1 - eps^2 exactly, so the
+    -- result is -eps^2 (times 64, to keep it normal in half precision), where
+    -- a multiplication followed by an addition would give zero
+  , (64 * (1 + epsilon), 1 - epsilon, -64, negate (64 * epsilon * epsilon))
+    -- The product is beyond the largest finite number, the result is not
+  , (maxFinite, 2, -maxFinite, maxFinite)
+  , (maxFinite, 2, maxFinite, infinity)
+  , (maxFinite, -2, -maxFinite, -infinity)
+    -- Ties: 5 * m 2 and 5 * m 6 are halfway between two numbers, see
+    -- 'mulCases'. Without an addend, they round to even; a small addend
+    -- breaks the tie.
+  , (5, m 2, 0, fromInteger (5 * mi 2 - 2))
+  , (5, m 2, 0.25, fromInteger (5 * mi 2 + 2))
+  , (5, m 2, -0.25, fromInteger (5 * mi 2 - 2))
+  , (-5, m 2, 0.25, negate (fromInteger (5 * mi 2 - 2)))
+  , (5, m 6, 0, fromInteger (5 * mi 6 + 2))
+  , (5, m 6, -0.25, fromInteger (5 * mi 6 - 2))
+    -- Results below the smallest normal number are flushed to a zero of the
+    -- same sign
+  , (minNormal, 0.5, 0, 0)
+  , (minNormal, -0.5, 0, -0)
+  , (minNormal, 1.5, -minNormal, 0)
+  , (-minNormal, 1.5, minNormal, -0)
+  , (pred1, minNormal, 0, 0)
+    -- Subnormal inputs count as a zero of the same sign
+  , (maxDenormal, maxFinite, 0, 0)
+  , (minNormal, 1, -maxDenormal, minNormal)
+  , (minDenormal, 1, -0, 0)
+  , (-minDenormal, 1, -0, -0)
+    -- Special cases
+  , (infinity, 0, 1, ipNaN)
+  , (0, -infinity, 1, ipNaN)
+  , (infinity, minDenormal, 1, ipNaN)
+  , (infinity, 1, -infinity, ipNaN)
+  , (infinity, -1, -infinity, -infinity)
+  , (1, 1, infinity, infinity)
+  , (maxFinite, maxFinite, -infinity, -infinity)
+  ]
+ where
+  digits = digitsOf @a
+  mi k = 2 ^ (digits - 1) + k
+  m k = fromInteger (mi k)
+
+-- | Pseudo-random factors and an addend close to minus their product (equal to
+-- it, if the product is representable)
+fmaCancel :: forall a. TestFloat a => Word64 -> [(a, a, a)]
+fmaCancel seed =
+  [ (x, y, nudge ((w3 `shiftR` 40) `mod` 5) (negate (fromRational (toRational x * toRational y))))
+  | (w1, w2, w3) <- triples (randoms (seed * 1000 + 1))
+  , let
+      x = normalWith w1 (fromIntegral (w3 `mod` 21) - 10)
+      -- Short significands make the product exact
+      y
+        | testBit w3 20 = normalWith w2 (fromIntegral ((w3 `shiftR` 8) `mod` 21) - 10)
+        | otherwise = encodeFloat (toInteger (w2 `mod` 64) * 2 + 1) (fromIntegral ((w3 `shiftR` 8) `mod` 21) - 10)
+  ]
+ where
+  -- Move up to two units in the last place down or up
+  nudge :: Word64 -> a -> a
+  nudge k v = unpack (pack v + fromIntegral k - 2)
+
+-- | An addend @z@ and a product of @(2j + 1) * 2^(e - 1)@, where @2^e@ is the
+-- unit in the last place of @z@, so that the exact result is halfway between
+-- two numbers (if it has the exponent of @z@); with the first factor moved by
+-- a unit in the last place, close to halfway.
+fmaHalfway :: forall a. TestFloat a => Word64 -> [(a, a, a)]
+fmaHalfway seed =
+  [ (if testBit w2 1 then x else unpack (pack x + 1), y, z)
+  | (w1, w2) <- pairs (randoms (seed * 1000 + 2))
+  , let
+      z = normalWith w1 (fromIntegral (w2 `mod` 31) - 15)
+      (_, ez) = decodeFloat z
+      j = toInteger ((w2 `shiftR` 8) `mod` 8)
+      eb = fromIntegral ((w2 `shiftR` 16) `mod` 17) - 8
+      x = encodeFloat ((if testBit w2 0 then negate else id) (2 * j + 1)) (ez - 1 - eb)
+      y = encodeFloat 1 eb
+  ]
+
+-- | A pseudo-random addend with an exponent near @e@ (or zero), and factors
+-- whose product is close to the target minus the addend
+fmaNear :: forall a. TestFloat a => Rational -> Int -> Word64 -> [(a, a, a)]
+fmaNear target e seed =
+  [ (x, y, z)
+  | (w1, w2, w3) <- triples (randoms (seed * 1000 + 3))
+  , let
+      t = (if testBit w3 0 then negate target else target)
+            * (1 + fromIntegral ((w3 `shiftR` 8) `mod` 129) / 2 ^ (digitsOf @a + 5) - 2 ^^ negate (digitsOf @a + 4))
+      z | testBit w3 1 = 0
+        | otherwise = normalWith w1 (e - fromIntegral ((w3 `shiftR` 24) `mod` fromIntegral (digitsOf @a + 2)))
+      x = normalWith w2 (e `quot` 2)
+      y = fromRational ((t - toRational z) / toRational x)
+  , not (isInfinite y || isNaN y)
+  ]
+
+-- | Add the expected results according to a model, for functions with three
+-- inputs
+modelled3 :: (a -> b -> c -> d) -> [(a, b, c)] -> [(a, b, c, d)]
+modelled3 model = map (\(x, y, z) -> (x, y, z, model x y z))
+
+-- | 'checked' for functions with three inputs
+checked3 ::
+  (Show a, Show b, Show c, Show d, BitPack d) =>
+  String -> (a -> b -> c -> d) -> [(a, b, c, d)] -> [(a, b, c, d)]
+checked3 name model = map check
+ where
+  check s@(x, y, z, expected)
+    | pack actual == pack expected = s
+    | otherwise = error $
+        name <> " " <> show x <> " " <> show y <> " " <> show z <> ": expected "
+          <> show expected <> ", but the model gives " <> show actual
+   where
+    actual = model x y z
+
+-- * Accumulator
+
+-- | A cycle of an accumulator test: whether the enable is asserted, whether
+-- the input is the last of its accumulation, and the input
+type AccumCycle a = (Bool, Bool, a)
+
+-- | Latency of the accumulator tests with custom bounds, below the maximum
+-- latency of every configuration
+type AccumCustomDelay = 5
+
+-- | Bounds of the @accumFlags@ tests: inputs are truncated to multiples of
+-- 1/16, inputs of 512 or more and sums of 2048 or more overflow
+accumNarrowConfig :: F.DspUsage -> F.AccumConfig
+accumNarrowConfig dsp =
+  F.AccumConfig
+    { F.accumMsb = 10, F.accumLsb = -4, F.accumInputMsb = 8, F.accumDspUsage = dsp }
+
+-- | Bounds of the @accumTiny@ tests: sums below the smallest normal number,
+-- which are flushed to zero
+accumTinyConfig :: forall a. TestFloat a => F.AccumConfig
+accumTinyConfig =
+  F.AccumConfig
+    { F.accumMsb = toInteger (ieeeEmin @a + 4)
+    , F.accumLsb = toInteger (ieeeEmin @a - digitsOf @a + 1)
+    , F.accumInputMsb = toInteger (ieeeEmin @a + 2)
+    , F.accumDspUsage = F.NoDspUsage
+    }
+
+-- | Bounds of the @accumHuge@ tests: sums beyond the largest finite number,
+-- which saturate
+accumHugeConfig :: forall a. TestFloat a => F.AccumConfig
+accumHugeConfig =
+  F.AccumConfig
+    { F.accumMsb = toInteger (ieeeEmax @a + 2)
+    , F.accumLsb = toInteger (ieeeEmax @a - 2 * digitsOf @a)
+    , F.accumInputMsb = toInteger (ieeeEmax @a)
+    , F.accumDspUsage = F.MediumDspUsage
+    }
+
+-- | Exponents of the smallest normal number and of the largest finite
+-- numbers, as IEEE 754 defines them
+ieeeEmin, ieeeEmax :: forall a. RealFloat a => Int
+ieeeEmin = eMin @a - 1
+ieeeEmax = eMax @a - 1
+
+halfAccumBasicRom :: [(Bool, Bool, Half, Bool, BitVector 16)]
+halfAccumBasicRom =
+  accumRom (H.defAccumConfig) (natToNum @H.AccumDefDelay) fst accumBasicCycles
+
+halfAccumFlagsRom :: [(Bool, Bool, Half, Bool, BitVector 19)]
+halfAccumFlagsRom =
+  accumRom (accumNarrowConfig F.FullDspUsage) (natToNum @AccumCustomDelay) id
+    accumNarrowCycles
+
+halfAccumTinyRom :: [(Bool, Bool, Half, Bool, BitVector 19)]
+halfAccumTinyRom =
+  accumRom (accumTinyConfig @Half) (natToNum @AccumCustomDelay) id accumTinyCycles
+
+halfAccumHugeRom :: [(Bool, Bool, Half, Bool, BitVector 19)]
+halfAccumHugeRom =
+  accumRom (accumHugeConfig @Half) (natToNum @AccumCustomDelay) id accumHugeCycles
+
+singleAccumBasicRom :: [(Bool, Bool, Float, Bool, BitVector 32)]
+singleAccumBasicRom =
+  accumRom S.defAccumConfig (natToNum @S.AccumDefDelay) fst accumBasicCycles
+
+singleAccumFlagsRom :: [(Bool, Bool, Float, Bool, BitVector 35)]
+singleAccumFlagsRom =
+  accumRom (accumNarrowConfig F.NoDspUsage) (natToNum @AccumCustomDelay) id
+    accumNarrowCycles
+
+singleAccumTinyRom :: [(Bool, Bool, Float, Bool, BitVector 35)]
+singleAccumTinyRom =
+  accumRom (accumTinyConfig @Float) (natToNum @AccumCustomDelay) id accumTinyCycles
+
+singleAccumHugeRom :: [(Bool, Bool, Float, Bool, BitVector 35)]
+singleAccumHugeRom =
+  accumRom (accumHugeConfig @Float) (natToNum @AccumCustomDelay) id accumHugeCycles
+
+doubleAccumBasicRom :: [(Bool, Bool, Double, Bool, BitVector 64)]
+doubleAccumBasicRom =
+  accumRom D.defAccumConfig (natToNum @D.AccumDefDelay) fst accumBasicCycles
+
+doubleAccumFlagsRom :: [(Bool, Bool, Double, Bool, BitVector 67)]
+doubleAccumFlagsRom =
+  accumRom (accumNarrowConfig F.MediumDspUsage) (natToNum @AccumCustomDelay) id
+    accumNarrowCycles
+
+doubleAccumTinyRom :: [(Bool, Bool, Double, Bool, BitVector 67)]
+doubleAccumTinyRom =
+  accumRom (accumTinyConfig @Double) (natToNum @AccumCustomDelay) id accumTinyCycles
+
+doubleAccumHugeRom :: [(Bool, Bool, Double, Bool, BitVector 67)]
+doubleAccumHugeRom =
+  accumRom (accumHugeConfig @Double) (natToNum @AccumCustomDelay) id accumHugeCycles
+
+{- | The rows of the ROM of an accumulator test with the given bounds and
+latency: per cycle the enable, the last flag and the input, whether to check
+the output in that cycle, and the expected output. The expected outputs follow
+from the model ('F.accumStep'): the result for the @k@-th enabled input
+appears in the cycles after the @(k + d)@-th enabled clock edge. Earlier
+outputs are not checked. The test starts with a few cycles with the enable
+deasserted, so that repeating the first cycle while the test bench is in reset
+does not matter, and ends with enough enabled cycles to see every result.
+-}
+accumRom ::
+  forall a b.
+  (TestFloat a, BitPack b) =>
+  F.AccumConfig ->
+  -- | Latency
+  Int ->
+  -- | The output to check, from the result and the flags
+  ((a, F.AccumFlags) -> b) ->
+  [AccumCycle a] ->
+  [(Bool, Bool, a, Bool, BitVector (BitSize b))]
+accumRom cfg d f cycles0 =
+  [ if k >= d
+      then (e, l, x, True, pack (f (results !! (k - d))))
+      else (e, l, x, False, 0)
+  | ((e, l, x), k) <- zip cycles edges
+  ]
+ where
+  cycles =
+       replicate 3 (False, False, 0)
+    ++ cycles0
+    ++ replicate (d + 2) (True, False, 0)
+  results = go F.accumStart [(l, x) | (True, l, x) <- cycles]
+  go st ((l, x) : rest) =
+    let st' = F.accumStep cfg st x
+    in (F.accumResult cfg st', F.accumFlags st') : go (if l then F.accumStart else st') rest
+  go _ [] = []
+  -- The number of enabled clock edges before each cycle
+  edges = scanl (\n (e, _, _) -> if e then n + 1 else n) (0 :: Int) cycles
+
+-- | An enabled input that continues an accumulation
+acc :: a -> AccumCycle a
+acc x = (True, False, x)
+
+-- | An enabled input that ends an accumulation
+accLast :: a -> AccumCycle a
+accLast x = (True, True, x)
+
+-- | An input while the enable is deasserted: the IP ignores it, also when the
+-- last flag is set
+accOff :: Bool -> a -> AccumCycle a
+accOff l x = (False, l, x)
+
+{- | Pseudo-random accumulations: inputs with exponents in the given range and
+random signs, lasts and deasserted enables
+-}
+accumRandom :: forall a. RealFloat a => (Int, Int) -> Word64 -> [AccumCycle a]
+accumRandom (eLo, eHi) seed =
+  [ (w2 `mod` 5 /= 0, w2 `shiftR` 8 `mod` 7 == 0, normalWith w1 e)
+  | (w1, w2) <- pairs (randoms (seed * 1000 + 5))
+  , let e = eLo + fromIntegral ((w2 `shiftR` 16) `mod` fromIntegral (eHi - eLo + 1))
+  ]
+
+{- | Accumulations with the default bounds: sums, ignored inputs while the
+enable is deasserted, truncation of small inputs, zeros, infinities, NaNs, a
+sum rounded towards zero, and pseudo-random accumulations.
+-}
+accumBasicCycles :: forall a. TestFloat a => [AccumCycle a]
+accumBasicCycles =
+     [acc 1, acc 2, accLast 3]
+  ++ [acc 10, accOff False 100, accOff True 100, accLast 20]
+  ++ [acc 0.1, acc 0.2, accLast 0.3]
+  ++ [acc (-0), accLast (-0), acc 1, accLast (-1), acc (-1), accLast 1]
+  ++ [acc minNormal, accLast (-maxDenormal)]
+  ++ [acc infinity, acc 1, accLast (-infinity), acc ipNaN, accLast 1]
+     -- Rounded towards zero: 2^k + 3 * 2^(k - p - 1) needs p + 2 bits
+  ++ [acc (encodeFloat 1 k), accLast (encodeFloat 3 (k - digitsOf @a - 1))]
+  ++ take 150 (accumRandom (-10, 10) 1)
+ where
+  -- The default least significant bit is -24 in half precision and -31 in the
+  -- others: the smaller input has to be a multiple of it
+  k = max 0 (lsbOf @a + digitsOf @a + 1)
+  lsbOf :: forall b. TestFloat b => Int
+  lsbOf = if digitsOf @b == 11 then -24 else -31
+
+{- | Accumulations with the bounds of 'accumNarrowConfig': truncation, both
+overflows, infinities, NaNs, deasserted enables, and pseudo-random
+accumulations.
+-}
+accumNarrowCycles :: forall a. TestFloat a => [AccumCycle a]
+accumNarrowCycles =
+     [acc 1, acc 2, accLast 3]
+     -- Truncated towards zero to multiples of 1/16
+  ++ [acc 0.5, acc 0.0625, acc 0.03125, accLast (-0.09375)]
+     -- The sum overflows at 2048
+  ++ [acc 300, acc 300, acc 300, acc 300, acc 900, accLast 1]
+  ++ [acc 1000, acc 1000, accOff False 1000, accOff True 1, accLast 47.5]
+  ++ [acc 1000, acc 1000, accLast 48]
+     -- Inputs overflow at 512
+  ++ [acc 512, accLast (-1), acc 255.75, accLast (-255.75)]
+  ++ [acc infinity, acc 1, accLast (-infinity)]
+  ++ [acc ipNaN, acc 512, accLast infinity]
+  ++ [acc infinity, acc 512, accLast 1]
+  ++ [acc 1000, acc 1000, acc infinity, acc 100, accLast 1]
+  ++ [acc (-0), accLast (-0), acc (-1), accLast 1]
+  ++ [acc minDenormal, accLast 1]
+  ++ take 150 (accumRandom (-6, 9) 2)
+
+-- | Accumulations with the bounds of 'accumTinyConfig': sums below the
+-- smallest normal number are flushed to a zero of the same sign
+accumTinyCycles :: forall a. TestFloat a => [AccumCycle a]
+accumTinyCycles =
+     [acc minNormal, accLast (-minNormal)]
+  ++ [acc (1.5 * minNormal), accLast (-minNormal)]
+  ++ [acc (-1.5 * minNormal), accLast minNormal]
+  ++ [acc (7 * minNormal), acc (7 * minNormal), acc (7 * minNormal), accLast (7 * minNormal)]
+  ++ [acc maxDenormal, accLast minNormal]
+  ++ take 100 (accumRandom (ieeeEmin @a, ieeeEmin @a + 2) 3)
+
+-- | Accumulations with the bounds of 'accumHugeConfig': sums beyond the
+-- largest finite number saturate to it
+accumHugeCycles :: forall a. TestFloat a => [AccumCycle a]
+accumHugeCycles =
+     [acc maxFinite, acc maxFinite, acc (-maxFinite), acc (-maxFinite), acc (-maxFinite), accLast (-maxFinite)]
+  ++ [acc maxFinite, acc maxFinite, acc maxFinite, acc maxFinite, accLast maxFinite]
+  ++ [acc big, accLast big]
+  ++ take 100 (accumRandom (ieeeEmax @a - 2, ieeeEmax @a) 4)
+ where
+  big = encodeFloat 1 (ieeeEmax @a - 1)
