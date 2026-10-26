@@ -315,8 +315,8 @@ compare = compareWith
 -- NaN.
 --
 -- With @bMemUsage = 'Clash.Cores.Xilinx.Floating.Half.FullBMemUsage'@, the
--- IP uses block memory, which lowers its maximum latency. The IP ignores the
--- other settings.
+-- IP uses block memory, which lowers its maximum latency but needs a latency
+-- of at least one. The IP ignores the other settings.
 sqrtWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -440,9 +440,9 @@ toDouble = withFrozenCallStack $ hideEnable $ hideClock E.toDouble
 -- reciprocal rounded to nearest, ties to even. In half precision, the IP
 -- rounds correctly too, so simulation and hardware agree.
 --
--- The t'E.Config' makes no difference: in half precision, the IP builds the
--- reciprocal from block memory, without DSP slices. Its latency must be at
--- least one.
+-- The t'Clash.Cores.Xilinx.Floating.Half.Config' makes no difference: in
+-- half precision, the IP builds the reciprocal from block memory, without DSP
+-- slices. The latency must be at least one.
 recipWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -486,9 +486,9 @@ recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
 -- reciprocal square root rounded to nearest, ties to even. In half precision,
 -- the IP rounds correctly too, so simulation and hardware agree.
 --
--- The t'E.Config' makes no difference: in half precision, the IP builds the
--- reciprocal square root from block memory, without DSP slices. Its latency must be at
--- least one.
+-- The t'Clash.Cores.Xilinx.Floating.Half.Config' makes no difference: in
+-- half precision, the IP builds the reciprocal square root from block memory,
+-- without DSP slices. The latency must be at least one.
 rsqrtWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -536,8 +536,9 @@ rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
 -- bit, differs from the correctly rounded result for 3.9% of the inputs with a
 -- finite result other than zero and one.
 --
--- The t'E.Config' makes no difference: in half precision, the IP always uses
--- @FullDspUsage@ and no block memory for the exponential.
+-- The t'Clash.Cores.Xilinx.Floating.Half.Config' makes no difference: in half
+-- precision, the IP always uses @FullDspUsage@ and no block memory for the
+-- exponential.
 expWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -587,10 +588,10 @@ exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
 -- bit, differs from the correctly rounded result for 0.3% of the inputs with a
 -- finite, non-zero result.
 --
--- Only the @dspUsage@ setting of the t'E.Config' matters. In half precision,
--- the IP supports at most @MediumDspUsage@ for the logarithm: it rejects
--- @MaxDspUsage@, and with @FullDspUsage@, the default, this function uses
--- @MediumDspUsage@ instead.
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Half.Config'
+-- matters. In half precision, the IP supports at most @MediumDspUsage@ for the
+-- logarithm: it rejects @MaxDspUsage@, and with @FullDspUsage@, the default,
+-- this function uses @MediumDspUsage@ instead.
 logWith
   :: ( HiddenClock dom
      , HiddenEnable dom

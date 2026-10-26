@@ -693,8 +693,8 @@ toDouble = withFrozenCallStack $ hideEnable $ hideClock E.toDouble
 -- simulation in the last bit: the IP's C model, which matches the IP bit for
 -- bit, differs from the correctly rounded result for 2.2% of all inputs.
 --
--- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
--- @MediumDspUsage@ and @MaxDspUsage@.
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config'
+-- matters. The IP rejects @MediumDspUsage@ and @MaxDspUsage@.
 recipWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -742,8 +742,8 @@ recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
 -- bit for bit, differs from the correctly rounded result for 2.0% of all
 -- inputs.
 --
--- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
--- @MediumDspUsage@ and @MaxDspUsage@.
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config'
+-- matters. The IP rejects @MediumDspUsage@ and @MaxDspUsage@.
 rsqrtWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -792,8 +792,8 @@ rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
 -- bit, differs from the correctly rounded result for about 16% of random
 -- inputs between -90 and 89.
 --
--- The @dspUsage@ and @bMemUsage@ settings of the t'E.Config' matter. The IP
--- rejects @MaxDspUsage@.
+-- The @dspUsage@ and @bMemUsage@ settings of the
+-- t'Clash.Cores.Xilinx.Floating.Config' matter. The IP rejects @MaxDspUsage@.
 expWith
   :: ( HiddenClock dom
      , HiddenEnable dom
@@ -843,8 +843,8 @@ exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
 -- model, which matches the IP bit for bit, differs from the correctly rounded
 -- result for about half of all inputs.
 --
--- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
--- @MaxDspUsage@.
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config'
+-- matters. The IP rejects @MaxDspUsage@.
 logWith
   :: ( HiddenClock dom
      , HiddenEnable dom
