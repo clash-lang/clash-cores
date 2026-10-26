@@ -17,14 +17,19 @@
  *   <precision> <op> <a> <b>
  *
  * where <precision> is one of half, single, double, <op> is one of add, sub,
- * mul, div, cmp, sqrt, abs, u32, s32, u64, s64, tos32, tohalf, tosingle,
- * todouble, and <a> and <b> are operands in hexadecimal. For add, sub, mul,
+ * mul, div, cmp, sqrt, abs, recip, rsqrt, exp, log, u32, s32, u64, s64, tos32,
+ * tohalf, tosingle, todouble, and <a> and <b> are operands in hexadecimal. For add, sub, mul,
  * div and cmp the operands are the bit patterns of floating point numbers of
  * the given precision. The other operations have one operand, <a>, and ignore
  * <b>:
  *
- * - sqrt, abs: <a> is the bit pattern of a floating point number of the given
- *   precision, and so is the result.
+ * - sqrt, abs, recip (reciprocal), rsqrt (reciprocal square root), exp
+ *   (exponential), log (natural logarithm): <a> is the bit pattern of a
+ *   floating point number of the given precision, and so is the result. exp
+ *   uses the C model's function for a single number, which recomputes its
+ *   tables on every call: it takes about 0.1 ms in single precision and 0.3 ms
+ *   in double precision. (Its functions for arrays of floats and doubles return
+ *   NaNs with the sign bit set, unlike the IP.)
  *
  * - u32, s32, u64, s64: <a> is the 32-bit or 64-bit integer to convert to the
  *   given precision.
@@ -382,6 +387,14 @@ int main(void) {
           exc = xip_fpo_div(r[p], x[p], y[p]);
         } else if (!strcmp(op, "sqrt")) {
           exc = xip_fpo_sqrt(r[p], x[p]);
+        } else if (!strcmp(op, "recip")) {
+          exc = xip_fpo_rec(r[p], x[p]);
+        } else if (!strcmp(op, "rsqrt")) {
+          exc = xip_fpo_recsqrt(r[p], x[p]);
+        } else if (!strcmp(op, "exp")) {
+          exc = xip_fpo_exp(r[p], x[p]);
+        } else if (!strcmp(op, "log")) {
+          exc = xip_fpo_log(r[p], x[p]);
         } else if (!strncmp(op, "to", 2) && find_precision(op + 2, &target)) {
           exc = xip_fpo_flttoflt(r[target], x[p]);
         } else {
