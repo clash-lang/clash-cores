@@ -7,7 +7,9 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -43,12 +45,23 @@ module Clash.Cores.Xilinx.Floating.Internal
   , xilinxExp
   , xilinxLog
   , xilinxFma
+  , AccumConfig(..)
+  , AccumFlags(..)
+  , AccumState
+  , accumStart
+  , accumStep
+  , accumResult
+  , accumFlags
+  , accumFlagsFromTuser
+  , accumConfigCheck
   , integerSqrt
   , toMaybeOrdering
   , unaryInst
   , unaryCombinationalInst
   , binaryInst
   , ternaryInst
+  , accumInst
+  , accumFlagsInst
   ) where
 
 import Clash.Prelude hiding (Ordering(..))
@@ -385,6 +398,182 @@ xilinxFma (xilinxCondition -> x) (xilinxCondition -> y) (xilinxCondition -> z)
   terms = P.filter ((/= 0) . fst) [(mx * my, ex + ey), (mz, ez)]
   e = if P.null terms then 0 else P.minimum (P.map snd terms)
   m = P.sum [t `shiftL` (et - e) | (t, et) <- terms]
+
+-- | Settings of the IP's accumulator. See the documentation of @accumWith@ in
+-- "Clash.Cores.Xilinx.Floating.Generic.Explicit" for what they mean and which
+-- values the IP accepts.
+--
+-- The bounds are exponents of two: the accumulator holds a fixed-point number
+-- whose least significant bit is worth @2^accumLsb@, and which overflows once
+-- its magnitude reaches @2^(accumMsb + 1)@. Inputs overflow once their
+-- magnitude reaches @2^(accumInputMsb + 1)@.
+data AccumConfig = AccumConfig
+  { accumMsb :: !Integer
+    -- ^ Most significant bit of the accumulator, @C_Accum_Msb@ in the IP
+  , accumLsb :: !Integer
+    -- ^ Least significant bit of the accumulator, @C_Accum_Lsb@ in the IP
+  , accumInputMsb :: !Integer
+    -- ^ Most significant bit of the inputs, @C_Accum_Input_Msb@ in the IP
+  , accumDspUsage :: !DspUsage
+    -- ^ DSP slice usage. The IP accepts 'NoDspUsage', 'MediumDspUsage' and
+    -- 'FullDspUsage'.
+  } deriving (Eq, Show)
+
+-- | Exception flags of the IP's accumulator. Like the result, they describe
+-- the accumulation so far, up to and including the current input, so they
+-- stay until the end of the accumulation. Each of them comes with a NaN
+-- result.
+--
+-- At most one flag is set at a time: 'accumInputOverflow' takes precedence
+-- over 'accumOverflow', which takes precedence over 'accumInvalid'. So, for
+-- example, an input overflow after infinities of both signs clears
+-- 'accumInvalid' and sets 'accumInputOverflow'. An accumulation that has seen
+-- a NaN input has no flags at all, so a NaN input clears them.
+--
+-- The fields are in the order of the IP's flag bits, most significant first,
+-- so 'pack' gives the flags as the IP outputs them.
+data AccumFlags = AccumFlags
+  { accumOverflow :: Bool
+    -- ^ Accumulator overflow: the magnitude of the fixed-point sum has reached
+    -- @2^(accumMsb + 1)@ (and the result is NaN)
+  , accumInputOverflow :: Bool
+    -- ^ Accumulator input overflow: the accumulation has seen a finite input
+    -- whose magnitude is at least @2^(accumInputMsb + 1)@ (and its result is
+    -- NaN)
+  , accumInvalid :: Bool
+    -- ^ Invalid operation: the accumulation has seen infinities of both signs
+    -- (and its result is NaN)
+  } deriving (Generic, NFDataX, BitPack, Eq, Show, ShowX)
+
+-- | State of the model of the accumulator: what the accumulation so far has
+-- seen. The IP keeps adding finite inputs to the fixed-point sum after it has
+-- seen an infinity, so an infinite accumulation can still overflow.
+data AccumState = AccumState
+  { asSum :: !Integer
+    -- ^ The fixed-point sum, in units of @2^accumLsb@
+  , asNaN :: !Bool
+    -- ^ Seen a NaN
+  , asPosInf :: !Bool
+    -- ^ Seen positive infinity
+  , asNegInf :: !Bool
+    -- ^ Seen negative infinity
+  , asInputOverflow :: !Bool
+    -- ^ Seen a finite input that is too large
+  , asOverflow :: !Bool
+    -- ^ The fixed-point sum overflowed
+  } deriving (Generic, NFDataX, Eq, Show)
+
+-- | State at the start of an accumulation, also after configuration
+accumStart :: AccumState
+accumStart = AccumState 0 False False False False False
+
+-- | Add an input to the accumulation.
+--
+-- Like the other operations, the IP treats subnormal inputs as zero. Finite
+-- inputs are truncated towards zero to a multiple of @2^accumLsb@ before they
+-- are added.
+--
+-- __NB__: Not synthesizable
+accumStep :: XilinxFloat a => AccumConfig -> AccumState -> a -> AccumState
+accumStep AccumConfig{accumMsb, accumLsb, accumInputMsb} st (xilinxCondition -> x)
+  | isNaN x = st{asNaN = True}
+  | isInfinite x = if x > 0 then st{asPosInf = True} else st{asNegInf = True}
+  | magnitudeExponent >= fromInteger accumInputMsb + 1 = st{asInputOverflow = True}
+  -- An overflow is final: no need to keep the sum
+  | asOverflow st = st
+  | otherwise =
+      st{ asSum = s
+        , asOverflow = abs s >= bit (fromInteger (accumMsb + 1 - accumLsb)) }
+ where
+  (m, e) = decodeFloat x
+  -- The magnitude of a non-zero x lies in [2^magnitudeExponent, 2^(magnitudeExponent + 1))
+  magnitudeExponent
+    | m == 0 = P.minBound :: Int
+    | otherwise = e + bitLength (abs m) - 1
+  sh = e - fromInteger accumLsb
+  -- x in units of 2^accumLsb, truncated towards zero
+  truncated
+    | sh >= 0 = m `shiftL` sh
+    | otherwise = m `quot` bit (negate sh)
+  s = asSum st + truncated
+
+-- | The result of the accumulation so far: NaN if the accumulation has seen a
+-- NaN, infinities of both signs, an input that is too large or if the sum
+-- overflowed; otherwise an infinity if it has seen one; otherwise the
+-- fixed-point sum, rounded towards zero, see 'accumConvert'.
+--
+-- __NB__: Not synthesizable
+accumResult :: XilinxFloat a => AccumConfig -> AccumState -> a
+accumResult AccumConfig{accumLsb} AccumState{..}
+  | asNaN || asInputOverflow || asOverflow || (asPosInf && asNegInf) = ipNaN
+  | asPosInf = 1 / 0
+  | asNegInf = -1 / 0
+  | otherwise = accumConvert asSum (fromInteger accumLsb)
+
+-- | Convert the accumulator's fixed-point sum @m * 2^e@ to a floating point
+-- number, rounding towards zero. A sum of zero becomes positive zero. Like the
+-- other operations, the result is a zero of the same sign if it is below the
+-- smallest normal number. Rounding towards zero means that sums beyond the
+-- largest finite number become the largest finite number of the same sign.
+--
+-- __NB__: Not synthesizable
+accumConvert :: forall a. RealFloat a => Integer -> Int -> a
+accumConvert m e
+  | m == 0 = 0
+  | m < 0 = negate (accumConvert (negate m) e)
+  | top > emax = encodeFloat (bit p - 1) (emax - p)
+  | top < emin = 0
+  -- Exact, see 'xilinxRoundScaled'
+  | otherwise = encodeFloat q (e + dropped)
+ where
+  p = floatDigits (undefined :: a)
+  (emin, emax) = floatRange (undefined :: a)
+  dropped = max 0 (bitLength m - p)
+  q = m `shiftR` dropped
+  top = e + dropped + bitLength q
+
+-- | The exception flags of the accumulation so far, see t'AccumFlags'.
+accumFlags :: AccumState -> AccumFlags
+accumFlags AccumState{..}
+  | asNaN = noFlags
+  | asInputOverflow = noFlags{accumInputOverflow = True}
+  | asOverflow = noFlags{accumOverflow = True}
+  | otherwise = noFlags{accumInvalid = asPosInf && asNegInf}
+ where
+  noFlags = AccumFlags{accumOverflow = False, accumInputOverflow = False, accumInvalid = False}
+
+-- | The flags as the IP outputs them on @m_axis_result_tuser@, if they are
+-- enabled and the IP's other flags (underflow and overflow) are not: invalid
+-- operation in bit 0, accumulator input overflow in bit 1 and accumulator
+-- overflow in bit 2.
+accumFlagsFromTuser :: BitVector 3 -> AccumFlags
+accumFlagsFromTuser = unpack
+
+-- | Check the settings of an accumulator in precision @a@, the way Vivado does
+-- when it generates the IP. Returns an error message for bounds or a DSP slice
+-- usage that Vivado rejects.
+accumConfigCheck :: XilinxFloat a => proxy a -> AccumConfig -> Maybe String
+accumConfigCheck p AccumConfig{..}
+  | accumMsb < emin || accumMsb > emax + 54 =
+      bad ("accumMsb must lie in [" <> show emin <> ", " <> show (emax + 54) <> "]")
+  | accumLsb < emin - (fractionWidth p - 1) =
+      bad ("accumLsb must be at least " <> show (emin - (fractionWidth p - 1)))
+  | accumInputMsb <= accumLsb = bad "accumInputMsb must be larger than accumLsb"
+  | accumInputMsb > min accumMsb emax =
+      bad ("accumInputMsb must be at most accumMsb and " <> show emax)
+  | accumDspUsage == MaxDspUsage =
+      Just "invalid accumulator settings: the accumulator does not support MaxDspUsage"
+  | otherwise = Nothing
+ where
+  -- The exponents of the smallest normal number and of the largest finite
+  -- numbers
+  emax = 2 P.^ (exponentWidth p - 1) - 1
+  emin = 1 - emax
+  bad msg =
+    Just $
+      "invalid accumulator bounds for " <> precisionName p <> " precision ("
+        <> "accumMsb = " <> show accumMsb <> ", accumLsb = " <> show accumLsb
+        <> ", accumInputMsb = " <> show accumInputMsb <> "): " <> msg
 
 -- | Model of the IP's square root.
 --
@@ -1003,6 +1192,80 @@ ternaryInst nm operType extraOptions clk ena a b c =
       (Port @"s_axis_c_tdata" (axiData <$> D.toSignal c))
       (Port @"s_axis_c_tvalid" (pure 1 :: Signal dom Bit))
 {-# INLINE ternaryInst #-}
+
+-- | Instantiate the Floating-Point IP's accumulator, without exception flags
+accumInst ::
+  forall d nExtraOpts n dom a .
+  ( KnownNat nExtraOpts
+  , KnownDomain dom
+  , KnownNat d
+  , BitPack a
+  ) =>
+  -- | Extra Wizard options (will be added to the default ones)
+  Vec nExtraOpts (OptionName, XilinxWizardOption) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Last input of an accumulation
+  DSignal dom n Bool ->
+  DSignal dom n a ->
+  DSignal dom (n + d) a
+accumInst extraOptions clk ena lst a =
+  D.unsafeFromSignal $ unpack . resize <$> unPort (snd go)
+ where
+  go ::
+    ( Port "m_axis_result_tvalid" dom Bit
+    , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize a)))
+    )
+  go =
+    instWithXilinxWizard
+      (instConfig "accum")
+      (floatingWizard (SNat @d) "Accumulator" extraOptions)
+      (ClockPort @"aclk" clk)
+      (Port @"aclken" (boolToBit <$> fromEnable ena))
+      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+      (Port @"s_axis_a_tlast" (boolToBit <$> D.toSignal lst))
+{-# INLINE accumInst #-}
+
+-- | Instantiate the Floating-Point IP's accumulator, with the exception flags
+-- that 'accumFlagsFromTuser' expects
+accumFlagsInst ::
+  forall d nExtraOpts n dom a .
+  ( KnownNat nExtraOpts
+  , KnownDomain dom
+  , KnownNat d
+  , BitPack a
+  ) =>
+  -- | Extra Wizard options (will be added to the default ones)
+  Vec nExtraOpts (OptionName, XilinxWizardOption) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Last input of an accumulation
+  DSignal dom n Bool ->
+  DSignal dom n a ->
+  DSignal dom (n + d) (a, AccumFlags)
+accumFlagsInst extraOptions clk ena lst a =
+  D.unsafeFromSignal $
+    (\r u -> (unpack (resize r), accumFlagsFromTuser u))
+      <$> unPort result
+      <*> unPort flags
+ where
+  (_, result, flags) = go
+  go ::
+    ( Port "m_axis_result_tvalid" dom Bit
+    , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize a)))
+    , Port "m_axis_result_tuser" dom (BitVector 3)
+    )
+  go =
+    instWithXilinxWizard
+      (instConfig "accum")
+      (floatingWizard (SNat @d) "Accumulator" extraOptions)
+      (ClockPort @"aclk" clk)
+      (Port @"aclken" (boolToBit <$> fromEnable ena))
+      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+      (Port @"s_axis_a_tlast" (boolToBit <$> D.toSignal lst))
+{-# INLINE accumFlagsInst #-}
 
 -- | Pad a value to a whole number of bytes, for use as AXI4-Stream @TDATA@
 axiData :: BitPack a => a -> BitVector (AxiWidth (BitSize a))

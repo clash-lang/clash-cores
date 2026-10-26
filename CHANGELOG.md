@@ -23,3 +23,10 @@
   bit
 * Add fused multiply-add (`fma`, `x * y + z` with a single rounding) to the
   Xilinx Floating-Point core, in every precision
+* Add the accumulator (`accum`, `accumWith` and `accumWithFlags`, with
+  `AccumConfig`, `defAccumConfig` and `AccumFlags`) to the Xilinx
+  Floating-Point core, in every precision. It sums in fixed point with
+  configurable bounds and rounds its results towards zero; `accumWithFlags`
+  also outputs its overflow and invalid operation flags. The documentation of
+  `Clash.Cores.Xilinx.Floating.Generic` describes how to derive the exception
+  flags of the other operations from their inputs and results

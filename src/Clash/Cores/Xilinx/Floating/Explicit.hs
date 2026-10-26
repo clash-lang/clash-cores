@@ -83,12 +83,19 @@ module Clash.Cores.Xilinx.Floating.Explicit
   , fmaWith
   , fma
   , FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , AccumDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
   , ArchOpt(..)
   , DspUsage(..)
   , BMemUsage(..)
+  , AccumConfig(..)
+  , defAccumConfig
+  , AccumFlags(..)
     -- * Additional functions
   , xilinxNaN
   ) where
@@ -102,7 +109,8 @@ import Numeric.Half (Half)
 import Clash.Cores.Xilinx.Floating.Generic.Explicit (defConfig)
 import qualified Clash.Cores.Xilinx.Floating.Generic.Explicit as G
 import Clash.Cores.Xilinx.Floating.Internal
-  ( ArchOpt(..), BMemUsage(..), Config(..), DspUsage(..), Ordering(..)
+  ( AccumConfig(..), AccumFlags(..), ArchOpt(..), BMemUsage(..), Config(..)
+  , DspUsage(..), Ordering(..)
   , XilinxFloat, toMaybeOrdering, xilinxNaN )
 
 -- | Customizable floating point addition.
@@ -941,3 +949,77 @@ fma = withFrozenCallStack G.fma
 -- | The default delay for fused multiply-add with default customization.
 type FmaDefDelay = G.FmaDefDelay Float
 
+-- | Customizable accumulator: @accumWith cfg clk en lst x@ gives the running
+-- sum of the inputs @x@. An input with @lst@ set is the last one of its
+-- accumulation: its result is the complete sum, and the next input starts a
+-- new accumulation. De-asserting the 'Enable' stalls the IP: the input of that
+-- cycle is ignored.
+--
+-- The IP adds in fixed point, with the bounds of the t'AccumConfig': inputs
+-- are truncated towards zero to a multiple of @2^accumLsb@ and added exactly,
+-- and the result is the sum rounded __towards zero__. Inputs whose magnitude
+-- reaches @2^(accumInputMsb + 1)@ and sums whose magnitude reaches
+-- @2^(accumMsb + 1)@ make the result NaN until the end of the accumulation.
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWith' for the details
+-- and the bounds the IP accepts.
+accumWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+accumWith = withFrozenCallStack G.accumWith
+{-# INLINE accumWith #-}
+
+-- | Accumulator with the IP's default settings ('defAccumConfig'). See
+-- 'accumWith'.
+accum
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + AccumDefDelay) Float
+accum = withFrozenCallStack G.accum
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags, see
+-- t'AccumFlags' and
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWithFlags'.
+accumWithFlags
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Float, AccumFlags)
+accumWithFlags = withFrozenCallStack G.accumWithFlags
+{-# INLINE accumWithFlags #-}
+
+-- | The default delay of the accumulator with the default settings
+-- ('defAccumConfig').
+type AccumDefDelay = G.AccumDefDelay Float
+
+-- | The IP's default settings of the accumulator in single precision. See
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.defAccumConfig'.
+defAccumConfig :: AccumConfig
+defAccumConfig = G.defAccumConfig @Float

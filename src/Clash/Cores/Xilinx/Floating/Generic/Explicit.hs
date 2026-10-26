@@ -16,6 +16,10 @@ conversions only support 'Float' and 'Double': see 'FromInt32' ('fromU32',
 'fromS32'), 'FromInt64' ('fromU64', 'fromS64') and 'ToInt32' ('toS32').
 'convert' converts between any two precisions.
 
+The IP's exception flags are not available, except for the accumulator
+('accumWithFlags'), but they follow cheaply from the inputs and the result:
+see "Clash.Cores.Xilinx.Floating.Generic#flags".
+
 Related modules:
 
 * "Clash.Cores.Xilinx.Floating.Generic" has the same functions with a hidden
@@ -29,8 +33,10 @@ Related modules:
   applications.
 -}
 
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Clash.Cores.Xilinx.Floating.Generic.Explicit
   ( -- * Precisions
@@ -93,12 +99,19 @@ module Clash.Cores.Xilinx.Floating.Generic.Explicit
   , fmaWith
   , fma
   , FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , AccumDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
   , ArchOpt(..)
   , DspUsage(..)
   , BMemUsage(..)
+  , AccumConfig(..)
+  , defAccumConfig
+  , AccumFlags(..)
     -- * Additional functions
   , xilinxNaN
   ) where
@@ -112,6 +125,9 @@ import Numeric.Half (Half)
 
 import Clash.Cores.Xilinx.Floating.Internal hiding (xilinxNaN)
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
+import Clash.Signal.Internal (Signal((:-)))
+
+import qualified Clash.Signal.Delayed as D
 
 -- | Precisions the IP can convert 32-bit integers to. The IP does not support
 -- these conversions for 'Half'.
@@ -1270,6 +1286,249 @@ type family FmaDefDelay a :: Nat where
   FmaDefDelay Half = 17
   FmaDefDelay Float = 19
   FmaDefDelay Double = 29
+
+-- | Customizable accumulator: @accumWith cfg clk en lst x@ gives the running
+-- sum of the inputs @x@. The result for an input is the sum of that input and
+-- the inputs before it, back to the start of the accumulation. An input with
+-- @lst@ set is the last one of its accumulation: its result is the complete
+-- sum, and the next input starts a new accumulation. The first input after
+-- configuration starts one too.
+--
+-- De-asserting the 'Enable' stalls the IP: the input of that cycle is ignored,
+-- @lst@ included, and the output holds, like for the other operations.
+--
+-- __Fixed point.__ The IP does not add in floating point: it adds into a
+-- fixed-point number whose bounds are set by the t'AccumConfig'.
+--
+-- * Every input is first truncated towards zero to a multiple of
+--   @2^accumLsb@, so inputs whose magnitude is below @2^accumLsb@ count as
+--   zero. Like in the other operations, subnormal inputs count as zero too.
+--
+-- * The sum of the truncated inputs is exact: no rounding errors accumulate,
+--   and the order of the inputs does not matter.
+--
+-- * The result is the sum, rounded __towards zero__ to the precision (not to
+--   nearest, like the other operations). A sum of zero gives a positive zero,
+--   even for negative zero inputs. A sum below the smallest normal number
+--   gives a zero of the same sign; that needs an @accumLsb@ smaller than the
+--   smallest exponent of the precision (-14, -126 or -1022). A sum beyond the
+--   largest finite number gives the largest finite number of the same sign
+--   (rounding towards zero never gives an infinity); that needs an
+--   @accumMsb@ of at least the largest exponent (15, 127 or 1023).
+--
+-- __Overflow.__ A finite input whose magnitude is at least
+-- @2^(accumInputMsb + 1)@ overflows the input, and the sum overflows once its
+-- magnitude reaches @2^(accumMsb + 1)@. The IP does not wrap or saturate:
+-- either overflow makes the result NaN ('xilinxNaN'), up to and including the
+-- last input of the accumulation. 'accumWithFlags' tells them apart.
+--
+-- __Special inputs.__ A NaN input makes the result NaN until the end of the
+-- accumulation, and so does seeing infinities of both signs. Otherwise, an
+-- infinite input makes the result an infinity of the same sign until the end
+-- of the accumulation. The IP keeps adding finite inputs to its fixed-point
+-- sum meanwhile, so that sum (or an input) can still overflow and turn the
+-- result into NaN.
+--
+-- __Bounds.__ Vivado accepts bounds with
+--
+-- > emin <= accumMsb <= emax + 54
+-- > emin - p + 1 <= accumLsb < accumInputMsb <= min accumMsb emax
+--
+-- where @emin@ is the exponent of the smallest normal number (-14, -126 or
+-- -1022), @emax@ that of the largest finite numbers (15, 127 or 1023) and @p@
+-- the number of significant bits (11, 24 or 53). Clash simulation reports an
+-- error for other bounds. Vivado rejects most of them, but it silently
+-- changes some into valid ones: in half precision, for example, it raises an
+-- @accumMsb@ of -15 to -14. The hardware would then not match the simulation.
+--
+-- __Latency.__ The latency @d@ must be at least one: unlike the other
+-- operations, the accumulator does not support a latency of zero. The maximum
+-- latency depends on the bounds and on the DSP usage (@accumDspUsage@, which
+-- can be 'NoDspUsage', 'MediumDspUsage' or 'FullDspUsage'), see
+-- "Clash.Cores.Xilinx.Floating.Generic".
+accumWith
+  :: forall a d dom n
+   . ( XilinxFloat a
+     , KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n a
+  -> DSignal dom (n + d) a
+accumWith = withFrozenCallStack accumWithAnyLatency
+{-# INLINE accumWith #-}
+
+-- | 'accumWith' without the constraint @1 <= d@. 'accum' uses it, as it
+-- cannot show @1 <= AccumDefDelay a@ for every precision @a@, although all
+-- default delays are at least one.
+accumWithAnyLatency
+  :: forall a d dom n
+   . ( XilinxFloat a
+     , KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -> DSignal dom n a
+  -> DSignal dom (n + d) a
+accumWithAnyLatency cfg clk en lst x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (fst <$> accumModel cfg en lst x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of accum undefined"
+  synth = accumInst (accumOpts @a False cfg) clk en lst x
+{-# INLINE accumWithAnyLatency #-}
+
+-- | Accumulator with the IP's default settings ('defAccumConfig'): the running
+-- sum of the inputs, see 'accumWith'. Inputs are truncated towards zero to a
+-- multiple of @2^-24@ in half precision and of @2^-31@ in single and double
+-- precision, and the result is rounded towards zero. Inputs and sums with a
+-- magnitude of @2^33@ or more give NaN; no 'Half' input is that large.
+accum
+  :: forall a dom n
+   . ( XilinxFloat a
+     , KnownNat (AccumDefDelay a)
+     , KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n a
+  -> DSignal dom (n + AccumDefDelay a) a
+accum = withFrozenCallStack $ accumWithAnyLatency (defAccumConfig @a)
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags: like
+-- 'accumWith', with the flags of the accumulation so far next to each result,
+-- see t'AccumFlags'.
+--
+-- This function does not output the IP's underflow and overflow flags (a sum
+-- below the smallest normal number or beyond the largest finite number): the
+-- IP only has them for bounds that make them possible, and they change the
+-- width of its flag output. Underflow needs an @accumLsb@ smaller than the
+-- smallest exponent of the precision, overflow an @accumMsb@ larger than the
+-- largest one, see 'accumWith'.
+accumWithFlags
+  :: forall a d dom n
+   . ( XilinxFloat a
+     , KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n a
+  -> DSignal dom (n + d) (a, AccumFlags)
+accumWithFlags cfg clk en lst x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (accumModel cfg en lst x)
+  und = withFrozenCallStack $
+    deepErrorX "Initial values of accumWithFlags undefined"
+  synth = accumFlagsInst (accumOpts @a True cfg) clk en lst x
+{-# INLINE accumWithFlags #-}
+
+-- | Wizard settings of the accumulator. The IP's underflow and overflow flags
+-- are disabled by default; with the given flags enabled, the IP outputs them
+-- as 'accumFlagsFromTuser' expects.
+accumOpts ::
+  forall a.
+  XilinxFloat a =>
+  -- | Whether to output the exception flags
+  Bool ->
+  AccumConfig ->
+  Vec 11 (OptionName, XilinxWizardOption)
+accumOpts flagsOn AccumConfig{..} =
+  -- The precision comes first: Vivado checks the bounds against the ranges
+  -- of the precision. The bounds come in the IP's own order.
+     precisionOpts (Proxy @a)
+  ++ ("CONFIG.Add_Sub_Value",              StrOpt "Add")
+  :> ("CONFIG.Has_A_TLAST",                BoolOpt True)
+  :> ("CONFIG.C_Mult_Usage",               StrOpt (dspUsageToTcl accumDspUsage))
+  :> ("CONFIG.C_Accum_Msb",                IntegerOpt accumMsb)
+  :> ("CONFIG.C_Accum_Lsb",                IntegerOpt accumLsb)
+  :> ("CONFIG.C_Accum_Input_Msb",          IntegerOpt accumInputMsb)
+  :> ("CONFIG.C_Has_INVALID_OP",           BoolOpt flagsOn)
+  :> ("CONFIG.C_Has_ACCUM_INPUT_OVERFLOW", BoolOpt flagsOn)
+  :> ("CONFIG.C_Has_ACCUM_OVERFLOW",       BoolOpt flagsOn)
+  :> Nil
+{-# INLINE accumOpts #-}
+
+-- | Model of the accumulator, without its latency: the result and the flags
+-- of the accumulation up to and including the current input.
+accumModel ::
+  forall a dom n.
+  ( XilinxFloat a
+  , HasCallStack
+  ) =>
+  AccumConfig ->
+  Enable dom ->
+  DSignal dom n Bool ->
+  DSignal dom n a ->
+  DSignal dom n (a, AccumFlags)
+accumModel cfg en lst x =
+  case accumConfigCheck (Proxy @a) cfg of
+    Just err -> error ("Clash.Cores.Xilinx.Floating: " <> err)
+    Nothing ->
+      D.unsafeFromSignal $
+        (\s -> (accumResult cfg s, accumFlags s))
+          <$> go accumStart (fromEnable en) (D.toSignal lst) (D.toSignal x)
+ where
+  -- The state after each input, given the state before the first one. An
+  -- accumulation starts after configuration and after the last input of the
+  -- previous one. This does not use 'delay', whose initial value depends on
+  -- the domain's initial value behavior, while the IP always starts empty.
+  go s0 ~(e :- es) ~(l :- ls) ~(xi :- xs) =
+    s0 `seqX` (s1 :- go next es ls xs)
+   where
+    s1 = accumStep cfg s0 xi
+    next
+      | not e = s0
+      | l = accumStart
+      | otherwise = s1
+
+-- | The IP's default settings of the accumulator for precision @a@, see
+-- 'accumWith'. In half precision: @accumMsb = 32@, @accumLsb = -24@ and
+-- @accumInputMsb = 15@, so that every input fits. In single and double
+-- precision: @accumMsb = 32@, @accumLsb = -31@ and @accumInputMsb = 32@. In
+-- every precision 'MediumDspUsage'. Use it with a type application, like
+-- @defAccumConfig \@Float@.
+defAccumConfig :: forall a. XilinxFloat a => AccumConfig
+defAccumConfig =
+  AccumConfig
+    { accumMsb = 32
+    , accumLsb = if half then -24 else -31
+    , accumInputMsb = if half then 15 else 32
+    , accumDspUsage = MediumDspUsage
+    }
+ where
+  half = isHalf (Proxy @a)
+{-# INLINE defAccumConfig #-}
+
+-- | The default delay of the accumulator with the default settings
+-- ('defAccumConfig'): the maximum latency for them, the same on all measured
+-- devices.
+type family AccumDefDelay a :: Nat where
+  AccumDefDelay Half = 21
+  AccumDefDelay Float = 22
+  AccumDefDelay Double = 22
 
 -- | Default customization options.
 --

@@ -19,6 +19,10 @@ for 'exp' and 'log', which can differ in the last bit from the IP's, which are
 only accurate to one unit in the last place. In half precision, the IP rounds
 'recip' and 'rsqrt' correctly, so for them simulation and hardware agree.
 
+The IP's exception flags are not available, except for the accumulator
+('accumWithFlags'), but they follow cheaply from the inputs and the result:
+see "Clash.Cores.Xilinx.Floating.Generic#flags".
+
 Related modules:
 
 * "Clash.Cores.Xilinx.Floating.Half.Explicit" has the same functions with
@@ -96,6 +100,14 @@ The maximum latencies in half precision, as reported by Vivado 2022.1:
 +-------------------------------------------+---------------------------------------+-----------------+
 | 'fmaWith'                                 | @FullDspUsage@ (default)              | 17              |
 +-------------------------------------------+---------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @NoDspUsage@                          | 12-21 (19)      |
++-------------------------------------------+---------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @MediumDspUsage@ (default)            | 14-21 (21)      |
++-------------------------------------------+---------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @FullDspUsage@                        | 15-22 (22)      |
++-------------------------------------------+---------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @MaxDspUsage@                         | /rejected/      |
++-------------------------------------------+---------------------------------------+-----------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
@@ -112,8 +124,14 @@ all measured devices: 7-series (Artix-7, Kintex-7 and Spartan-7), UltraScale
 Other versions of Vivado might accept other latencies.
 
 For 'fmaWith', the IP accepts only @MediumDspUsage@ and @FullDspUsage@ and
-ignores @archOpt@. Its maximum latencies were measured on Kintex-7 and Kintex
-UltraScale+ devices, where they are the same.
+ignores @archOpt@. 'accumWith' and 'accumWithFlags' only use the @accumDspUsage@
+setting of their configuration, but their maximum latency also depends on its
+bounds: wider accumulators need more cycles. The table gives the range over all
+bounds the IP accepts, and in parentheses the maximum latency for the default
+bounds ('Clash.Cores.Xilinx.Floating.Half.defAccumConfig'). Their minimum
+latency is one. The maximum latencies of 'fmaWith' and 'accumWith' were measured
+on Kintex-7 and Kintex UltraScale+ devices, where they are the same, for the
+accumulator for a sample of the bounds.
 
 The functions without @With@ use 'Clash.Cores.Xilinx.Floating.Half.defConfig'
 and the default delays (t'Clash.Cores.Xilinx.Floating.Half.AddDefDelay' and so
@@ -169,12 +187,19 @@ module Clash.Cores.Xilinx.Floating.Half
   , fmaWith
   , fma
   , E.FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , E.AccumDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
   , E.ArchOpt(..)
   , E.DspUsage(..)
   , E.BMemUsage(..)
+  , E.AccumConfig(..)
+  , E.defAccumConfig
+  , E.AccumFlags(..)
     -- * Additional functions
   , E.xilinxNaN
   ) where
@@ -737,3 +762,64 @@ fma
 fma = withFrozenCallStack $ hideEnable $ hideClock E.fma
 {-# INLINE fma #-}
 
+-- | Customizable accumulator: @accumWith cfg lst x@ gives the running sum of
+-- the inputs @x@. An input with @lst@ set is the last one of its
+-- accumulation: its result is the complete sum, and the next input starts a
+-- new accumulation. De-asserting the 'Enable' stalls the IP: the input of that
+-- cycle is ignored.
+--
+-- The IP adds in fixed point, with the bounds of the
+-- t'Clash.Cores.Xilinx.Floating.Half.AccumConfig': inputs are truncated towards
+-- zero to a multiple of @2^accumLsb@ and added exactly, and the result is the
+-- sum rounded __towards zero__. Inputs whose magnitude reaches
+-- @2^(accumInputMsb + 1)@ and sums whose magnitude reaches
+-- @2^(accumMsb + 1)@ make the result NaN until the end of the accumulation.
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWith' for the details
+-- and the bounds the IP accepts.
+accumWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => E.AccumConfig
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+accumWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.accumWith cfg
+{-# INLINE accumWith #-}
+
+-- | Accumulator with the IP's default settings
+-- ('Clash.Cores.Xilinx.Floating.Half.defAccumConfig'). See 'accumWith'.
+accum
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AccumDefDelay) Half
+accum = withFrozenCallStack $ hideEnable $ hideClock E.accum
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags, see
+-- t'Clash.Cores.Xilinx.Floating.Half.AccumFlags' and
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWithFlags'.
+accumWithFlags
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => E.AccumConfig
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) (Half, E.AccumFlags)
+accumWithFlags cfg =
+  withFrozenCallStack $ hideEnable . hideClock $ E.accumWithFlags cfg
+{-# INLINE accumWithFlags #-}
