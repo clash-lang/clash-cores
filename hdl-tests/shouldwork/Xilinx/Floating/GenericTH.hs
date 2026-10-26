@@ -116,6 +116,10 @@ doubleMulMaxDspSamples :: [(Double, Double, BitVector 64)]
 doubleMulMaxDspSamples =
   romSamples (natToNum @DoubleMulMaxDspDelay) mulSamples
 
+-- | Samples of the tests at a latency of zero, where the IP is combinational
+doubleAddCombSamples :: [(Double, Double, BitVector 64)]
+doubleAddCombSamples = romSamples 0 addSamples
+
 doubleDivSamples :: [(Double, Double, BitVector 64)]
 doubleDivSamples = romSamples (natToNum @D.DivDefDelay) divSamples
 
@@ -178,6 +182,9 @@ singleToS32Samples = delayOutput1 (natToNum @S.ToS32DefDelay) 0 toS32Samples
 
 doubleSqrtSamples :: [(Double, BitVector 64)]
 doubleSqrtSamples = romSamples1 (natToNum @D.SqrtDefDelay) sqrtSamples
+
+doubleSqrtCombSamples :: [(Double, BitVector 64)]
+doubleSqrtCombSamples = romSamples1 0 sqrtSamples
 
 doubleAbsSamples :: [(Double, BitVector 64)]
 doubleAbsSamples = romSamples1 0 absSamples
@@ -1532,6 +1539,9 @@ doubleFmaSamples = romSamples3 (natToNum @D.FmaDefDelay) fmaSamples
 
 doubleFmaMediumSamples :: [(Double, Double, Double, BitVector 64)]
 doubleFmaMediumSamples = romSamples3 (natToNum @DoubleFmaMediumDelay) fmaSamples
+
+doubleFmaCombSamples :: [(Double, Double, Double, BitVector 64)]
+doubleFmaCombSamples = romSamples3 0 fmaSamples
 
 -- | Like 'romSamples', for functions with three inputs.
 romSamples3 ::

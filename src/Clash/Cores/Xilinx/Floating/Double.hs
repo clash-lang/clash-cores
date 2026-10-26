@@ -124,16 +124,18 @@ The maximum latencies in double precision, as reported by Vivado 2022.1, for
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
-ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only
-uses the @bMemUsage@ setting in half precision. In double precision,
-'recipWith' and 'rsqrtWith' always use @FullDspUsage@, whatever the
-configuration. 'logWith' only uses the @dspUsage@ setting, 'expWith' uses
-@dspUsage@ and @bMemUsage@. The IP only supports a latency of zero for 'abs'.
-Multiplication, the reciprocal square root and the logarithm have different
-maximum latencies on 7-series devices than on UltraScale and UltraScale+
-devices. The measured 7-series devices are Artix-7, Kintex-7 and Spartan-7; the
-UltraScale and UltraScale+ devices are Kintex UltraScale, Kintex UltraScale+
-and Zynq UltraScale+. Other versions of Vivado might accept other latencies.
+ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only uses
+the @bMemUsage@ setting in half precision. In double precision, 'recipWith' and
+'rsqrtWith' always use @FullDspUsage@, whatever the configuration. 'logWith'
+only uses the @dspUsage@ setting, 'expWith' uses @dspUsage@ and @bMemUsage@.
+'abs' only supports a latency of zero. All other operations except the
+accumulator support a latency of zero as well: the IP is then combinational, and
+the 'Enable' has no effect. Multiplication, the reciprocal square root and the
+logarithm have different maximum latencies on 7-series devices than on
+UltraScale and UltraScale+ devices. The measured 7-series devices are Artix-7,
+Kintex-7 and Spartan-7; the UltraScale and UltraScale+ devices are Kintex
+UltraScale, Kintex UltraScale+ and Zynq UltraScale+. Other versions of Vivado
+might accept other latencies.
 
 For 'fmaWith', the IP accepts only @MediumDspUsage@ and @FullDspUsage@ and
 ignores @archOpt@. 'accumWith' and 'accumWithFlags' only use the @accumDspUsage@

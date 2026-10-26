@@ -1121,7 +1121,8 @@ accumModel precision cfg en lst x =
 type AxiWidth n = 8 * DivRU n 8
 
 -- | Wizard settings for the Floating-Point IP: the settings every instance in
--- this module shares, followed by the given extra options.
+-- this module shares, followed by the given extra options. At a latency of
+-- zero, the IP is combinational: it has no clock and no clock enable.
 floatingWizard ::
   forall d nExtraOpts .
   -- | Latency
@@ -1140,13 +1141,19 @@ floatingWizard SNat operType extraOptions =
     , wiz_options =
          ("CONFIG.Operation_Type",     StrOpt operType)
       :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
-      :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
+      :> ("CONFIG.Has_ACLKEN",         BoolOpt (not (isCombinational (SNat @d))))
       :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
       :> ("CONFIG.Maximum_Latency",    BoolOpt False)
       :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
       :> extraOptions
     }
 {-# INLINE floatingWizard #-}
+
+-- | Whether the IP with the given latency is combinational, i.e., has no clock
+-- and no clock enable
+isCombinational :: SNat d -> Bool
+isCombinational d = snatToInteger d == 0
+{-# INLINE isCombinational #-}
 
 -- | Instantiate the Floating-Point IP for an operation with one input
 unaryInst ::
@@ -1167,8 +1174,12 @@ unaryInst ::
   Enable dom ->
   DSignal dom n a ->
   DSignal dom (n + d) b
-unaryInst nm operType extraOptions clk ena a =
-  D.unsafeFromSignal $ unpack . resize <$> unPort (snd go)
+unaryInst nm operType extraOptions clk ena a
+  | isCombinational (SNat @d) =
+      D.unsafeFromSignal $ D.toSignal $
+        unaryCombinationalInst nm operType extraOptions a
+  | otherwise =
+      D.unsafeFromSignal $ unpack . resize <$> unPort (snd go)
  where
   go ::
     ( Port "m_axis_result_tvalid" dom Bit
@@ -1212,19 +1223,7 @@ unaryCombinationalInst nm operType extraOptions a =
   go =
     instWithXilinxWizard
       (instConfig nm)
-      XilinxWizard
-        { wiz_name = "floating_point"
-        , wiz_vendor = "xilinx.com"
-        , wiz_library = "ip"
-        , wiz_version = "7.1"
-        , wiz_options =
-             ("CONFIG.Operation_Type",     StrOpt operType)
-          :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
-          :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
-          :> ("CONFIG.Maximum_Latency",    BoolOpt False)
-          :> ("CONFIG.C_Latency",          IntegerOpt 0)
-          :> extraOptions
-        }
+      (floatingWizard d0 operType extraOptions)
       (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
       (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
 {-# INLINE unaryCombinationalInst #-}
@@ -1257,16 +1256,25 @@ binaryInst nm operType extraOptions clk ena a b =
     ( Port "m_axis_result_tvalid" dom Bit
     , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize c)))
     )
-  go =
-    instWithXilinxWizard
-      (instConfig nm)
-      (floatingWizard (SNat @d) operType extraOptions)
-      (ClockPort @"aclk" clk)
-      (Port @"aclken" (boolToBit <$> fromEnable ena))
-      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
-      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
-      (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
-      (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+  go
+    | isCombinational (SNat @d) =
+        instWithXilinxWizard
+          (instConfig nm)
+          (floatingWizard (SNat @d) operType extraOptions)
+          (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+          (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+          (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
+          (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+    | otherwise =
+        instWithXilinxWizard
+          (instConfig nm)
+          (floatingWizard (SNat @d) operType extraOptions)
+          (ClockPort @"aclk" clk)
+          (Port @"aclken" (boolToBit <$> fromEnable ena))
+          (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+          (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+          (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
+          (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
 {-# INLINE binaryInst #-}
 
 -- | Instantiate the Floating-Point IP for an operation with three inputs
@@ -1299,18 +1307,29 @@ ternaryInst nm operType extraOptions clk ena a b c =
     ( Port "m_axis_result_tvalid" dom Bit
     , Port "m_axis_result_tdata" dom (BitVector (AxiWidth (BitSize r)))
     )
-  go =
-    instWithXilinxWizard
-      (instConfig nm)
-      (floatingWizard (SNat @d) operType extraOptions)
-      (ClockPort @"aclk" clk)
-      (Port @"aclken" (boolToBit <$> fromEnable ena))
-      (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
-      (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
-      (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
-      (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
-      (Port @"s_axis_c_tdata" (axiData <$> D.toSignal c))
-      (Port @"s_axis_c_tvalid" (pure 1 :: Signal dom Bit))
+  go
+    | isCombinational (SNat @d) =
+        instWithXilinxWizard
+          (instConfig nm)
+          (floatingWizard (SNat @d) operType extraOptions)
+          (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+          (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+          (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
+          (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+          (Port @"s_axis_c_tdata" (axiData <$> D.toSignal c))
+          (Port @"s_axis_c_tvalid" (pure 1 :: Signal dom Bit))
+    | otherwise =
+        instWithXilinxWizard
+          (instConfig nm)
+          (floatingWizard (SNat @d) operType extraOptions)
+          (ClockPort @"aclk" clk)
+          (Port @"aclken" (boolToBit <$> fromEnable ena))
+          (Port @"s_axis_a_tdata" (axiData <$> D.toSignal a))
+          (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+          (Port @"s_axis_b_tdata" (axiData <$> D.toSignal b))
+          (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+          (Port @"s_axis_c_tdata" (axiData <$> D.toSignal c))
+          (Port @"s_axis_c_tvalid" (pure 1 :: Signal dom Bit))
 {-# INLINE ternaryInst #-}
 
 -- | Instantiate the Floating-Point IP's accumulator, without exception flags

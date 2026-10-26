@@ -105,28 +105,35 @@ The maximum latencies in half precision, as reported by Vivado 2022.1:
 +----------------------+---------------------------------------+-----------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
-latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
-ignores the @dspUsage@ setting of 'addWith' and 'subWith'. With
-@FullBMemUsage@, 'sqrtWith' also needs a latency of at least one. In half
-precision, the IP builds 'recipWith' and 'rsqrtWith' from block memory without
-DSP slices, whatever the configuration, and they need a latency of at least
-one. 'expWith' ignores the configuration. 'logWith' supports at most
-@MediumDspUsage@: the IP rejects @MaxDspUsage@, and with @FullDspUsage@ (the
-default) 'logWith' uses @MediumDspUsage@ instead. The IP only supports a latency
-of zero for 'abs'. These maximum latencies are the same on
-all measured devices: 7-series (Artix-7, Kintex-7 and Spartan-7), UltraScale
-(Kintex UltraScale) and UltraScale+ (Kintex UltraScale+ and Zynq UltraScale+).
-Other versions of Vivado might accept other latencies.
+latency. Notes on the table:
 
-For 'fmaWith', the IP accepts only @MediumDspUsage@ and @FullDspUsage@ and
-ignores @archOpt@. 'accumWith' and 'accumWithFlags' only use the @accumDspUsage@
-setting of their configuration, but their maximum latency also depends on its
-bounds: wider accumulators need more cycles. The table gives, for both, the
-range over all bounds the IP accepts, and in parentheses the maximum latency for
-the default bounds ('Clash.Cores.Xilinx.Floating.Half.defAccumConfig'). Their
-minimum latency is one. The maximum latencies of 'fmaWith' and 'accumWith' were
-measured on Kintex-7 and Kintex UltraScale+ devices, where they are the same,
-for the accumulator for a sample of the bounds.
+* 'mulWith' and 'fmaWith' ignore @archOpt@. With @LatencyArch@, Vivado ignores
+  the @dspUsage@ setting of 'addWith' and 'subWith'.
+
+* The IP builds 'recipWith' and 'rsqrtWith' from block memory without DSP
+  slices, whatever the configuration, and 'expWith' ignores its configuration.
+  'logWith' supports at most @MediumDspUsage@, and uses it instead of
+  @FullDspUsage@ (the default).
+
+* 'abs' only supports a latency of zero. All other operations support a
+  latency of zero as well, except the accumulator and the entries marked
+  /minimum 1/: 'sqrtWith' with @FullBMemUsage@, 'recipWith' and 'rsqrtWith'.
+  The IP is then combinational, and the 'Enable' has no effect. The
+  accumulator needs a latency of at least one: 'accumWith' and
+  'accumWithFlags' require @1 <= d@.
+
+* The maximum latency of 'accumWith' and 'accumWithFlags' also depends on
+  their bounds: wider accumulators need more cycles. The table gives the lowest
+  and the highest maximum latency over all bounds the IP accepts, and in
+  parentheses the maximum latency for the default bounds
+  ('Clash.Cores.Xilinx.Floating.Half.defAccumConfig').
+
+* The maximum latencies are the same on all measured devices: 7-series
+  (Artix-7, Kintex-7 and Spartan-7), UltraScale (Kintex UltraScale) and
+  UltraScale+ (Kintex UltraScale+ and Zynq UltraScale+). Those of 'fmaWith' and
+  the accumulator were only measured on Kintex-7 and Kintex UltraScale+, and
+  those of the accumulator only for a sample of the bounds. Other versions of
+  Vivado might accept other latencies.
 
 The functions without @With@ use 'Clash.Cores.Xilinx.Floating.Half.defConfig'
 and the default delays (t'Clash.Cores.Xilinx.Floating.Half.AddDefDelay' and so
