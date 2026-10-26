@@ -312,14 +312,20 @@ mulWith
   -> DSignal dom n a
   -> DSignal dom n a
   -> DSignal dom (n + d) a
-mulWith Config{dspUsage} clk en x y
+mulWith Config{archOpt, dspUsage} clk en x y
   | clashSimulation = sim
   | otherwise = synth
  where
   und = withFrozenCallStack $ deepErrorX "Initial values of mul undefined"
   sim = delayI und en clk (xilinxBinary (*) <$> x <*> y)
+  -- Only double precision has a low-latency multiplier: in half and single
+  -- precision, Vivado warns about any other setting than speed-optimized.
+  archOpt1
+    | isDouble (Proxy @a) = archOpt
+    | otherwise = SpeedArch
   extraOpts =
        ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dspUsage))
+    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt1))
     :> precisionOpts (Proxy @a)
   synth = binaryInst "mul" "Multiply" extraOpts clk en x y
 {-# INLINE mulWith #-}

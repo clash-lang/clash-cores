@@ -216,6 +216,7 @@ runClashTest = defaultMain $ clashTestRoot
                                          , "subBasicTB"
                                          , "mulBasicTB"
                                          , "mulMaxDspTB"
+                                         , "mulLowLatencyTB"
                                          , "addCombTB"
                                          , "divBasicTB"
                                          , "compareBasicTB"
