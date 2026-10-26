@@ -108,6 +108,12 @@ The maximum latencies in double precision, as reported by Vivado 2022.1, for
 +-----------------------------------------+-----------------------------------------+------------+---------------+
 | 'logWith'                               | @MaxDspUsage@                           | /rejected/ | /rejected/    |
 +-----------------------------------------+-----------------------------------------+------------+---------------+
+| 'fmaWith'                               | @NoDspUsage@, @MaxDspUsage@             | /rejected/ | /rejected/    |
++-----------------------------------------+-----------------------------------------+------------+---------------+
+| 'fmaWith'                               | @MediumDspUsage@                        | 26         | 26            |
++-----------------------------------------+-----------------------------------------+------------+---------------+
+| 'fmaWith'                               | @FullDspUsage@ (default)                | 29         | 29            |
++-----------------------------------------+-----------------------------------------+------------+---------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
@@ -121,6 +127,10 @@ maximum latencies on 7-series devices than on UltraScale and UltraScale+
 devices. The measured 7-series devices are Artix-7, Kintex-7 and Spartan-7; the UltraScale and
 UltraScale+ devices are Kintex UltraScale, Kintex UltraScale+ and Zynq
 UltraScale+. Other versions of Vivado might accept other latencies.
+
+For 'fmaWith', the IP accepts only @MediumDspUsage@ and @FullDspUsage@ and
+ignores @archOpt@. Its maximum latencies were measured on Kintex-7 and Kintex
+UltraScale+ devices, where they are the same.
 
 The functions without @With@ use
 'Clash.Cores.Xilinx.Floating.Double.defConfig' and the default delays
@@ -193,6 +203,9 @@ module Clash.Cores.Xilinx.Floating.Double
   , logWith
   , log
   , E.LogDefDelay
+  , fmaWith
+  , fma
+  , E.FmaDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -873,3 +886,48 @@ log
   -> DSignal dom (n + E.LogDefDelay) Double
 log = withFrozenCallStack $ hideEnable $ hideClock E.log
 {-# INLINE log #-}
+
+-- | Customizable fused multiply-add: @fmaWith cfg x y z@ computes @x * y + z@
+-- with a single rounding, like C's @fma@. For a fused multiply-subtract, flip
+-- the sign bit of the addend.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero of the
+-- same sign and flushes results below the smallest normal number to a zero of
+-- the same sign. The product is exact, so a product beyond the largest finite
+-- number still gives a finite result if the addend brings the sum back in
+-- range. An infinity times a zero is NaN, and so is an infinite product plus
+-- an infinity of the opposite sign. See
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.fmaWith' for the details.
+--
+-- Only the @dspUsage@ setting of the
+-- t'Clash.Cores.Xilinx.Floating.Double.Config' matters. The IP accepts
+-- @MediumDspUsage@ and @FullDspUsage@ (the default), and rejects @NoDspUsage@
+-- and @MaxDspUsage@.
+fmaWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+fmaWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.fmaWith cfg
+{-# INLINE fmaWith #-}
+
+-- | Fused multiply-add with default settings: @fma x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. See 'fmaWith'.
+fma
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.FmaDefDelay) Double
+fma = withFrozenCallStack $ hideEnable $ hideClock E.fma
+{-# INLINE fma #-}
+

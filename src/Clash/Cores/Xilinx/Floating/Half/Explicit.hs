@@ -67,6 +67,9 @@ module Clash.Cores.Xilinx.Floating.Half.Explicit
   , logWith
   , log
   , LogDefDelay
+  , fmaWith
+  , fma
+  , FmaDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -695,3 +698,54 @@ log = withFrozenCallStack G.log
 --
 -- The IP then uses @MediumDspUsage@, see 'logWith'.
 type LogDefDelay = G.LogDefDelay Half
+
+-- | Customizable fused multiply-add: @fmaWith cfg clk en x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. For a fused
+-- multiply-subtract, flip the sign bit of the addend.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero of the
+-- same sign and flushes results below the smallest normal number to a zero of
+-- the same sign. The product is exact, so a product beyond the largest finite
+-- number still gives a finite result if the addend brings the sum back in
+-- range. An infinity times a zero is NaN, and so is an infinite product plus
+-- an infinity of the opposite sign. See
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.fmaWith' for the details.
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP accepts
+-- @MediumDspUsage@ and @FullDspUsage@ (the default), and rejects
+-- @NoDspUsage@ and @MaxDspUsage@.
+fmaWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+fmaWith = withFrozenCallStack G.fmaWith
+{-# INLINE fmaWith #-}
+
+-- | Fused multiply-add with default settings: @fma clk en x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. See 'fmaWith'.
+fma
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + FmaDefDelay) Half
+fma = withFrozenCallStack G.fma
+{-# INLINE fma #-}
+
+-- | The default delay for fused multiply-add with default customization.
+type FmaDefDelay = G.FmaDefDelay Half
+
