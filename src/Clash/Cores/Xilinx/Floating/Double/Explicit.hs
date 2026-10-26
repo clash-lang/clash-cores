@@ -67,6 +67,18 @@ module Clash.Cores.Xilinx.Floating.Double.Explicit
   , toFloatWith
   , toFloat
   , ToFloatDefDelay
+  , recipWith
+  , recip
+  , RecipDefDelay
+  , rsqrtWith
+  , rsqrt
+  , RSqrtDefDelay
+  , expWith
+  , exp
+  , ExpDefDelay
+  , logWith
+  , log
+  , LogDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -78,7 +90,7 @@ module Clash.Cores.Xilinx.Floating.Double.Explicit
   ) where
 
 import Clash.Explicit.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs, recip, exp, log)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -655,3 +667,243 @@ toFloat = withFrozenCallStack G.convert
 
 -- | The default delay for conversion of @Double@ to @Float@
 type ToFloatDefDelay = G.ConvertDefDelay Double Float
+
+-- | Customizable floating point reciprocal, @1 / x@.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for about 0.3% of random
+-- inputs.
+--
+-- The t'Config' makes no difference: in double precision, the IP always uses
+-- @FullDspUsage@ for the reciprocal.
+recipWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+recipWith = withFrozenCallStack G.recipWith
+{-# INLINE recipWith #-}
+
+-- | Floating point reciprocal, @1 / x@, with default settings.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'recipWith'.
+recip
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + RecipDefDelay) Double
+recip = withFrozenCallStack G.recip
+{-# INLINE recip #-}
+
+-- | The default delay for floating point reciprocal with default
+-- customization.
+type RecipDefDelay = G.RecipDefDelay Double
+
+-- | Customizable floating point reciprocal square root, @1 / sqrt x@.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal square root rounded to nearest, ties to even. The IP is only
+-- accurate to one unit in the last place (PG060), so the hardware can differ
+-- from the simulation in the last bit: the IP's C model, which matches the IP
+-- bit for bit, differs from the correctly rounded result for about 5% of
+-- random inputs.
+--
+-- The t'Config' makes no difference: in double precision, the IP always uses
+-- @FullDspUsage@ for the reciprocal square root.
+rsqrtWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+rsqrtWith = withFrozenCallStack G.rsqrtWith
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, @1 / sqrt x@, with default settings.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'rsqrtWith'.
+rsqrt
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + RSqrtDefDelay) Double
+rsqrt = withFrozenCallStack G.rsqrt
+{-# INLINE rsqrt #-}
+
+-- | The default delay for floating point reciprocal square root with default
+-- customization.
+--
+-- The IP accepts up to 112 cycles on 7-series devices, but only up to 110 on
+-- UltraScale and UltraScale+ devices. The default is 110, which works on all
+-- of them.
+type RSqrtDefDelay = G.RSqrtDefDelay Double
+
+-- | Customizable floating point exponential, @e^x@.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- exponential rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for about 13% of random
+-- inputs.
+--
+-- The @dspUsage@ and @bMemUsage@ settings of the t'Config' matter. The IP
+-- rejects @MaxDspUsage@.
+expWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+expWith = withFrozenCallStack G.expWith
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, with default settings.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'expWith'.
+exp
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + ExpDefDelay) Double
+exp = withFrozenCallStack G.exp
+{-# INLINE exp #-}
+
+-- | The default delay for floating point exponential with default
+-- customization.
+type ExpDefDelay = G.ExpDefDelay Double
+
+-- | Customizable floating point natural logarithm, @log x@.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- logarithm rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for about 0.01% of random
+-- inputs, but for about 5% of the inputs close to one.
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP rejects
+-- @MaxDspUsage@.
+logWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+logWith = withFrozenCallStack G.logWith
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, @log x@, with default settings.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'logWith'.
+log
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + LogDefDelay) Double
+log = withFrozenCallStack G.log
+{-# INLINE log #-}
+
+-- | The default delay for floating point natural logarithm with default
+-- customization.
+--
+-- The IP accepts up to 67 cycles on 7-series devices, but only up to 64 on
+-- UltraScale and UltraScale+ devices. The default is 64, which works on all of
+-- them.
+type LogDefDelay = G.LogDefDelay Double

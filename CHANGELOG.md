@@ -14,5 +14,10 @@
 * Add square root (`sqrt`), absolute value (`abs`), conversions from 64-bit
   integers (`fromU64`, `fromS64`), conversion to `Signed 32` (`toS32`) and
   conversions between precisions (`convert`, and `toHalf`, `toFloat` and
-  `toDouble` in the modules for a single precision) to the Xilinx
-  Floating-Point core
+  `toDouble` in the per-precision modules) to the Xilinx Floating-Point core
+* Add reciprocal (`recip`), reciprocal square root (`rsqrt`), exponential
+  (`exp`) and natural logarithm (`log`) to the Xilinx Floating-Point core, in
+  every precision. Unlike the other operations, Clash simulation does not match
+  the IP bit for bit: it gives the correctly rounded results, while the IP is
+  only accurate to one unit in the last place, so they can differ in the last
+  bit

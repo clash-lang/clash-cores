@@ -78,6 +78,18 @@ module Clash.Cores.Xilinx.Floating.Generic.Explicit
   , convertWith
   , convert
   , ConvertDefDelay
+  , recipWith
+  , recip
+  , RecipDefDelay
+  , rsqrtWith
+  , rsqrt
+  , RSqrtDefDelay
+  , expWith
+  , exp
+  , ExpDefDelay
+  , logWith
+  , log
+  , LogDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -89,7 +101,7 @@ module Clash.Cores.Xilinx.Floating.Generic.Explicit
   ) where
 
 import Clash.Explicit.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs, recip, exp, log)
 
 import Data.Proxy (Proxy(..))
 import GHC.Stack (HasCallStack, withFrozenCallStack)
@@ -815,13 +827,378 @@ type family ConvertDefDelay a b :: Nat where
   ConvertDefDelay Double Float = 3
   ConvertDefDelay Double Double = 2
 
+-- | Whether a precision is half precision. The IP builds some operations
+-- differently in half precision, and ignores or rejects some settings there.
+isHalf :: XilinxFloat a => Proxy a -> Bool
+isHalf p = fractionWidth p == 11
+{-# INLINE isHalf #-}
+
+-- | Whether a precision is double precision
+isDouble :: XilinxFloat a => Proxy a -> Bool
+isDouble p = fractionWidth p == 53
+{-# INLINE isDouble #-}
+
+-- | DSP slice usage the IP uses for the reciprocal and the reciprocal square
+-- root: in half precision it builds them from block memory without DSP slices,
+-- in double precision it always uses 'FullDspUsage'. It ignores the setting
+-- in those precisions (with a warning when it differs), so pass what it uses.
+recipDspUsage :: XilinxFloat a => Proxy a -> DspUsage -> DspUsage
+recipDspUsage p dsp
+  | isHalf p = NoDspUsage
+  | isDouble p = FullDspUsage
+  | otherwise = dsp
+{-# INLINE recipDspUsage #-}
+
+-- | The IP's exponential in half precision always uses 'FullDspUsage' and no
+-- block memory, and ignores the settings (with a warning when they differ), so
+-- pass what it uses.
+expDspUsage :: XilinxFloat a => Proxy a -> DspUsage -> DspUsage
+expDspUsage p dsp = if isHalf p then FullDspUsage else dsp
+{-# INLINE expDspUsage #-}
+
+-- | See 'expDspUsage'
+expBMemUsage :: XilinxFloat a => Proxy a -> BMemUsage -> BMemUsage
+expBMemUsage p bmem = if isHalf p then NoBMemUsage else bmem
+{-# INLINE expBMemUsage #-}
+
+-- | The IP's logarithm in half precision supports at most 'MediumDspUsage' and
+-- rejects 'FullDspUsage', the default. Use 'MediumDspUsage' instead.
+logDspUsage :: XilinxFloat a => Proxy a -> DspUsage -> DspUsage
+logDspUsage p dsp
+  | isHalf p, FullDspUsage <- dsp = MediumDspUsage
+  | otherwise = dsp
+{-# INLINE logDspUsage #-}
+
+-- | Customizable floating point reciprocal, @1 / x@.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign (the reciprocals of the
+-- largest numbers).
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal rounded to nearest, ties to even. In single and double precision,
+-- the IP is only accurate to one unit in the last place (PG060), so the
+-- hardware can differ from the simulation in the last bit: the IP's C model,
+-- which matches the IP bit for bit, differs from the correctly rounded result
+-- for 2.2% of all inputs in single precision and for about 0.3% of random
+-- inputs in double precision. In half precision, the IP rounds correctly, so
+-- simulation and hardware agree.
+--
+-- Only the @dspUsage@ setting of the t'Config' matters, and only in single
+-- precision, where the IP rejects 'MediumDspUsage' and 'MaxDspUsage'. In half
+-- precision, the IP uses block memory and no DSP slices, and needs a latency of
+-- at least one; in double precision it always uses 'FullDspUsage'.
+recipWith
+  :: forall a d dom n
+   . ( XilinxFloat a
+     , KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + d) a
+recipWith Config{dspUsage} clk en x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (xilinxRecip <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of recip undefined"
+  dsp = recipDspUsage (Proxy @a) dspUsage
+  extraOpts =
+       ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dsp))
+    :> precisionOpts (Proxy @a)
+  synth = unaryInst "recip" "Reciprocal" extraOpts clk en x
+{-# INLINE recipWith #-}
+
+-- | Floating point reciprocal, @1 / x@, with default settings.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Results below the smallest normal number
+-- become a zero of the same sign.
+--
+-- Clash simulation gives the correctly rounded result, while the IP in single
+-- and double precision is only accurate to one unit in the last place, so they
+-- can differ in the last bit. See 'recipWith'.
+recip
+  :: forall a dom n
+   . ( XilinxFloat a
+     , KnownNat (RecipDefDelay a)
+     , KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + RecipDefDelay a) a
+recip = withFrozenCallStack $ recipWith defConfig
+{-# INLINE recip #-}
+
+-- | The default delay for floating point reciprocal with default
+-- customization.
+type family RecipDefDelay a :: Nat where
+  RecipDefDelay Half = 4
+  RecipDefDelay Float = 29
+  RecipDefDelay Double = 35
+
+-- | Customizable floating point reciprocal square root, @1 / sqrt x@.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is 'xilinxNaN'. That of positive infinity is positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal square root rounded to nearest, ties to even. In single and
+-- double precision, the IP is only accurate to one unit in the last place
+-- (PG060), so the hardware can differ from the simulation in the last bit: the
+-- IP's C model, which matches the IP bit for bit, differs from the correctly
+-- rounded result for 2.0% of all inputs in single precision and for about 5%
+-- of random inputs in double precision. In half precision, the IP rounds
+-- correctly, so simulation and hardware agree.
+--
+-- Only the @dspUsage@ setting of the t'Config' matters, and only in single
+-- precision, where the IP rejects 'MediumDspUsage' and 'MaxDspUsage'. In half
+-- precision, the IP uses block memory and no DSP slices, and needs a latency of
+-- at least one; in double precision it always uses 'FullDspUsage'.
+rsqrtWith
+  :: forall a d dom n
+   . ( XilinxFloat a
+     , KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + d) a
+rsqrtWith Config{dspUsage} clk en x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (xilinxRSqrt <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of rsqrt undefined"
+  dsp = recipDspUsage (Proxy @a) dspUsage
+  extraOpts =
+       ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dsp))
+    :> precisionOpts (Proxy @a)
+  synth = unaryInst "rsqrt" "Rec_Square_Root" extraOpts clk en x
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, @1 / sqrt x@, with default
+-- settings.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign.
+-- Subnormal inputs count as a zero of the same sign, so the reciprocal
+-- square root of a negative subnormal number is negative infinity. That of
+-- any other negative number, including negative infinity, is 'xilinxNaN'.
+-- That of positive infinity is positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP in single
+-- and double precision is only accurate to one unit in the last place, so they
+-- can differ in the last bit. See 'rsqrtWith'.
+rsqrt
+  :: forall a dom n
+   . ( XilinxFloat a
+     , KnownNat (RSqrtDefDelay a)
+     , KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + RSqrtDefDelay a) a
+rsqrt = withFrozenCallStack $ rsqrtWith defConfig
+{-# INLINE rsqrt #-}
+
+-- | The default delay for floating point reciprocal square root with default
+-- customization.
+--
+-- For 'Double', the IP accepts up to 112 cycles on 7-series devices, but only
+-- up to 110 on UltraScale and UltraScale+ devices. The default is 110, which
+-- works on all of them.
+type family RSqrtDefDelay a :: Nat where
+  RSqrtDefDelay Half = 4
+  RSqrtDefDelay Float = 32
+  RSqrtDefDelay Double = 110
+
+-- | Customizable floating point exponential, @e^x@.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- exponential rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for 3.9% of the half
+-- precision inputs with a finite, non-zero result other than one, for about
+-- 16% of random inputs in single precision and for about 13% in double
+-- precision.
+--
+-- The @dspUsage@ and @bMemUsage@ settings of the t'Config' matter in single
+-- and double precision, where the IP rejects 'MaxDspUsage'. In half
+-- precision, the IP always uses 'FullDspUsage' and no block memory.
+expWith
+  :: forall a d dom n
+   . ( XilinxFloat a
+     , KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + d) a
+expWith Config{dspUsage, bMemUsage} clk en x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (xilinxExp <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of exp undefined"
+  dsp = expDspUsage (Proxy @a) dspUsage
+  bmem = expBMemUsage (Proxy @a) bMemUsage
+  extraOpts =
+       ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dsp))
+    :> ("CONFIG.C_BRAM_Usage", StrOpt (bMemUsageToTcl bmem))
+    :> precisionOpts (Proxy @a)
+  synth = unaryInst "exp" "Exponential" extraOpts clk en x
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, with default settings.
+--
+-- Subnormal inputs count as zero, whose exponential is one. The exponential of
+-- positive infinity is positive infinity, that of negative infinity positive
+-- zero. Results beyond the largest finite number become positive infinity,
+-- results below the smallest normal number positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'expWith'.
+exp
+  :: forall a dom n
+   . ( XilinxFloat a
+     , KnownNat (ExpDefDelay a)
+     , KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + ExpDefDelay a) a
+exp = withFrozenCallStack $ expWith defConfig
+{-# INLINE exp #-}
+
+-- | The default delay for floating point exponential with default
+-- customization.
+type family ExpDefDelay a :: Nat where
+  ExpDefDelay Half = 13
+  ExpDefDelay Float = 29
+  ExpDefDelay Double = 56
+
+-- | Customizable floating point natural logarithm, @log x@.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is 'xilinxNaN'. That of positive infinity is positive infinity,
+-- and that of one positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- logarithm rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for 0.3% of the half
+-- precision inputs with a finite, non-zero result, for about half of all
+-- inputs in single precision (where the IP mostly rounds towards zero), and
+-- in double precision for about 0.01% of random inputs, but for about 5% of
+-- the inputs close to one.
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP rejects
+-- 'MaxDspUsage'. In half precision, it supports at most 'MediumDspUsage', and
+-- rejects 'FullDspUsage', the default: 'logWith' then uses 'MediumDspUsage'
+-- instead.
+logWith
+  :: forall a d dom n
+   . ( XilinxFloat a
+     , KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + d) a
+logWith Config{dspUsage} clk en x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim = delayI und en clk (xilinxLog <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of log undefined"
+  dsp = logDspUsage (Proxy @a) dspUsage
+  extraOpts =
+       ("CONFIG.C_Mult_Usage", StrOpt (dspUsageToTcl dsp))
+    :> precisionOpts (Proxy @a)
+  synth = unaryInst "log" "Logarithm" extraOpts clk en x
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, @log x@, with default settings.
+--
+-- The logarithm of a zero of either sign, and so of a subnormal number, is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is 'xilinxNaN'. That of positive infinity is positive infinity,
+-- and that of one positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'logWith'.
+log
+  :: forall a dom n
+   . ( XilinxFloat a
+     , KnownNat (LogDefDelay a)
+     , KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n a
+  -> DSignal dom (n + LogDefDelay a) a
+log = withFrozenCallStack $ logWith defConfig
+{-# INLINE log #-}
+
+-- | The default delay for floating point natural logarithm with default
+-- customization. In half precision, the IP then uses 'MediumDspUsage', see
+-- 'logWith'.
+--
+-- For 'Double', the IP accepts up to 67 cycles on 7-series devices, but only
+-- up to 64 on UltraScale and UltraScale+ devices. The default is 64, which
+-- works on all of them.
+type family LogDefDelay a :: Nat where
+  LogDefDelay Half = 17
+  LogDefDelay Float = 28
+  LogDefDelay Double = 64
+
 -- | Default customization options.
 --
 -- For those operations that support it, the default options are:
 --
 -- * Speed-optimized architecture ('SpeedArch')
--- * Full DSP slice usage ('FullDspUsage')
--- * Square root in half precision does not use block memory ('NoBMemUsage')
+-- * Full DSP slice usage ('FullDspUsage'). In half precision, the logarithm
+--   supports at most 'MediumDspUsage' and uses that instead.
+-- * No block memory ('NoBMemUsage') for the square root in half precision and
+--   the exponential in single and double precision
 defConfig :: Config
 defConfig = Config
   { archOpt = SpeedArch

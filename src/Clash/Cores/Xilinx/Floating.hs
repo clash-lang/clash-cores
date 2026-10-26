@@ -10,7 +10,14 @@ The functions in this module make it possible to use the Xilinx IP in Clash.
 Compilation will instantiate the Xilinx IP. Clash will output a TCL script
 named @floating_point@/.../@.clash.tcl@ which needs to be executed in the Vivado
 project to create the proper entity. Simulation in Clash produces bit-identical
-results to synthesis.
+results to synthesis, with one exception: the reciprocal ('recip'), reciprocal
+square root ('rsqrt'), exponential ('exp') and natural logarithm ('log'). The IP
+computes these only to an accuracy of one unit in the last place, while Clash
+simulation gives the correctly rounded results. So the results of the hardware
+can differ from those of the simulation in the last bit, for a few percent of
+the inputs (for about half of them for the logarithm in single precision). See
+these functions for details. In half precision, the IP rounds the reciprocal and
+the reciprocal square root correctly, so there simulation and hardware agree.
 
 Most functions allow customization of the Xilinx IP. Valid combinations will
 need to be gleaned from, e.g., the Vivado wizard (IP Catalog -> Floating-point).
@@ -60,12 +67,17 @@ The operations round to nearest, ties to even. Some have further details:
   of range after rounding, including infinities, to 'minBound' or 'maxBound'.
   Every NaN becomes 'minBound'.
 
-* 'toHalf' and the other conversions to a narrower precision round like the
-  arithmetic operations, including the treatment of results below the smallest
-  normal number. Numbers beyond the largest finite number of the narrower
-  precision become an infinity. Conversions to the same or a wider precision
-  are exact, apart from the treatment of subnormal numbers and NaNs, which
-  applies to conversions to the same precision too.
+* 'toHalf' and 'convert' to 'Half' round like the arithmetic operations,
+  including the treatment of results below the smallest normal number.
+  Numbers beyond the largest finite 'Half' become an infinity. Conversions to
+  'Float' and 'Double' are exact, apart from the treatment of subnormal
+  numbers and NaNs.
+
+* 'recip', 'rsqrt', 'exp' and 'log' are only accurate to one unit in the last
+  place in the IP, see above. Their special cases follow IEEE 754, with
+  subnormal inputs treated as a zero of the same sign: so the reciprocal
+  square root and the logarithm of a negative subnormal number are negative
+  infinity. Each function documents its special cases.
 
 For each customizable operation, there also exists a function that uses the
 defaults. These functions use the settings from
@@ -93,58 +105,93 @@ stages, which can lower the maximum clock frequency.
 
 The maximum latencies in single precision, as reported by Vivado 2022.1:
 
-+-------------------------------------------+---------------------------------------+-----------------+
-| Function                                  | Configuration                         | Maximum latency |
-+===========================================+=======================================+=================+
-| 'addWith', 'subWith'                      | @SpeedArch@, @NoDspUsage@             | 12              |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'addWith', 'subWith'                      | @SpeedArch@, @MediumDspUsage@         | 11              |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'addWith', 'subWith'                      | @SpeedArch@, @FullDspUsage@ (default) | 11              |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'addWith', 'subWith'                      | @SpeedArch@, @MaxDspUsage@            | /rejected/      |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'addWith', 'subWith'                      | @LatencyArch@, any @DspUsage@         | 8               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'mulWith'                                 | @NoDspUsage@                          | 8               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'mulWith'                                 | @MediumDspUsage@                      | 8               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'mulWith'                                 | @FullDspUsage@ (default)              | 8               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'mulWith'                                 | @MaxDspUsage@                         | 6               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'divWith'                                 | any                                   | 28              |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'compareWith'                             |                                       | 2               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'fromU32With'                             |                                       | 5               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'fromS32With'                             |                                       | 6               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'sqrtWith'                                | any                                   | 28              |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'abs'                                     |                                       | 0 (only)        |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'fromU64With'                             |                                       | 6               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'fromS64With'                             |                                       | 7               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'toS32With'                               |                                       | 6               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'convertWith', to @Float@                 |                                       | 2               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'toHalfWith', 'convertWith' to @Half@     |                                       | 3               |
-+-------------------------------------------+---------------------------------------+-----------------+
-| 'toDoubleWith', 'convertWith' to @Double@ |                                       | 2               |
-+-------------------------------------------+---------------------------------------+-----------------+
++-------------------------------------------+-----------------------------------------+-----------------+
+| Function                                  | Configuration                           | Maximum latency |
++===========================================+=========================================+=================+
+| 'addWith', 'subWith'                      | @SpeedArch@, @NoDspUsage@               | 12              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @SpeedArch@, @MediumDspUsage@           | 11              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @SpeedArch@, @FullDspUsage@ (default)   | 11              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @SpeedArch@, @MaxDspUsage@              | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @LatencyArch@, any @DspUsage@           | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @NoDspUsage@                            | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @MediumDspUsage@                        | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @FullDspUsage@ (default)                | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @MaxDspUsage@                           | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'divWith'                                 | any                                     | 28              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'compareWith'                             |                                         | 2               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromU32With'                             |                                         | 5               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromS32With'                             |                                         | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'sqrtWith'                                | any                                     | 28              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'abs'                                     |                                         | 0 (only)        |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromU64With'                             |                                         | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromS64With'                             |                                         | 7               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'toS32With'                               |                                         | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'convertWith', to @Float@                 |                                         | 2               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'toHalfWith', 'convertWith' to @Half@     |                                         | 3               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'toDoubleWith', 'convertWith' to @Double@ |                                         | 2               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'recipWith'                               | @NoDspUsage@                            | 36              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'recipWith'                               | @MediumDspUsage@, @MaxDspUsage@         | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'recipWith'                               | @FullDspUsage@ (default)                | 29              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'rsqrtWith'                               | @NoDspUsage@                            | 37              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'rsqrtWith'                               | @MediumDspUsage@, @MaxDspUsage@         | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'rsqrtWith'                               | @FullDspUsage@ (default)                | 32              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @NoDspUsage@, @NoBMemUsage@             | 23              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @NoDspUsage@, @FullBMemUsage@           | 24              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @MediumDspUsage@, @NoBMemUsage@         | 20              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @MediumDspUsage@, @FullBMemUsage@       | 21              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @FullDspUsage@, @NoBMemUsage@ (default) | 29              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @FullDspUsage@, @FullBMemUsage@         | 29              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @MaxDspUsage@                           | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @NoDspUsage@                            | 23              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @MediumDspUsage@                        | 22              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @FullDspUsage@ (default)                | 28              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @MaxDspUsage@                           | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
 
 /rejected/ means that Vivado rejects the configuration itself, whatever the
 latency. 'mulWith' ignores the @archOpt@ setting. With @LatencyArch@, Vivado
 ignores the @dspUsage@ setting of 'addWith' and 'subWith'. 'sqrtWith' only
-uses the @bMemUsage@ setting in half precision. The IP only supports a latency
-of zero for 'abs'. These maximum latencies are the same on all measured
-devices: 7-series (Artix-7, Kintex-7 and Spartan-7), UltraScale (Kintex
+uses the @bMemUsage@ setting in half precision. 'recipWith', 'rsqrtWith' and
+'logWith' only use the @dspUsage@ setting, 'expWith' uses @dspUsage@ and
+@bMemUsage@. The IP only supports a latency of zero for 'abs'. These maximum
+latencies are the same on all measured devices: 7-series (Artix-7, Kintex-7 and Spartan-7), UltraScale (Kintex
 UltraScale) and UltraScale+ (Kintex UltraScale+ and Zynq UltraScale+). Other
 versions of Vivado might accept other latencies.
 
@@ -199,6 +246,18 @@ module Clash.Cores.Xilinx.Floating
   , toDoubleWith
   , toDouble
   , E.ToDoubleDefDelay
+  , recipWith
+  , recip
+  , E.RecipDefDelay
+  , rsqrtWith
+  , rsqrt
+  , E.RSqrtDefDelay
+  , expWith
+  , exp
+  , E.ExpDefDelay
+  , logWith
+  , log
+  , E.LogDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -210,7 +269,7 @@ module Clash.Cores.Xilinx.Floating
   ) where
 
 import Clash.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, abs)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs, recip, exp, log)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -674,3 +733,202 @@ toDouble
   -> DSignal dom (n + E.ToDoubleDefDelay) Double
 toDouble = withFrozenCallStack $ hideEnable $ hideClock E.toDouble
 {-# INLINE toDouble #-}
+
+-- | Customizable floating point reciprocal, @1 / x@.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for 2.2% of all inputs.
+--
+-- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
+-- @MediumDspUsage@ and @MaxDspUsage@.
+recipWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+recipWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.recipWith cfg
+{-# INLINE recipWith #-}
+
+-- | Floating point reciprocal, @1 / x@, with default settings.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'recipWith'.
+recip
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.RecipDefDelay) Float
+recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
+{-# INLINE recip #-}
+
+-- | Customizable floating point reciprocal square root, @1 / sqrt x@.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- reciprocal square root rounded to nearest, ties to even. The IP is only
+-- accurate to one unit in the last place (PG060), so the hardware can differ
+-- from the simulation in the last bit: the IP's C model, which matches the IP
+-- bit for bit, differs from the correctly rounded result for 2.0% of all
+-- inputs.
+--
+-- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
+-- @MediumDspUsage@ and @MaxDspUsage@.
+rsqrtWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+rsqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.rsqrtWith cfg
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, @1 / sqrt x@, with default settings.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'rsqrtWith'.
+rsqrt
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.RSqrtDefDelay) Float
+rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
+{-# INLINE rsqrt #-}
+
+-- | Customizable floating point exponential, @e^x@.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- exponential rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP's C model, which matches the IP bit for
+-- bit, differs from the correctly rounded result for about 16% of random
+-- inputs between -90 and 89.
+--
+-- The @dspUsage@ and @bMemUsage@ settings of the t'E.Config' matter. The IP
+-- rejects @MaxDspUsage@.
+expWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+expWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.expWith cfg
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, with default settings.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'expWith'.
+exp
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ExpDefDelay) Float
+exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
+{-# INLINE exp #-}
+
+-- | Customizable floating point natural logarithm, @log x@.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- __Accuracy.__ Clash simulation gives the correctly rounded result: the exact
+-- logarithm rounded to nearest, ties to even. The IP is only accurate to one
+-- unit in the last place (PG060), so the hardware can differ from the
+-- simulation in the last bit: the IP mostly rounds towards zero, so its C
+-- model, which matches the IP bit for bit, differs from the correctly rounded
+-- result for about half of all inputs.
+--
+-- Only the @dspUsage@ setting of the t'E.Config' matters. The IP rejects
+-- @MaxDspUsage@.
+logWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+logWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.logWith cfg
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, @log x@, with default settings.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- Clash simulation gives the correctly rounded result, while the IP is only
+-- accurate to one unit in the last place, so they can differ in the last bit.
+-- See 'logWith'.
+log
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.LogDefDelay) Float
+log = withFrozenCallStack $ hideEnable $ hideClock E.log
+{-# INLINE log #-}
