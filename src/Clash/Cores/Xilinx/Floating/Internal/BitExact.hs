@@ -24,6 +24,7 @@ module Clash.Cores.Xilinx.Floating.Internal.BitExact
   , logDouble
   , bitLength
   , roundShiftR
+  , integerSqrt
   ) where
 
 import Prelude
@@ -151,14 +152,7 @@ rsqrtTable = listArray (0, 255) [entry p j | p <- [0, 1], j <- [0 .. 127]]
    where
     -- sqrt (r / 2^8 / 2^p) * 2^28 = sqrt (r * 2^(48 - p))
     n = toInteger (recipTable ! j) `shiftL` (48 - p)
-    s = isqrt n
-
--- | Integer square root, rounded down
-isqrt :: Integer -> Integer
-isqrt 0 = 0
-isqrt n = go n
- where
-  go x = let y = (x + n `div` x) `shiftR` 1 in if y >= x then x else go y
+    s = integerSqrt n
 
 -- | Reduction of a single precision significand @m@ (2^23 <= m < 2^24): j, r,
 -- A in units of 2^-28, A2 and A3
@@ -344,7 +338,7 @@ rsqrtTableDouble =
     f = halfUp (3 `shiftL` (fs + 15) - r * sq) (fs + 15) fe
 
   -- floor (2^16 / sqrt R) at the end of the range of 32 values of r around r
-  seed r = isqrt (bit 42 `div` (513 + ((r `shiftR` 5) .&. 511)))
+  seed r = integerSqrt (bit 42 `div` (513 + ((r `shiftR` 5) .&. 511)))
 
   mEven r = halfUp (r * z3) 72 56
    where
@@ -353,7 +347,7 @@ rsqrtTableDouble =
     z3 = step r 57 71 56 57 halfUp z2
 
   -- sqrt (1/2) rounded to nearest at 56 fraction bits
-  invSqrt2 = let n = bit 111; sq = isqrt n in if n > sq * sq + sq then sq + 1 else sq
+  invSqrt2 = let n = bit 111; sq = integerSqrt n in if n > sq * sq + sq then sq + 1 else sq
   mOdd r = halfUp (mEven r * invSqrt2) 112 56
 
 -- * Exponential
@@ -1085,6 +1079,25 @@ roundExact v = agree "roundExact" [floor (v + 1 % 2 - eps), floor (v + 1 % 2 + e
 -- | Number of bits of a positive integer
 bitLength :: Integer -> Int
 bitLength i = fromIntegral (integerLog2 i) + 1
+
+-- | Integer square root: the largest integer whose square is at most the given
+-- non-negative integer.
+integerSqrt :: Integer -> Integer
+integerSqrt i
+  | i < 0 = error "integerSqrt: negative number"
+  | i < 2 = i
+  | otherwise = newton start
+ where
+  -- Estimate from the most significant (at most 53) bits, after shifting out an
+  -- even number of bits. 'sqrt' of a 'Double' rounds correctly and converting
+  -- at most 53 bits to a 'Double' is exact, so 'start' is at least the square
+  -- root: floor (sqrt h) + 1 >= sqrt (h + 1).
+  t = max 0 ((bitLength i - 52) `div` 2)
+  start = (floor (sqrt (fromInteger (i `shiftR` (2 * t)) :: Double)) + 1) `shiftL` t
+  -- Newton's iteration from above
+  newton x =
+    let x' = (x + i `quot` x) `shiftR` 1
+    in if x' >= x then x else newton x'
 
 -- | Shift a non-negative integer to the right by the given number of bits,
 -- rounding to nearest, ties to even.
