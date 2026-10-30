@@ -258,6 +258,7 @@ test-suite unit-tests
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
     Test.Cores.Xilinx.Xpm.Fifo
+    Test.Cores.Xilinx.Xpm.FifoAxi
 
   build-depends:
     clash-cores,

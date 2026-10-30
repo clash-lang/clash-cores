@@ -33,6 +33,7 @@ import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
 import qualified Test.Cores.Xilinx.Ethernet.Gmii
 import qualified Test.Cores.Xilinx.Xpm.Fifo
+import qualified Test.Cores.Xilinx.Xpm.FifoAxi
 
 tests :: TestTree
 tests = testGroup "Unittests" $
@@ -49,6 +50,7 @@ tests = testGroup "Unittests" $
   , Test.Cores.Xilinx.DnaPortE2.tests
   , Test.Cores.Xilinx.Ethernet.Gmii.tests
   , Test.Cores.Xilinx.Xpm.Fifo.tests
+  , Test.Cores.Xilinx.Xpm.FifoAxi.tests
   ] ++ tests_modern
 
 tests_modern :: [TestTree]
