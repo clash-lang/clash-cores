@@ -180,6 +180,7 @@ library
     Clash.Cores.Xilinx.Xpm.Memory
     Clash.Cores.Xilinx.Xpm.Memory.Internal
     Clash.Cores.Xilinx.Xpm.Memory.Sdpram
+    Clash.Cores.Xilinx.Xpm.Memory.Spram
     Clash.Cores.Xilinx.Xpm.Memory.Tdpram
 
   other-modules:
@@ -252,6 +253,7 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
+    Test.Cores.Xilinx.Xpm.Memory
 
   build-depends:
     clash-cores,

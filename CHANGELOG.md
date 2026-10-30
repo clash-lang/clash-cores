@@ -9,3 +9,4 @@
 * Add I2C controller core, ported from the `clash-compiler` examples
 * Add `xpmMemoryTdpram`, a wrapper for Xilinx's `XPM_MEMORY_TDPRAM` macro
 * Add `xpmMemorySdpram`, a wrapper for Xilinx's `XPM_MEMORY_SDPRAM` macro
+* Add `xpmMemorySpram`, a wrapper for Xilinx's `XPM_MEMORY_SPRAM` macro
