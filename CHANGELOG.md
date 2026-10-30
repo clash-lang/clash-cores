@@ -10,3 +10,4 @@
 * Add `xpmMemoryTdpram`, a wrapper for Xilinx's `XPM_MEMORY_TDPRAM` macro
 * Add `xpmMemorySdpram`, a wrapper for Xilinx's `XPM_MEMORY_SDPRAM` macro
 * Add `xpmMemorySpram`, a wrapper for Xilinx's `XPM_MEMORY_SPRAM` macro
+* Add `xpmMemorySprom`, a wrapper for Xilinx's `XPM_MEMORY_SPROM` macro

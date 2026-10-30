@@ -9,6 +9,7 @@
   * 'xpmMemoryTdpram': true dual port RAM, with two ports that read and write
   * 'xpmMemorySdpram': simple dual port RAM, with a write port and a read port
   * 'xpmMemorySpram': single port RAM
+  * 'xpmMemorySprom': single port ROM
 
   Each function instantiates the corresponding macro when generating HDL, and
   uses a simulation model when simulating in Haskell. The model follows the
@@ -111,6 +112,8 @@ module Clash.Cores.Xilinx.Xpm.Memory
   , xpmMemorySdpramWith
   , xpmMemorySpram
   , xpmMemorySpramWith
+  , xpmMemorySprom
+  , xpmMemorySpromWith
 
     -- * Configuration
   , XpmMemoryConfig(..)
@@ -129,4 +132,5 @@ module Clash.Cores.Xilinx.Xpm.Memory
 import Clash.Cores.Xilinx.Xpm.Memory.Internal
 import Clash.Cores.Xilinx.Xpm.Memory.Sdpram
 import Clash.Cores.Xilinx.Xpm.Memory.Spram
+import Clash.Cores.Xilinx.Xpm.Memory.Sprom
 import Clash.Cores.Xilinx.Xpm.Memory.Tdpram
