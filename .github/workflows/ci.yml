@@ -41,7 +41,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libtinfo-dev
+          sudo apt-get install -y libtinfo-dev unzip
 
       - name: Install GHC
         uses: haskell-actions/setup@v2
@@ -94,6 +94,10 @@ jobs:
         run: bin/clash-cores:doctests -j$(.ci/effective_cpus.sh)
 
       - name: Unit tests
+        env:
+          # The tests of the Xilinx floating point models need Xilinx's C model,
+          # see test/Test/Cores/Xilinx/Floating.hs
+          CLASH_CORES_XILINX_FLOATING_CMODEL: /opt/tools/Xilinx/Vivado/2022.1/data/ip/xilinx/floating_point_v7_1/cmodel/floating_point_v7_1_bitacc_cmodel_lin64.zip
         run: bin/clash-cores:unit-tests -j$(.ci/effective_cpus.sh) --hide-successes
 
   haddock:

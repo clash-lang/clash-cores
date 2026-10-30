@@ -30,6 +30,14 @@ flag unit-tests
   default: True
   manual: True
 
+flag xilinx-floating-cmodel
+  description:
+    Test the Xilinx floating point models against Xilinx's C model. The tests
+    need the C model, which ships with Vivado, when they run. See
+    test/Test/Cores/Xilinx/Floating.hs.
+  default: False
+  manual: True
+
 flag clash-18
   description:
     Disable cores that require a Clash version later than 1.8
@@ -258,6 +266,16 @@ test-suite unit-tests
     tasty-hunit,
     tasty-quickcheck,
     tasty-th,
+
+  if flag(xilinx-floating-cmodel)
+    cpp-options: -DXILINX_FLOATING_CMODEL
+    other-modules:
+      Test.Cores.Xilinx.Floating
+    build-depends:
+      directory,
+      filepath,
+      process,
+      temporary,
 
 test-suite doctests
   type:             exitcode-stdio-1.0
