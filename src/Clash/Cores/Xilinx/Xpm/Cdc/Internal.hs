@@ -40,6 +40,7 @@ module Clash.Cores.Xilinx.Xpm.Cdc.Internal
 
   -- * Params and ports
   , Param(..)
+  , HexStringParam(..)
   , ClockPort(..)
   , DiffClockPort (..)
   , NamedDiffClockPort (..)
@@ -81,7 +82,7 @@ import Clash.Annotations.Primitive
 import Clash.Backend (Backend, hdlKind)
 import Clash.Core.DataCon ( DataCon(MkData, dcName) )
 import Clash.Core.Name ( Name(Name, nameOcc) )
-import Clash.Core.Term ( Term(Data), collectArgs )
+import Clash.Core.Term ( Term(Data, Prim), PrimInfo(..), collectArgs, stripAllTicks )
 import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.TyCon(isTupleTyConLike)
@@ -97,11 +98,19 @@ import qualified Clash.Netlist.Id as Id
 import qualified Clash.Primitives.DSL as DSL
 import qualified Clash.Util.Interpolate as I
 
+import qualified Clash.Core.Literal as Core
+import qualified Clash.Core.Term as Core
 import qualified Clash.Core.TermLiteral.Compat as Compat
 
 -- | VHDL generic or Verilog parameter. Contents should be able to render to an
 -- HDL constant.
 data Param (name :: Symbol) a = Param a
+
+-- | VHDL generic or Verilog parameter of type string, holding the hexadecimal
+-- representation of a 'BitVector', without leading zeros. For example,
+-- @HexStringParam \@\"P\" (0xAB :: BitVector 12)@ renders as @P => \"AB\"@. The
+-- 'BitVector' must be a constant without undefined bits.
+data HexStringParam (name :: Symbol) n = HexStringParam (BitVector n)
 
 -- | Port with clock (bit) type, where @portName@ is the name of the port that
 -- is mapped in the target HDL.
@@ -142,6 +151,7 @@ data Port (portName :: Symbol) dom a = Port (Signal dom a)
 data PrimParam a = PrimParam
   { paramName :: Text
   , paramAsInteger :: Maybe Integer
+  , paramAsString :: Maybe String
   , paramMeta :: a
   }
   deriving (Show, Functor)
@@ -214,7 +224,25 @@ instance TermLiteral (PrimPortOrParam ()) where
         { paramName = Text.pack nm
         , paramMeta = ()
         , paramAsInteger = integerParam
+        , paramAsString =
+            if isIntegerTy ty
+            then Nothing
+            else termToString (stripAllTicks arg)
         }))
+
+    | constrName == show 'HexStringParam
+    , [Right (LitTy (SymTy nm)), Right _width, Left arg] <- args
+    = case termToBitVector (stripAllTicks arg) of
+        Just (width, 0, val) ->
+          pure (MkPrimParam (PrimParam
+            { paramName = Text.pack nm
+            , paramMeta = ()
+            , paramAsInteger = Nothing
+            , paramAsString = Just (hexString width val)
+            }))
+        _ -> error $
+             "HexStringParam " <> nm <> ": expected a fully defined, constant "
+          <> "BitVector, but got:\n\n" <> ppShow arg
 
     | constrName == show 'Port
     , (LitTy (SymTy nm) : LitTy (SymTy domNm) : _) <- rights args
@@ -267,6 +295,52 @@ instance TermLiteral (PrimPortOrParam ()) where
         }))
 
   TERM_TO_DATA t = Left t
+
+-- | Interpret a term as a 'String' literal. Unlike the 'TermLiteral' instance
+-- for 'String', this also accepts strings built out of @(:)@ and @[]@. Template
+-- Haskell's 'Language.Haskell.TH.Syntax.lift' renders strings like that, and so
+-- does Clash's partial evaluator when it evaluates (simple) string functions.
+termToString :: Term -> Maybe String
+termToString t = case collectArgs t of
+  (Data MkData{dcName=Name{nameOcc}}, args)
+    | nameOcc == Text.pack (show '(:))
+    , [c0, cs0] <- lefts args
+    -> do
+      c1 <- either (const Nothing) Just (Compat.termToData @Char c0)
+      cs1 <- termToString (stripAllTicks cs0)
+      pure (c1 : cs1)
+    | nameOcc == Text.pack (show '[])
+    -> pure []
+  (Prim PrimInfo{primName}, [Left (Core.Literal (Core.StringLiteral s)), Left rest])
+    | primName == "GHC.CString.unpackAppendCString#"
+    -> (s <>) <$> termToString (stripAllTicks rest)
+  _ -> either (const Nothing) Just (Compat.termToData @String t)
+
+-- | Interpret a term as a 'BitVector' literal: @(width, mask, value)@.
+termToBitVector :: Term -> Maybe (Integer, Integer, Integer)
+termToBitVector t = case collectArgs t of
+  (Prim PrimInfo{primName}, lefts -> [knownNat, mask, val])
+    | primName == "Clash.Sized.Internal.BitVector.fromInteger#"
+    , Right n <- Compat.termToData @Natural knownNat
+    , Right m <- Compat.termToData @Natural mask
+    , Right v <- Compat.termToData @Integer val
+    -> Just (toInteger n, toInteger m, v)
+  -- 'pack' wraps its result in 'xToBV' to catch 'XException's
+  (Prim PrimInfo{primName}, lefts -> args@(_:_))
+    | "xToBV" `Text.isSuffixOf` primName
+    -> termToBitVector (stripAllTicks (P.last args))
+  _ -> Nothing
+
+-- | Render a natural number as a hexadecimal string, without leading zeros.
+-- The width is only used for error reporting.
+hexString :: Integer -> Integer -> String
+hexString width val0
+  | val0 < 0 || val0 >= 2 P.^ width = error ("hexString: " <> show val0 <> " out of range")
+  | val0 == 0 = "0"
+  | otherwise = go val0 ""
+ where
+  go 0 acc = acc
+  go val acc = go (val `P.div` 16) (("0123456789ABCDEF" P.!! fromInteger (val `P.mod` 16)) : acc)
 
 -- | Get the 'ResetPolarity' from a type. This is used to automatically insert
 -- a @not@ if the reset polarity does not match the reset polarity of the domain.
@@ -436,6 +510,9 @@ instance Inst a => Inst (BiSignalInPort s ds dom n -> a) where
   instX !_i = instX @a
 
 instance Inst a => Inst (Param s const -> a) where
+  instX !_i = instX @a
+
+instance Inst a => Inst (HexStringParam s n -> a) where
   instX !_i = instX @a
 
 -- | /Polyvariadic/ function representing the instantiation of a Verilog/VHDL
@@ -799,10 +876,11 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           ps  -> pure [DSL.tuple (snd <$> ps)]
  where
   mkParam :: PrimParam DSL.TExpr -> (Text, DSL.TExpr)
-  mkParam (PrimParam{paramName, paramMeta, paramAsInteger}) =
-    case paramAsInteger of
-      Just i -> (paramName, DSL.TExpr Integer (Literal Nothing (NumLit i)))
-      Nothing -> (paramName, paramMeta)
+  mkParam (PrimParam{paramName, paramMeta, paramAsInteger, paramAsString}) =
+    case (paramAsInteger, paramAsString) of
+      (Just i, _) -> (paramName, DSL.TExpr Integer (Literal Nothing (NumLit i)))
+      (_, Just s) -> (paramName, DSL.TExpr String (Literal Nothing (StringLit s)))
+      (Nothing, Nothing) -> (paramName, paramMeta)
 
   mkInPort :: PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
   mkInPort = \case
