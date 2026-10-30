@@ -177,9 +177,11 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+    Clash.Cores.Xilinx.Xpm.Fifo
     Clash.Cores.Xilinx.Xpm.Fifo.Internal
     Clash.Cores.Xilinx.Xpm.Fifo.Internal.Base
     Clash.Cores.Xilinx.Xpm.Fifo.Internal.TH
+    Clash.Cores.Xilinx.Xpm.Fifo.Sync
 
   other-modules:
     Clash.Core.TermLiteral.Compat
@@ -250,6 +252,7 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
+    Test.Cores.Xilinx.Xpm.Fifo
 
   build-depends:
     clash-cores,
