@@ -264,6 +264,12 @@ runClashTest = defaultMain $ clashTestRoot
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..6]]
             }
 
+        , runTest "XpmFifoAxil" $ def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..5]]
+            }
         , runTest "XpmFifoAxis" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]

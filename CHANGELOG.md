@@ -10,3 +10,4 @@
 * Add `xpmFifoSync`, a wrapper for Xilinx's `XPM_FIFO_SYNC` macro
 * Add `xpmFifoAsync`, a wrapper for Xilinx's `XPM_FIFO_ASYNC` macro
 * Add `xpmFifoAxis`, a wrapper for Xilinx's `XPM_FIFO_AXIS` macro
+* Add `xpmFifoAxil`, a wrapper for Xilinx's `XPM_FIFO_AXIL` macro
