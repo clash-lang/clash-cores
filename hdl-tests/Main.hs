@@ -251,6 +251,12 @@ runClashTest = defaultMain $ clashTestRoot
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
 #endif
+        , runTest "XpmFifoAsync" $ def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
+            }
         , runTest "XpmFifoSync" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]

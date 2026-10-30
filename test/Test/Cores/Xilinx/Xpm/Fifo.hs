@@ -88,6 +88,41 @@ prop_syncFifo = property $ do
   -- The FIFO ends up empty
   P.last (sampleN n isEmpty) === True
 
+prop_asyncFifo ::
+  forall write read .
+  (KnownDomain write, KnownDomain read) =>
+  -- | Related clocks
+  Bool ->
+  Clock write ->
+  Clock read ->
+  Property
+prop_asyncFifo related clkW clkR = property $ do
+  rm <- forAll genReadMode
+  stages <- if related then pure 2 else forAll (Gen.integral (Range.linear 2 4))
+  wrs <- forAll (genRequests (Gen.integral Range.linearBounded))
+  rds <- forAll (genRequests (pure ()))
+  let
+    cfg = (defXpmFifoConfig @4)
+      { readMode = rm
+      , advFeatures = allAdvFeatures
+      , cdcSyncStages = stages
+      , relatedClocks = related
+      }
+    periodW = snatToNum (clockPeriod @write) :: Int
+    periodR = snatToNum (clockPeriod @read) :: Int
+    nW = P.length wrs + 100
+    nR = P.max ((nW * periodW) `P.div` periodR) (P.length rds) + 200
+    wrIn = P.take nW (wrs <> P.repeat Nothing)
+    rdIn = P.take nR (fmap isJust rds <> P.repeat True)
+    XpmFifoOut{..} =
+      xpmFifoAsyncWith cfg clkW noReset clkR (fromList (wrIn <> P.repeat Nothing))
+        (fromList (rdIn <> P.repeat True))
+    ws = acceptedWrites wrIn (sampleN nW isFull) (sampleN nW writeResetBusy)
+    rs = readWords rm rdIn (sampleN nR isDataValid) (sampleN nR fifoData)
+  H.cover 50 "words transferred" (not (P.null ws))
+  rs === ws
+  P.last (sampleN nR isEmpty) === True
+
 -- | Writes are rejected while the FIFO is full, and while it resets
 prop_syncCapacity :: Property
 prop_syncCapacity = property $ do
@@ -104,10 +139,32 @@ prop_syncCapacity = property $ do
   P.last counts === capacity
   P.last (sampleN 100 isFull) === True
 
+-- | Like 'prop_syncCapacity', for 'xpmFifoAsync'
+prop_asyncCapacity :: Property
+prop_asyncCapacity = property $ do
+  rm <- forAll genReadMode
+  let
+    cfg = (defXpmFifoConfig @4){readMode = rm, advFeatures = allAdvFeatures}
+    XpmFifoOut{..} =
+      xpmFifoAsyncWith cfg (clockGen @F7) noReset (clockGen @F23)
+        (pure (Just (0 :: Dat))) (pure False)
+    capacity = case rm of
+      Std _ -> 15
+      Fwft -> 17
+  P.last (sampleN 300 writeCount) === capacity
+  P.last (sampleN 300 isFull) === True
+
 tests :: TestTree
 tests = testGroup "XPM FIFO"
   [ testPropertyNamed "xpmFifoSync is a FIFO" "prop_syncFifo" prop_syncFifo
   , testPropertyNamed "xpmFifoSync capacity" "prop_syncCapacity" prop_syncCapacity
+  , testPropertyNamed "xpmFifoAsync capacity" "prop_asyncCapacity" prop_asyncCapacity
+  , testPropertyNamed "xpmFifoAsync is a FIFO (write faster)" "prop_asyncFifo"
+      (prop_asyncFifo False (clockGen @F7) (clockGen @F23))
+  , testPropertyNamed "xpmFifoAsync is a FIFO (read faster)" "prop_asyncFifo"
+      (prop_asyncFifo False (clockGen @F23) (clockGen @F10))
+  , testPropertyNamed "xpmFifoAsync is a FIFO (related)" "prop_asyncFifo"
+      (prop_asyncFifo True (clockGen @F10) (clockGen @F20))
   , testCase "advFeaturesParam" $ do
       advFeaturesParam defAdvFeatures @?= "0707"
       advFeaturesParam allAdvFeatures @?= "1f1f"

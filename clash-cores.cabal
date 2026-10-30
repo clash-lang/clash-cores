@@ -178,6 +178,7 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
     Clash.Cores.Xilinx.Xpm.Fifo
+    Clash.Cores.Xilinx.Xpm.Fifo.Async
     Clash.Cores.Xilinx.Xpm.Fifo.Internal
     Clash.Cores.Xilinx.Xpm.Fifo.Internal.Base
     Clash.Cores.Xilinx.Xpm.Fifo.Internal.TH

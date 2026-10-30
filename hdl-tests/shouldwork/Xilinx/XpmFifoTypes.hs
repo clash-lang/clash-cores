@@ -2,7 +2,8 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE RecordWildCards #-}
 
--- | Test infrastructure for "XpmFifoSync". It drives the FIFO with random write and read requests, the density of which
+-- | Shared test infrastructure for "XpmFifoSync" and "XpmFifoAsync". Both
+-- drive the FIFO with random write and read requests, the density of which
 -- varies over time so the FIFO regularly fills up and drains, and with resets
 -- at fixed cycles. All outputs of the FIFO are compared, cycle by cycle, with
 -- outputs of the Haskell simulation model.
@@ -10,7 +11,7 @@ module XpmFifoTypes where
 
 import Clash.Explicit.Prelude
 import Clash.Explicit.Testbench
-import Clash.Sized.Internal.BitVector (BitVector(BV), fromInteger#)
+import Clash.Sized.Internal.BitVector (BitVector(BV), fromInteger#, undefined#)
 import Language.Haskell.TH (ExpQ, litT, numTyLit)
 import qualified Prelude as P
 import Language.Haskell.TH.Syntax (lift)
@@ -118,6 +119,15 @@ bitVecToVecTH xs =
   mask = P.foldl (\acc (BV msk _) -> acc * 2 P.^ m + msk) 0 xs
   val = toInteger (P.foldl (\acc (BV _ v) -> acc * 2 P.^ m + v) 0 xs)
 
+-- | Replace the first @n@ samples by undefined values, which 'assertBitVector'
+-- treats as don't cares. Also adds an undefined sample at the end: after the
+-- last sample, 'outputVerifierWith' keeps comparing with the last sample until
+-- the test bench stops, which happens when the verifier in the other domain is
+-- done too.
+dontCareFirst :: KnownNat m => Int -> [BitVector m] -> [BitVector m]
+dontCareFirst n xs =
+  fmap (const undefined#) (P.take n xs) <> P.drop n xs <> [undefined#]
+
 -- * Synchronous FIFO
 
 syncFifo ::
@@ -156,6 +166,80 @@ syncExpected ::
   Int ->
   ExpQ
 syncExpected cfg clk samples = bitVecToVecTH (sampleN samples (syncFifo cfg clk))
+
+-- * Asynchronous FIFO
+
+-- | Number of write clock cycles at the start of the simulation in which the
+-- test does not write to the FIFO, and does not compare its outputs. Vivado's
+-- simulator holds the synchronizer registers in the XPM at their initial value
+-- while the global set/reset (GSR) is active during the first 100 ns of the
+-- simulation. This delays the power-on reset sequence compared to hardware
+-- (and the model).
+asyncQuiet :: Unsigned 16
+asyncQuiet = 200
+
+-- | Number of write clock cycles to simulate
+asyncSamples :: Int
+asyncSamples = 1300
+
+asyncFifo ::
+  forall depth write read .
+  (KnownOuts depth, KnownDomain write, KnownDomain read) =>
+  XpmFifoConfig depth ->
+  Clock write ->
+  Clock read ->
+  ( Signal write (BitVector (BitSize (WriteOut depth)))
+  , Signal read (BitVector (BitSize (ReadOut depth))) )
+asyncFifo cfg clkW clkR = (packWrite out, packRead out)
+ where
+  out =
+    xpmFifoAsyncWith cfg clkW (resetStimulus 500 900 clkW) clkR
+      (writeStimulus asyncQuiet clkW) (readStimulus clkR)
+
+asyncTb ::
+  forall write read depth nW nR .
+  ( KnownOuts depth, KnownDomain write, KnownDomain read
+  , KnownNat nW, 1 <= nW, KnownNat nR, 1 <= nR ) =>
+  XpmFifoConfig depth ->
+  ( Vec nW (BitVector (BitSize (WriteOut depth)))
+  , Vec nR (BitVector (BitSize (ReadOut depth))) ) ->
+  Signal read Bool
+asyncTb cfg (expectedW, expectedR) = done
+ where
+  (actualW, actualR) = asyncFifo cfg clkW clkR
+  doneW =
+    outputVerifierWith
+      (\c r -> assertBitVector c r $(lift $ "outputVerifier write (seed:" <> show randomSeed <> ")"))
+      clkW clkW noReset expectedW actualW
+  doneR =
+    outputVerifierWith
+      (\c r -> assertBitVector c r $(lift $ "outputVerifier read (seed:" <> show randomSeed <> ")"))
+      clkR clkR noReset expectedR actualR
+  done = doneR .&&. unsafeSynchronizer clkW clkR doneW
+  clkW :: Clock write
+  clkW = tbClockGen (not <$> unsafeSynchronizer clkR clkW done)
+  clkR :: Clock read
+  clkR = tbClockGen (not <$> done)
+
+-- | Expected values of 'asyncTb'. Outputs during 'asyncQuiet' are don't
+-- cares.
+asyncExpected ::
+  forall depth write read .
+  (KnownOuts depth, KnownDomain write, KnownDomain read) =>
+  XpmFifoConfig depth ->
+  Clock write ->
+  Clock read ->
+  ExpQ
+asyncExpected cfg clkW clkR =
+  [| ( $(bitVecToVecTH (dontCareFirst ignoreW (sampleN asyncSamples actualW)))
+     , $(bitVecToVecTH (dontCareFirst ignoreR (sampleN samplesR actualR))) ) |]
+ where
+  (actualW, actualR) = asyncFifo cfg clkW clkR
+  periodW = snatToNum (clockPeriod @write) :: Int
+  periodR = snatToNum (clockPeriod @read) :: Int
+  ignoreW = fromIntegral asyncQuiet
+  ignoreR = ignoreW * periodW `div` periodR
+  samplesR = asyncSamples * periodW `div` periodR
 
 -- * Configurations
 
@@ -221,4 +305,74 @@ syncCfg6 = (defXpmFifoConfig @6)
   , progFullThresh = 40
   , progEmptyThresh = 20
   , advFeatures = allAdvFeatures
+  }
+
+-- | Standard read mode, read latency 1, all optional outputs
+asyncCfg0 :: XpmFifoConfig 4
+asyncCfg0 = (defXpmFifoConfig @4)
+  { fifoMemoryType = Block
+  , advFeatures = allAdvFeatures
+  }
+
+-- | FWFT, three synchronization stages, full flags reset to 'True'
+asyncCfg1 :: XpmFifoConfig 4
+asyncCfg1 = (defXpmFifoConfig @4)
+  { fifoMemoryType = Distributed
+  , readMode = Fwft
+  , fullResetValue = True
+  , progEmptyThresh = 6
+  , advFeatures = allAdvFeatures
+  , cdcSyncStages = 3
+  }
+
+-- | Read latency 2, four synchronization stages
+asyncCfg2 :: XpmFifoConfig 5
+asyncCfg2 = (defXpmFifoConfig @5)
+  { readMode = Std 2
+  , fullResetValue = True
+  , progFullThresh = 20
+  , progEmptyThresh = 8
+  , advFeatures = allAdvFeatures
+  , cdcSyncStages = 4
+  }
+
+-- | FWFT, eight synchronization stages
+asyncCfg3 :: XpmFifoConfig 5
+asyncCfg3 = (defXpmFifoConfig @5)
+  { fifoMemoryType = Block
+  , readMode = Fwft
+  , progFullThresh = 20
+  , progEmptyThresh = 8
+  , advFeatures = allAdvFeatures
+  , cdcSyncStages = 8
+  }
+
+-- | Related clocks
+asyncCfg4 :: XpmFifoConfig 4
+asyncCfg4 = (defXpmFifoConfig @4)
+  { advFeatures = allAdvFeatures
+  , relatedClocks = True
+  }
+
+-- | Related clocks, FWFT
+asyncCfg5 :: XpmFifoConfig 4
+asyncCfg5 = (defXpmFifoConfig @4)
+  { fifoMemoryType = Distributed
+  , readMode = Fwft
+  , advFeatures = allAdvFeatures
+  , relatedClocks = True
+  }
+
+-- | Read latency 3, default optional outputs
+asyncCfg6 :: XpmFifoConfig 4
+asyncCfg6 = (defXpmFifoConfig @4)
+  { readMode = Std 3
+  }
+
+-- | Larger FIFO, five synchronization stages, only data valid
+asyncCfg7 :: XpmFifoConfig 6
+asyncCfg7 = (defXpmFifoConfig @6)
+  { fifoMemoryType = Block
+  , advFeatures = noAdvFeatures{enDataValid = True}
+  , cdcSyncStages = 5
   }
