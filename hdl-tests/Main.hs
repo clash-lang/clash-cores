@@ -244,6 +244,12 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..7]]
             }
+        , runTest "XpmMemoryDprom" $ def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific ["tb" <> show n | n <- [(0::Int)..2]]
+            }
         , runTest "XpmMemorySdpram" $ def
             { hdlTargets=[VHDL, Verilog]
             , hdlLoad=[Vivado]

@@ -178,6 +178,7 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
     Clash.Cores.Xilinx.Xpm.Memory
+    Clash.Cores.Xilinx.Xpm.Memory.Dprom
     Clash.Cores.Xilinx.Xpm.Memory.Internal
     Clash.Cores.Xilinx.Xpm.Memory.Sdpram
     Clash.Cores.Xilinx.Xpm.Memory.Spram
