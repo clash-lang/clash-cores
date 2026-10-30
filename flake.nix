@@ -86,10 +86,14 @@
               }));
 
               # Append the package set with clash-cores
-              clash-cores = (prev.developPackage {
+              clash-cores = ((prev.developPackage {
                 root = ./.;
                 overrides = _: _: final;
-              }).overrideAttrs override-attrs;
+              }).overrideAttrs override-attrs).overrideAttrs (pAttr: {
+                preCheck = pAttr.preCheck or "" + ''
+                  export TASTY_NUM_THREADS=$NIX_BUILD_CORES
+                '';
+              });
 
               # The HDL testsuite, wrapped such that it uses the Clash and HDL
               # tools from Nix. Run it from the root of the repository:
