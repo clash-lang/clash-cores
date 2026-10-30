@@ -7,6 +7,7 @@
   [UG974](https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_MEMORY_TDPRAM):
 
   * 'xpmMemoryTdpram': true dual port RAM, with two ports that read and write
+  * 'xpmMemorySdpram': simple dual port RAM, with a write port and a read port
 
   Each function instantiates the corresponding macro when generating HDL, and
   uses a simulation model when simulating in Haskell. The model follows the
@@ -31,9 +32,9 @@
   registers in between take the value of the previous register when the port
   was enabled @n - 1@ cycles earlier. Resets are synchronous or asynchronous,
   depending on the domain, and active high or low, depending on the domain.
-  Registers start (at power-up) with the reset value, except for the read
-  register and registers in between in 'WriteFirst' or 'ReadFirst' mode, which
-  start at zero.
+  Registers start (at power-up) with the reset value, except in 'WriteFirst'
+  and 'ReadFirst' mode with a read latency larger than /1/: then the read
+  register and the registers in between start at zero.
 
   = Clocks
 
@@ -105,6 +106,8 @@ module Clash.Cores.Xilinx.Xpm.Memory
   ( -- * Memories
     xpmMemoryTdpram
   , xpmMemoryTdpramWith
+  , xpmMemorySdpram
+  , xpmMemorySdpramWith
 
     -- * Configuration
   , XpmMemoryConfig(..)
@@ -121,4 +124,5 @@ module Clash.Cores.Xilinx.Xpm.Memory
   ) where
 
 import Clash.Cores.Xilinx.Xpm.Memory.Internal
+import Clash.Cores.Xilinx.Xpm.Memory.Sdpram
 import Clash.Cores.Xilinx.Xpm.Memory.Tdpram
