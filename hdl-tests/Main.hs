@@ -173,10 +173,9 @@ runClashTest = defaultMain $ clashTestRoot
         , let _opts = def{ hdlTargets=[VHDL, Verilog]
                           , hdlLoad=[Vivado]
                           , hdlSim=[Vivado]
-                            -- addShortPLTB now segfaults :-(
                           , buildTargets=BuildSpecific [ "addBasicTB"
                                                       , "addEnableTB"
-                                                      -- , "addShortPLTB"
+                                                      , "addShortPLTB"
                                                       , "subBasicTB"
                                                       , "mulBasicTB"
                                                       , "divBasicTB"
