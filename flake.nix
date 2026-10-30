@@ -92,6 +92,7 @@
               }).overrideAttrs override-attrs).overrideAttrs (pAttr: {
                 preCheck = pAttr.preCheck or "" + ''
                   export TASTY_NUM_THREADS=$NIX_BUILD_CORES
+                  export TASTY_HIDE_SUCCESSES=True
                 '';
               });
 
