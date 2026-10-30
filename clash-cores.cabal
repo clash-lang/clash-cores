@@ -177,6 +177,9 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+    Clash.Cores.Xilinx.Xpm.Memory
+    Clash.Cores.Xilinx.Xpm.Memory.Internal
+    Clash.Cores.Xilinx.Xpm.Memory.Tdpram
 
   other-modules:
     Clash.Core.TermLiteral.Compat
@@ -193,6 +196,7 @@ library
     -fno-worker-wrapper
 
   build-depends:
+    directory,
     ghc-prim                >= 0.3.1.0 && < 1.0,
     mtl                     >= 2.1.1 && < 2.4,
     pretty-show,

@@ -10,6 +10,8 @@
 
 module Clash.Cores.Xilinx.Xpm
   ( module Clash.Cores.Xilinx.Xpm.Cdc
+  , module Clash.Cores.Xilinx.Xpm.Memory
   ) where
 
 import Clash.Cores.Xilinx.Xpm.Cdc
+import Clash.Cores.Xilinx.Xpm.Memory
