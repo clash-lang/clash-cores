@@ -173,10 +173,9 @@ runClashTest = defaultMain $ clashTestRoot
         , let _opts = def{ hdlTargets=[VHDL, Verilog]
                           , hdlLoad=[Vivado]
                           , hdlSim=[Vivado]
-                            -- addShortPLTB now segfaults :-(
                           , buildTargets=BuildSpecific [ "addBasicTB"
                                                       , "addEnableTB"
-                                                      -- , "addShortPLTB"
+                                                      , "addShortPLTB"
                                                       , "subBasicTB"
                                                       , "mulBasicTB"
                                                       , "divBasicTB"
@@ -186,9 +185,99 @@ runClashTest = defaultMain $ clashTestRoot
                                                       , "fromUEnableTB"
                                                       , "fromSBasicTB"
                                                       , "fromSEnableTB"
+                                                      , "sqrtBasicTB"
+                                                      , "absBasicTB"
+                                                      , "convertBasicTB"
+                                                      , "toHalfBasicTB"
+                                                      , "toDoubleBasicTB"
+                                                      , "fromU64BasicTB"
+                                                      , "fromS64BasicTB"
+                                                      , "toS32BasicTB"
+                                                      , "recipBasicTB"
+                                                      , "recipNoDspTB"
+                                                      , "rsqrtBasicTB"
+                                                      , "expBasicTB"
+                                                      , "expBramTB"
+                                                      , "logBasicTB"
+                                                      , "fmaBasicTB"
+                                                      , "fmaMediumTB"
+                                                      , "accumBasicTB"
+                                                      , "accumFlagsTB"
+                                                      , "accumTinyTB"
+                                                      , "accumHugeTB"
                                                       ]
                           }
           in runTest "Floating" _opts
+        , runTest "FloatingDouble" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific [ "addBasicTB"
+                                         , "subBasicTB"
+                                         , "mulBasicTB"
+                                         , "mulMaxDspTB"
+                                         , "mulLowLatencyTB"
+                                         , "addCombTB"
+                                         , "divBasicTB"
+                                         , "compareBasicTB"
+                                         , "fromUBasicTB"
+                                         , "fromSBasicTB"
+                                         , "sqrtBasicTB"
+                                         , "sqrtCombTB"
+                                         , "absBasicTB"
+                                         , "convertBasicTB"
+                                         , "toHalfBasicTB"
+                                         , "toFloatBasicTB"
+                                         , "fromU64BasicTB"
+                                         , "fromS64BasicTB"
+                                         , "toS32BasicTB"
+                                         , "recipBasicTB"
+                                         , "rsqrtBasicTB"
+                                         , "expBasicTB"
+                                         , "expBramTB"
+                                         , "logBasicTB"
+                                         , "logNoDspTB"
+                                         , "fmaBasicTB"
+                                         , "fmaMediumTB"
+                                         , "fmaCombTB"
+                                         , "accumBasicTB"
+                                         , "accumFlagsTB"
+                                         , "accumTinyTB"
+                                         , "accumHugeTB"
+                                         ]
+            }
+        , runTest "FloatingHalf" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific [ "addBasicTB"
+                                         , "addLowLatencyTB"
+                                         , "subBasicTB"
+                                         , "mulBasicTB"
+                                         , "mulGenericTB"
+                                         , "divBasicTB"
+                                         , "compareBasicTB"
+                                         , "sqrtBasicTB"
+                                         , "sqrtBramTB"
+                                         , "absBasicTB"
+                                         , "convertBasicTB"
+                                         , "toFloatBasicTB"
+                                         , "toDoubleBasicTB"
+                                         , "toDoubleGenericTB"
+                                         , "recipBasicTB"
+                                         , "rsqrtBasicTB"
+                                         , "rsqrtMinLatencyTB"
+                                         , "expBasicTB"
+                                         , "logBasicTB"
+                                         , "logGenericTB"
+                                         , "fmaBasicTB"
+                                         , "fmaMediumTB"
+                                         , "accumBasicTB"
+                                         , "accumFlagsTB"
+                                         , "accumTinyTB"
+                                         , "accumHugeTB"
+                                         ]
+            }
         , runTest "Ibufds" def
           { hdlLoad = [Vivado]
           , hdlSim = [Vivado]

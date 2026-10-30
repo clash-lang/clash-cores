@@ -7,3 +7,26 @@
 * Add UART core
 * Add CRC core
 * Add I2C controller core, ported from the `clash-compiler` examples
+* Add half and double precision to the Xilinx Floating-Point core
+  (`Clash.Cores.Xilinx.Floating.Half` and `Clash.Cores.Xilinx.Floating.Double`),
+  and `Clash.Cores.Xilinx.Floating.Generic`, which is generic in the precision;
+  each has an `.Explicit` variant
+* Add square root (`sqrt`), absolute value (`abs`), conversions from 64-bit
+  integers (`fromU64`, `fromS64`), conversion to `Signed 32` (`toS32`) and
+  conversions between precisions (`convert`, and `toHalf`, `toFloat` and
+  `toDouble` in the per-precision modules) to the Xilinx Floating-Point core
+* Add reciprocal (`recip`), reciprocal square root (`rsqrt`), exponential
+  (`exp`) and natural logarithm (`log`) to the Xilinx Floating-Point core, in
+  every precision. The IP is only accurate to one unit in the last place for
+  these. Clash simulation reproduces the IP's algorithms, and so matches it bit
+  for bit
+* Add fused multiply-add (`fma`, `x * y + z` with a single rounding) to the
+  Xilinx Floating-Point core, in every precision
+* Add the accumulator (`accum`, `accumWith` and `accumWithFlags`, with
+  `AccumConfig`, `defAccumConfig` and `AccumFlags`) to the Xilinx
+  Floating-Point core, in every precision. It sums in fixed point with
+  configurable bounds and rounds its results towards zero; `accumWithFlags`
+  also outputs its overflow and invalid operation flags
+* Fix the operations of the Xilinx Floating-Point core at a latency of zero,
+  which Vivado rejected: the IP then has no clock or clock enable ports, but
+  Clash connected them anyway

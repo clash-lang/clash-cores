@@ -10,16 +10,22 @@ The functions in this module make it possible to use the Xilinx IP in Clash.
 Compilation will instantiate the Xilinx IP. Clash will output a TCL script
 named @floating_point@/.../@.clash.tcl@ which needs to be executed in the Vivado
 project to create the proper entity. Simulation in Clash produces bit-identical
-results to synthesis.
+results to synthesis, also for the reciprocal ('recip'), reciprocal square root
+('rsqrt'), exponential ('exp') and natural logarithm ('log'), which the IP only
+computes to one unit in the last place: see
+"Clash.Cores.Xilinx.Floating.Generic#accuracy".
 
 Most functions allow customization of the Xilinx IP. Valid combinations will
 need to be gleaned from, e.g., the Vivado wizard (IP Catalog -> Floating-point).
 All IP instantiated by this module always has the following properties:
 
-* Single precision
+* Single precision, apart from the integers and other precisions that
+  conversions take or produce
 * Non-blocking
 * No reset input
-* No optional output fields, no @TLAST@, no @TUSER@
+* No optional output fields, no @TLAST@, no @TUSER@, except for the
+  accumulator: its inputs have a @TLAST@ (the last input of an accumulation),
+  and 'accumWithFlags' outputs its exception flags on @TUSER@
 * @TVALID@ on the inputs is always asserted, @TVALID@ on the output is ignored.
 Note that it would appear the Xilinx IP does not use these signals in
 non-blocking mode anyway.
@@ -27,19 +33,215 @@ non-blocking mode anyway.
 consecutive inputs)
 
 The latency of the IP is set through the delay argument of the 'DSignal'. Other
-customization is done through the 'E.Config' argument of customizable functions.
+customization is done through the t'Clash.Cores.Xilinx.Floating.Config'
+argument of customizable functions.
 
-De-asserting the 'Enable' signal of a function will stall the whole pipeline.
+De-asserting the 'Enable' signal of a function will stall the whole pipeline. At
+a latency of zero, the IP is combinational and the 'Enable' has no effect.
+
+'abs' takes no clock or enable: the IP only supports a latency of zero for it,
+so its result has the same delay as its input.
 
 The Xilinx IP does not support calculations with subnormal numbers. All
 subnormal numbers are rounded to zero on both input and output. Note that this
 introduces a slight bias as the larger subnormal numbers are closer to the
-smallest normal number, but they are rounded to zero nonetheless!
+smallest normal number, but they are rounded to zero nonetheless! The IP
+rounds a result to 24 significant bits before checking whether it is
+subnormal, so some results that IEEE rounding would round up to the smallest
+normal number become zero: those still below it after rounding to 24 bits.
+Zeros keep their sign: a negative subnormal number becomes a negative zero.
+Every NaN becomes the NaN the IP generates,
+'Clash.Cores.Xilinx.Floating.xilinxNaN'.
+
+The operations round to nearest, ties to even. Some have further details:
+
+* 'sqrt': the square root of a negative zero is a negative zero, so that of a
+  negative subnormal number is too. The square root of any other negative
+  number, including negative infinity, is NaN.
+
+* 'abs' only clears the sign bit. Unlike the other operations, it leaves
+  subnormal numbers alone, and NaNs keep their payload.
+
+* 'toS32' rounds to nearest, ties to even, and saturates numbers that are out
+  of range after rounding, including infinities, to 'minBound' or 'maxBound'.
+  Every NaN becomes 'minBound'.
+
+* 'toHalf' and 'convert' to 'Half' round like the arithmetic operations,
+  including the treatment of results below the smallest normal number.
+  Numbers beyond the largest finite 'Half' become an infinity. Conversions to
+  'Float' and 'Double' are exact, apart from the treatment of subnormal
+  numbers and NaNs.
+
+* 'recip', 'rsqrt', 'exp' and 'log' are only accurate to one unit in the last
+  place in the IP, see above. Their special cases follow IEEE 754, with
+  subnormal inputs treated as a zero of the same sign: so the reciprocal
+  square root and the logarithm of a negative subnormal number are negative
+  infinity. Each function documents its special cases.
+
+* 'fma' computes @x * y + z@ with a single rounding, like C's @fma@: the
+  product is exact, and the sum is rounded once.
+
+* 'accum' gives the running sum of its inputs, in fixed point: inputs are
+  truncated towards zero to a multiple of a power of two, added exactly, and
+  the sum is rounded __towards zero__. Inputs and sums beyond the bounds of the
+  accumulator make the result NaN until the end of the accumulation. See
+  'accumWith'.
+
+The IP's exception flags are not available, except for the accumulator
+('accumWithFlags'), but they follow cheaply from the inputs and the result:
+see "Clash.Cores.Xilinx.Floating.Generic#flags".
 
 For each customizable operation, there also exists a function that uses the
-defaults. These functions use the settings from 'E.defConfig' and the maximum
-delay for the Xilinx IP with that configuration. That delay is also defined as a
-type variable for delay annotation in circuits.
+defaults. These functions use the settings from
+'Clash.Cores.Xilinx.Floating.defConfig' (for 'accum':
+'Clash.Cores.Xilinx.Floating.defAccumConfig') and the maximum delay for the
+Xilinx IP with that configuration. That delay is also exported as a type
+synonym, such as t'Clash.Cores.Xilinx.Floating.AddDefDelay', for delay
+annotations in circuits.
+
+Related modules:
+
+* "Clash.Cores.Xilinx.Floating.Explicit" has the same functions with explicit
+  clock and enable arguments.
+
+* "Clash.Cores.Xilinx.Floating.Half" and "Clash.Cores.Xilinx.Floating.Double"
+  are the same for half and double precision.
+
+* "Clash.Cores.Xilinx.Floating.Generic" has the same functions, generic in the
+  precision.
+
+= Maximum latency
+
+The latency of an operation can be anything from zero up to a maximum, which
+depends on the operation and its configuration. Vivado reports an error when it
+generates the IP for a higher latency. A lower latency means fewer pipeline
+stages, which can lower the maximum clock frequency.
+
+The maximum latencies in single precision, as reported by Vivado 2022.1:
+
++-------------------------------------------+-----------------------------------------+-----------------+
+| Function                                  | Configuration                           | Maximum latency |
++===========================================+=========================================+=================+
+| 'addWith', 'subWith'                      | @SpeedArch@, @NoDspUsage@               | 12              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @SpeedArch@, @MediumDspUsage@           | 11              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @SpeedArch@, @FullDspUsage@ (default)   | 11              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @SpeedArch@, @MaxDspUsage@              | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'addWith', 'subWith'                      | @LatencyArch@, any @DspUsage@           | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @NoDspUsage@                            | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @MediumDspUsage@                        | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @FullDspUsage@ (default)                | 8               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'mulWith'                                 | @MaxDspUsage@                           | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'divWith'                                 | any                                     | 28              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'compareWith'                             |                                         | 2               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromU32With'                             |                                         | 5               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromS32With'                             |                                         | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'sqrtWith'                                | any                                     | 28              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'abs'                                     |                                         | 0 (only)        |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromU64With'                             |                                         | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fromS64With'                             |                                         | 7               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'toS32With'                               |                                         | 6               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'convertWith', to @Float@                 |                                         | 2               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'toHalfWith', 'convertWith' to @Half@     |                                         | 3               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'toDoubleWith', 'convertWith' to @Double@ |                                         | 2               |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'recipWith'                               | @NoDspUsage@                            | 36              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'recipWith'                               | @MediumDspUsage@, @MaxDspUsage@         | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'recipWith'                               | @FullDspUsage@ (default)                | 29              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'rsqrtWith'                               | @NoDspUsage@                            | 37              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'rsqrtWith'                               | @MediumDspUsage@, @MaxDspUsage@         | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'rsqrtWith'                               | @FullDspUsage@ (default)                | 32              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @NoDspUsage@, @NoBMemUsage@             | 23              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @NoDspUsage@, @FullBMemUsage@           | 24              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @MediumDspUsage@, @NoBMemUsage@         | 20              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @MediumDspUsage@, @FullBMemUsage@       | 21              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @FullDspUsage@, @NoBMemUsage@ (default) | 29              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @FullDspUsage@, @FullBMemUsage@         | 29              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'expWith'                                 | @MaxDspUsage@                           | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @NoDspUsage@                            | 23              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @MediumDspUsage@                        | 22              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @FullDspUsage@ (default)                | 28              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'logWith'                                 | @MaxDspUsage@                           | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fmaWith'                                 | @NoDspUsage@, @MaxDspUsage@             | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fmaWith'                                 | @MediumDspUsage@                        | 16              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'fmaWith'                                 | @FullDspUsage@ (default)                | 19              |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @NoDspUsage@                            | 12-33 (19)      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @MediumDspUsage@ (default)              | 14-40 (22)      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @FullDspUsage@                          | 15-41 (23)      |
++-------------------------------------------+-----------------------------------------+-----------------+
+| 'accumWith', 'accumWithFlags'             | @MaxDspUsage@                           | /rejected/      |
++-------------------------------------------+-----------------------------------------+-----------------+
+
+/rejected/ means that Vivado rejects the configuration itself, whatever the
+latency. Notes on the table:
+
+* 'mulWith' and 'fmaWith' ignore @archOpt@, and 'sqrtWith' ignores its
+  configuration (only half precision uses @bMemUsage@). 'recipWith',
+  'rsqrtWith' and 'logWith' only use @dspUsage@, 'expWith' uses @dspUsage@ and
+  @bMemUsage@. With @LatencyArch@, Vivado ignores the @dspUsage@ setting of
+  'addWith' and 'subWith'.
+
+* 'abs' only supports a latency of zero. All other operations except the
+  accumulator support a latency of zero as well: the IP is then combinational,
+  and the 'Enable' has no effect. The accumulator needs a latency of at least
+  one: 'accumWith' and 'accumWithFlags' require @1 <= d@.
+
+* The maximum latency of 'accumWith' and 'accumWithFlags' also depends on
+  their bounds: wider accumulators need more cycles. The table gives the lowest
+  and the highest maximum latency over all bounds the IP accepts, and in
+  parentheses the maximum latency for the default bounds
+  ('Clash.Cores.Xilinx.Floating.defAccumConfig').
+
+* The maximum latencies are the same on all measured devices: 7-series
+  (Artix-7, Kintex-7 and Spartan-7), UltraScale (Kintex UltraScale) and
+  UltraScale+ (Kintex UltraScale+ and Zynq UltraScale+). Those of 'fmaWith' and
+  the accumulator were only measured on Kintex-7 and Kintex UltraScale+, and
+  those of the accumulator only for a sample of the bounds. Other versions of
+  Vivado might accept other latencies.
+
+With another configuration, the maximum latency can be lower than the default
+delay, for example for 'mulWith' with @MaxDspUsage@.
 -}
 
 module Clash.Cores.Xilinx.Floating
@@ -67,19 +269,68 @@ module Clash.Cores.Xilinx.Floating
   , fromS32With
   , fromS32
   , E.FromS32DefDelay
+  , sqrtWith
+  , sqrt
+  , E.SqrtDefDelay
+  , abs
+  , fromU64With
+  , fromU64
+  , E.FromU64DefDelay
+  , fromS64With
+  , fromS64
+  , E.FromS64DefDelay
+  , toS32With
+  , toS32
+  , E.ToS32DefDelay
+  , convertWith
+  , convert
+  , E.ConvertDefDelay
+  , toHalfWith
+  , toHalf
+  , E.ToHalfDefDelay
+  , toDoubleWith
+  , toDouble
+  , E.ToDoubleDefDelay
+  , recipWith
+  , recip
+  , E.RecipDefDelay
+  , rsqrtWith
+  , rsqrt
+  , E.RSqrtDefDelay
+  , expWith
+  , exp
+  , E.ExpDefDelay
+  , logWith
+  , log
+  , E.LogDefDelay
+  , fmaWith
+  , fma
+  , E.FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , E.AccumDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
   , E.ArchOpt(..)
   , E.DspUsage(..)
   , E.BMemUsage(..)
+  , E.AccumConfig(..)
+  , E.defAccumConfig
+  , E.AccumFlags(..)
+    -- * Additional functions
+  , E.xilinxNaN
   ) where
 
-import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs, recip, exp, log)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
+import Numeric.Half (Half)
 
 import qualified Clash.Cores.Xilinx.Floating.Explicit as E
+import Clash.Cores.Xilinx.Floating.Internal (XilinxFloat)
 
 -- | Customizable floating point addition.
 addWith
@@ -187,8 +438,8 @@ div = withFrozenCallStack $ hideEnable $ hideClock E.div
 
 -- | Customizable floating point comparison
 --
--- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN. Otherwise,
--- it behaves like Haskell's 'P.compare'.
+-- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN.
+-- Otherwise, it behaves like Haskell's 'Prelude.compare'.
 --
 -- Only the delay is configurable, so this function does not take a @Config@
 -- argument.
@@ -207,8 +458,8 @@ compareWith = E.compareWith hasClock hasEnable
 
 -- | Floating point comparison, with default delay
 --
--- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN. Otherwise,
--- it behaves like Haskell's 'P.compare'.
+-- Produces 'Clash.Cores.Xilinx.Floating.NaN' if any of the inputs is NaN.
+-- Otherwise, it behaves like Haskell's 'Prelude.compare'.
 compare
   :: forall dom n
    . ( HiddenClock dom
@@ -272,3 +523,558 @@ fromS32
   -> DSignal dom (n + E.FromS32DefDelay) Float
 fromS32 = withFrozenCallStack $ hideEnable $ hideClock E.fromS32
 {-# INLINE fromS32 #-}
+
+-- | Customizable floating point square root.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+--
+-- The t'Clash.Cores.Xilinx.Floating.Config' makes no difference in single
+-- precision: only the square root in half precision uses it (@bMemUsage@).
+sqrtWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.sqrtWith cfg
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root with default settings.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+sqrt
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.SqrtDefDelay) Float
+sqrt = withFrozenCallStack $ hideEnable $ hideClock E.sqrt
+{-# INLINE sqrt #-}
+
+-- | Floating point absolute value.
+--
+-- The IP only clears the sign bit. Unlike the other operations, it leaves
+-- subnormal numbers and the payloads of NaNs alone.
+--
+-- The IP only supports a latency of zero, so the result has the same delay as
+-- the input. The IP is then combinational, without a clock or clock enable,
+-- so this function does not take them either.
+abs
+  :: KnownDomain dom
+  => DSignal dom n Float
+  -> DSignal dom n Float
+abs = E.abs
+{-# INLINE abs #-}
+
+-- | Customizable conversion of @Unsigned 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromU64With
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + d) Float
+fromU64With = withFrozenCallStack $ hideEnable $ hideClock E.fromU64With
+{-# INLINE fromU64With #-}
+
+-- | Conversion of @Unsigned 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromU64
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + E.FromU64DefDelay) Float
+fromU64 = withFrozenCallStack $ hideEnable $ hideClock E.fromU64
+{-# INLINE fromU64 #-}
+
+-- | Customizable conversion of @Signed 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromS64With
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n (Signed 64)
+  -> DSignal dom (n + d) Float
+fromS64With = withFrozenCallStack $ hideEnable $ hideClock E.fromS64With
+{-# INLINE fromS64With #-}
+
+-- | Conversion of @Signed 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromS64
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Signed 64)
+  -> DSignal dom (n + E.FromS64DefDelay) Float
+fromS64 = withFrozenCallStack $ hideEnable $ hideClock E.fromS64
+{-# INLINE fromS64 #-}
+
+-- | Customizable conversion of @Float@ to @Signed 32@.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toS32With
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + d) (Signed 32)
+toS32With = withFrozenCallStack $ hideEnable $ hideClock E.toS32With
+{-# INLINE toS32With #-}
+
+-- | Conversion of @Float@ to @Signed 32@, with default delay.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+toS32
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToS32DefDelay) (Signed 32)
+toS32 = withFrozenCallStack $ hideEnable $ hideClock E.toS32
+{-# INLINE toS32 #-}
+
+-- | Customizable conversion of @Float@ to precision @b@, which can be @Float@
+-- itself.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+convertWith
+  :: forall b d dom n
+   . ( XilinxFloat b
+     , HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + d) b
+convertWith = withFrozenCallStack $ hideEnable $ hideClock E.convertWith
+{-# INLINE convertWith #-}
+
+-- | Conversion of @Float@ to precision @b@, which can be @Float@ itself, with
+-- default delay.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+convert
+  :: forall b dom n
+   . ( XilinxFloat b
+     , KnownNat (E.ConvertDefDelay b)
+     , HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ConvertDefDelay b) b
+convert = withFrozenCallStack $ hideEnable $ hideClock E.convert
+{-# INLINE convert #-}
+
+-- | Customizable conversion of @Float@ to @Half@.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toHalfWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + d) Half
+toHalfWith = withFrozenCallStack $ hideEnable $ hideClock E.toHalfWith
+{-# INLINE toHalfWith #-}
+
+-- | Conversion of @Float@ to @Half@, with default delay.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+toHalf
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToHalfDefDelay) Half
+toHalf = withFrozenCallStack $ hideEnable $ hideClock E.toHalf
+{-# INLINE toHalf #-}
+
+-- | Customizable conversion of @Float@ to @Double@.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toDoubleWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + d) Double
+toDoubleWith = withFrozenCallStack $ hideEnable $ hideClock E.toDoubleWith
+{-# INLINE toDoubleWith #-}
+
+-- | Conversion of @Float@ to @Double@, with default delay.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+toDouble
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToDoubleDefDelay) Double
+toDouble = withFrozenCallStack $ hideEnable $ hideClock E.toDouble
+{-# INLINE toDouble #-}
+
+-- | Customizable floating point reciprocal, @1 / x@.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.2% of all inputs.
+-- Clash simulation reproduces its algorithm, and so gives the IP's results bit
+-- for bit. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config'
+-- matters. The IP rejects @MediumDspUsage@ and @MaxDspUsage@.
+recipWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+recipWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.recipWith cfg
+{-# INLINE recipWith #-}
+
+-- | Floating point reciprocal, @1 / x@, with default settings.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'recipWith'.
+recip
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.RecipDefDelay) Float
+recip = withFrozenCallStack $ hideEnable $ hideClock E.recip
+{-# INLINE recip #-}
+
+-- | Customizable floating point reciprocal square root, @1 / sqrt x@.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.0% of all inputs.
+-- Clash simulation reproduces its algorithm, and so gives the IP's results bit
+-- for bit. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config'
+-- matters. The IP rejects @MediumDspUsage@ and @MaxDspUsage@.
+rsqrtWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+rsqrtWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.rsqrtWith cfg
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, @1 / sqrt x@, with default settings.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'rsqrtWith'.
+rsqrt
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.RSqrtDefDelay) Float
+rsqrt = withFrozenCallStack $ hideEnable $ hideClock E.rsqrt
+{-# INLINE rsqrt #-}
+
+-- | Customizable floating point exponential, @e^x@.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 16% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- The @dspUsage@ and @bMemUsage@ settings of the
+-- t'Clash.Cores.Xilinx.Floating.Config' matter. The IP rejects @MaxDspUsage@.
+expWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+expWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.expWith cfg
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, with default settings.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
+exp
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ExpDefDelay) Float
+exp = withFrozenCallStack $ hideEnable $ hideClock E.exp
+{-# INLINE exp #-}
+
+-- | Customizable floating point natural logarithm, @log x@.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- it mostly rounds towards zero, so its results differ from the correctly
+-- rounded ones for about half of all inputs. Clash simulation reproduces its
+-- algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config'
+-- matters. The IP rejects @MaxDspUsage@.
+logWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+logWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.logWith cfg
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, @log x@, with default settings.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
+log
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.LogDefDelay) Float
+log = withFrozenCallStack $ hideEnable $ hideClock E.log
+{-# INLINE log #-}
+
+-- | Customizable fused multiply-add: @fmaWith cfg x y z@ computes @x * y + z@
+-- with a single rounding, like C's @fma@. For a fused multiply-subtract, flip
+-- the sign bit of the addend.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero of the
+-- same sign and flushes results below the smallest normal number to a zero of
+-- the same sign. The product is exact, so a product beyond the largest finite
+-- number still gives a finite result if the addend brings the sum back in
+-- range. An infinity times a zero is NaN, and so is an infinite product plus
+-- an infinity of the opposite sign. See
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.fmaWith' for the details.
+--
+-- Only the @dspUsage@ setting of the t'Clash.Cores.Xilinx.Floating.Config'
+-- matters. The IP accepts @MediumDspUsage@ and @FullDspUsage@ (the default),
+-- and rejects @NoDspUsage@ and @MaxDspUsage@.
+fmaWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+fmaWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.fmaWith cfg
+{-# INLINE fmaWith #-}
+
+-- | Fused multiply-add with default settings: @fma x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. See 'fmaWith'.
+fma
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.FmaDefDelay) Float
+fma = withFrozenCallStack $ hideEnable $ hideClock E.fma
+{-# INLINE fma #-}
+
+-- | Customizable accumulator: @accumWith cfg lst x@ gives the running sum of
+-- the inputs @x@. An input with @lst@ set is the last one of its
+-- accumulation: its result is the complete sum, and the next input starts a
+-- new accumulation. De-asserting the 'Enable' stalls the IP: the input of that
+-- cycle is ignored.
+--
+-- The IP adds in fixed point, with the bounds of the
+-- t'Clash.Cores.Xilinx.Floating.AccumConfig': inputs are truncated towards zero
+-- to a multiple of @2^accumLsb@ and added exactly, and the result is the sum
+-- rounded __towards zero__. Inputs whose magnitude reaches
+-- @2^(accumInputMsb + 1)@ and sums whose magnitude reaches
+-- @2^(accumMsb + 1)@ make the result NaN until the end of the accumulation.
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWith' for the details
+-- and the bounds the IP accepts.
+accumWith
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => E.AccumConfig
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+accumWith cfg = withFrozenCallStack $ hideEnable . hideClock $ E.accumWith cfg
+{-# INLINE accumWith #-}
+
+-- | Accumulator with the IP's default settings
+-- ('Clash.Cores.Xilinx.Floating.defAccumConfig'). See 'accumWith'.
+accum
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.AccumDefDelay) Float
+accum = withFrozenCallStack $ hideEnable $ hideClock E.accum
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags, see
+-- t'Clash.Cores.Xilinx.Floating.AccumFlags' and
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWithFlags'.
+accumWithFlags
+  :: ( HiddenClock dom
+     , HiddenEnable dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => E.AccumConfig
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Float, E.AccumFlags)
+accumWithFlags cfg =
+  withFrozenCallStack $ hideEnable . hideClock $ E.accumWithFlags cfg
+{-# INLINE accumWithFlags #-}

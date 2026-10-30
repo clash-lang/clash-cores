@@ -16,7 +16,10 @@ category:            Hardware
 --
 --   https://github.com/clash-lang/clash-compiler/pull/2665#issuecomment-1939044550
 build-type:          Custom
-extra-source-files:  CHANGELOG.md
+extra-source-files:
+  CHANGELOG.md
+  -- Embedded into the unit tests by Template Haskell
+  test/Test/Cores/Xilinx/Floating/CModelDriver.c
 
 flag doctests
   description:
@@ -71,6 +74,7 @@ common basic-config
     -fplugin=GHC.TypeLits.KnownNat.Solver
 
   build-depends:
+    array,
     base                      >= 4.18  && < 5,
     clash-lib               >= 1.10 && < 1.12,
     clash-prelude           >= 1.10 && < 1.12,
@@ -81,6 +85,7 @@ common basic-config
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
+    half                      >= 0.3.1 && < 1.0,
     infinite-list             ^>= 0.1,
     lens,
     QuickCheck,
@@ -158,8 +163,16 @@ library
     Clash.Cores.Xilinx.Ethernet.Gmii
     Clash.Cores.Xilinx.Ethernet.Gmii.Internal
     Clash.Cores.Xilinx.Floating
+    Clash.Cores.Xilinx.Floating.Double
+    Clash.Cores.Xilinx.Floating.Double.Explicit
     Clash.Cores.Xilinx.Floating.Explicit
+    Clash.Cores.Xilinx.Floating.Generic
+    Clash.Cores.Xilinx.Floating.Generic.Explicit
+    Clash.Cores.Xilinx.Floating.Half
+    Clash.Cores.Xilinx.Floating.Half.Explicit
     Clash.Cores.Xilinx.Floating.Internal
+    Clash.Cores.Xilinx.Floating.Internal.BitExact
+    Clash.Cores.Xilinx.Floating.Internal.ExpCoefficients
     Clash.Cores.Xilinx.Ibufds
     Clash.Cores.Xilinx.Ila
     Clash.Cores.Xilinx.Ila.Internal
@@ -247,17 +260,22 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
+    Test.Cores.Xilinx.Floating
 
   build-depends:
     clash-cores,
     clash-prelude-hedgehog,
+    directory,
+    filepath,
     hedgehog,
     infinite-list,
+    process,
     tasty                   >= 1.2 && < 1.6,
     tasty-hedgehog          >= 1.2.0,
     tasty-hunit,
     tasty-quickcheck,
     tasty-th,
+    temporary,
 
 test-suite doctests
   type:             exitcode-stdio-1.0

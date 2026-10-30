@@ -15,120 +15,26 @@ import qualified Clash.Signal.Delayed as D
 import Clash.Explicit.Testbench
 
 import qualified Prelude as P
-import Numeric (showHex)
 
 import qualified Clash.Cores.Xilinx.Floating as F
 
+import Numeric.Half (Half)
+
 import Floating.Annotations
+import Floating.GenericTH
+  ( AccumCustomDelay, SingleAddShortPLDelay, SingleExpBramDelay
+  , SingleFmaMediumDelay, SingleRecipNoDspDelay, accumHugeConfig
+  , accumNarrowConfig, accumTinyConfig, singleAbsSamples, singleAccumBasicRom
+  , singleAccumFlagsRom, singleAccumHugeRom, singleAccumTinyRom
+  , singleAddSamples, singleAddShortPLSamples, singleConvertSamples
+  , singleDivSamples, singleExpBramSamples, singleExpSamples
+  , singleFmaMediumSamples, singleFmaSamples, singleFromS64Samples
+  , singleFromU64Samples, singleLogSamples, singleMulSamples
+  , singleRSqrtSamples, singleRecipNoDspSamples, singleRecipSamples
+  , singleSqrtSamples, singleSubSamples, singleToDoubleSamples
+  , singleToHalfSamples, singleToS32Samples )
+import Floating.RomTB
 import Floating.TH
-
-newtype FloatVerifier = FloatVerifier Float
-  deriving (Generic)
-  deriving anyclass BitPack
-
-instance Eq FloatVerifier where
-  (FloatVerifier x) == (FloatVerifier y) = pack x == pack y
-
-instance ShowX FloatVerifier where
-  showsPrecX = showsPrecXWith showsPrec
-
-instance Show FloatVerifier where
-  showsPrec = floatVerifierShowsPrec
-
-floatVerifierShowsPrec
-  :: Int
-  -> FloatVerifier
-  -> ShowS
-floatVerifierShowsPrec _ (FloatVerifier x)
-  | isNaN x = nanSign . nanString . showHex payload . (')':)
-  | otherwise = shows x
- where
-  nanSign | msb (pack x) == 0 = ('+':)
-          | otherwise         = ('-':)
-  nanString
-    | testBit (pack x) 22 = ("qNaN(0x" P.++)
-    | otherwise           = ("sNaN(0x" P.++)
-  payload = truncateB $ pack x :: BitVector 22
-
-playSampleRom
-  :: forall n a dom
-   . ( KnownDomain dom
-     , KnownNat n
-     , BitPack a
-     , 1 <= n
-     )
-  => Clock dom
-  -> Reset dom
-  -> MemBlob n (BitSize a)
-  -> (Signal dom Bool, Signal dom a)
-playSampleRom clk rst content = (done, out)
- where
-  out = unpack . asyncRomBlob content <$> cnt
-  done = CEP.register clk rst enableGen False $ (== maxBound) <$> cnt
-  cnt :: Signal dom (Index n)
-  cnt = CEP.register clk rst enableGen 0 $ satSucc SatBound <$> cnt
-
-basicBinaryTB
-  :: forall n d x y z
-   . ( KnownNat n
-     , KnownNat d
-     , Eq z, ShowX z
-     , 1 <= n
-     )
-  => (   Clock XilinxSystem
-      -> DSignal XilinxSystem 0 x
-      -> DSignal XilinxSystem 0 y
-      -> DSignal XilinxSystem d z
-     )
-  -> z
-  -> Vec n (x, y, z)
-  -> Signal XilinxSystem Bool
-basicBinaryTB comp zDef samples = done
- where
-  (inputX, inputY, expectedOutput) = unzip3 samples
-  testInputX = fromSignal $ stimuliGenerator clk rst inputX
-  testInputY = fromSignal $ stimuliGenerator clk rst inputY
-  expectOutput = outputVerifier' clk rst (repeat @d zDef ++ expectedOutput)
-  done =
-      expectOutput . ignoreFor clk rst en (SNat @d) zDef
-    . toSignal $ comp clk testInputX testInputY
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
-{-# INLINE basicBinaryTB #-}
-
-basicRomTB
-  :: forall d n x y z
-   . ( KnownNat n
-     , KnownNat d
-     , BitPack x
-     , BitPack y
-     , Eq z, ShowX z, BitPack z
-     , 1 <= n
-     )
-  => (   Clock XilinxSystem
-      -> DSignal XilinxSystem 0 x
-      -> DSignal XilinxSystem 0 y
-      -> DSignal XilinxSystem d z
-     )
-  -> z
-  -> MemBlob n (BitSize (x, y, z))
-  -> Signal XilinxSystem Bool
-basicRomTB comp resDef sampleBlob = done
- where
-  (done0, samples) = playSampleRom clk rst sampleBlob
-  (inputX, inputY, expectedOutput) = unbundle samples
-  -- Only assert while not finished
-  done = mux done0 done0
-    $ assert clk rst "basicRomTB" out expectedOutput
-             done0
-  out =
-      ignoreFor clk rst en (SNat @d) resDef
-    . toSignal $ comp clk (fromSignal inputX) (fromSignal inputY)
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
-{-# INLINE basicRomTB #-}
 
 addBasic
   :: Clock XilinxSystem
@@ -142,9 +48,9 @@ addBasic clk x y = withClock clk $ withEnable enableGen $ F.add x y
 addBasicTB :: Signal XilinxSystem Bool
 addBasicTB =
   basicRomTB
-    (\clk a b -> FloatVerifier <$> addBasic clk a b)
-    (FloatVerifier 0.0)
-    $(memBlobTH Nothing addBasicSamples)
+    (\clk a b -> pack <$> addBasic clk a b)
+    0
+    $(memBlobTH Nothing singleAddSamples)
 {-# ANN addBasicTB (TestBench 'addBasic) #-}
 
 addEnable
@@ -191,7 +97,7 @@ addShortPL
   :: Clock XilinxSystem
   -> DSignal XilinxSystem 0 Float
   -> DSignal XilinxSystem 0 Float
-  -> DSignal XilinxSystem 6 Float
+  -> DSignal XilinxSystem SingleAddShortPLDelay Float
 addShortPL clk x y =
   withClock clk $ withEnable enableGen $ F.addWith F.defConfig x y
 {-# OPAQUE addShortPL #-}
@@ -199,11 +105,10 @@ addShortPL clk x y =
 
 addShortPLTB :: Signal XilinxSystem Bool
 addShortPLTB =
-  basicBinaryTB addShortPL 0.0
-    $(listToVecTH [ (1, 4, 5) :: (Float, Float, Float)
-                  , (2, 5, 7)
-                  , (3, 6, 9)
-                  ])
+  basicRomTB
+    (\clk a b -> pack <$> addShortPL clk a b)
+    0
+    $(memBlobTH Nothing singleAddShortPLSamples)
 {-# ANN addShortPLTB (TestBench 'addShortPL) #-}
 
 subBasic
@@ -218,9 +123,9 @@ subBasic clk x y = withClock clk $ withEnable enableGen $ F.sub x y
 subBasicTB :: Signal XilinxSystem Bool
 subBasicTB =
   basicRomTB
-    (\clk a b -> FloatVerifier <$> subBasic clk a b)
-    (FloatVerifier 0.0)
-    $(memBlobTH Nothing subBasicSamples)
+    (\clk a b -> pack <$> subBasic clk a b)
+    0
+    $(memBlobTH Nothing singleSubSamples)
 {-# ANN subBasicTB (TestBench 'subBasic) #-}
 
 mulBasic
@@ -235,9 +140,9 @@ mulBasic clk x y = withClock clk $ withEnable enableGen $ F.mul x y
 mulBasicTB :: Signal XilinxSystem Bool
 mulBasicTB =
   basicRomTB
-    (\clk a b -> FloatVerifier <$> mulBasic clk a b)
-    (FloatVerifier 0.0)
-    $(memBlobTH Nothing mulBasicSamples)
+    (\clk a b -> pack <$> mulBasic clk a b)
+    0
+    $(memBlobTH Nothing singleMulSamples)
 {-# ANN mulBasicTB (TestBench 'mulBasic) #-}
 
 divBasic
@@ -252,9 +157,9 @@ divBasic clk x y = withClock clk $ withEnable enableGen $ F.div x y
 divBasicTB :: Signal XilinxSystem Bool
 divBasicTB =
   basicRomTB
-    (\clk a b -> FloatVerifier <$> divBasic clk a b)
-    (FloatVerifier 0.0)
-    $(memBlobTH Nothing divBasicSamples)
+    (\clk a b -> pack <$> divBasic clk a b)
+    0
+    $(memBlobTH Nothing singleDivSamples)
 {-# ANN divBasicTB (TestBench 'divBasic) #-}
 
 compareBasic
@@ -307,19 +212,7 @@ fromUBasic clk x = withClock clk $ withEnable enableGen $ F.fromU32 x
 {-# ANN fromUBasic (unaryTopAnn "fromUBasic") #-}
 
 fromUBasicTB :: Signal XilinxSystem Bool
-fromUBasicTB = done
- where
-  (done0, samples) =
-    playSampleRom clk rst $(memBlobTH Nothing fromUBasicSamples)
-  (input, expectedOutput) = unbundle samples
-  -- Only assert while not finished
-  done = mux done0 done0 $
-    assert clk rst "fromUBasicTB" out expectedOutput done0
-  out = ignoreFor clk rst en (SNat @F.FromU32DefDelay) 0 . toSignal .
-    fromUBasic clk $ fromSignal input
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
+fromUBasicTB = unaryRomTB fromUBasic 0 $(memBlobTH Nothing fromUBasicSamples)
 {-# ANN fromUBasicTB (TestBench 'fromUBasic) #-}
 
 fromUEnable
@@ -365,19 +258,7 @@ fromSBasic clk x = withClock clk $ withEnable enableGen $ F.fromS32 x
 {-# ANN fromSBasic (unaryTopAnn "fromSBasic") #-}
 
 fromSBasicTB :: Signal XilinxSystem Bool
-fromSBasicTB = done
- where
-  (done0, samples) =
-    playSampleRom clk rst $(memBlobTH Nothing fromSBasicSamples)
-  (input, expectedOutput) = unbundle samples
-  -- Only assert while not finished
-  done = mux done0 done0 $
-    assert clk rst "fromSBasicTB" out expectedOutput done0
-  out = ignoreFor clk rst en (SNat @F.FromS32DefDelay) 0 . toSignal .
-    fromSBasic clk $ fromSignal input
-  clk = tbClockGen (not <$> done)
-  rst = resetGen
-  en = enableGen
+fromSBasicTB = unaryRomTB fromSBasic 0 $(memBlobTH Nothing fromSBasicSamples)
 {-# ANN fromSBasicTB (TestBench 'fromSBasic) #-}
 
 fromSEnable
@@ -413,3 +294,359 @@ fromSEnableTB = done
   clk = tbClockGen (not <$> done)
   rst = resetGen
 {-# ANN fromSEnableTB (TestBench 'fromSEnable) #-}
+
+sqrtBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.SqrtDefDelay Float
+sqrtBasic clk x = withClock clk $ withEnable enableGen $ F.sqrt x
+{-# OPAQUE sqrtBasic #-}
+{-# ANN sqrtBasic (unaryTopAnn "sqrtBasic") #-}
+
+sqrtBasicTB :: Signal XilinxSystem Bool
+sqrtBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> sqrtBasic clk a)
+    0
+    $(memBlobTH Nothing singleSqrtSamples)
+{-# ANN sqrtBasicTB (TestBench 'sqrtBasic) #-}
+
+-- | The IP is combinational, so this has no clock
+absBasic
+  :: DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem 0 Float
+absBasic = F.abs
+{-# OPAQUE absBasic #-}
+{-# ANN absBasic (unaryCombTopAnn "absBasic") #-}
+
+absBasicTB :: Signal XilinxSystem Bool
+absBasicTB =
+  unaryRomTB
+    (\_clk a -> pack <$> absBasic a)
+    0
+    $(memBlobTH Nothing singleAbsSamples)
+{-# ANN absBasicTB (TestBench 'absBasic) #-}
+
+-- | Conversion to the same precision
+convertBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem (F.ConvertDefDelay Float) Float
+convertBasic clk x = withClock clk $ withEnable enableGen $ F.convert x
+{-# OPAQUE convertBasic #-}
+{-# ANN convertBasic (unaryTopAnn "convertBasic") #-}
+
+convertBasicTB :: Signal XilinxSystem Bool
+convertBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> convertBasic clk a)
+    0
+    $(memBlobTH Nothing singleConvertSamples)
+{-# ANN convertBasicTB (TestBench 'convertBasic) #-}
+
+toHalfBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ToHalfDefDelay Half
+toHalfBasic clk x = withClock clk $ withEnable enableGen $ F.toHalf x
+{-# OPAQUE toHalfBasic #-}
+{-# ANN toHalfBasic (unaryTopAnn "toHalfBasic") #-}
+
+toHalfBasicTB :: Signal XilinxSystem Bool
+toHalfBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> toHalfBasic clk a)
+    0
+    $(memBlobTH Nothing singleToHalfSamples)
+{-# ANN toHalfBasicTB (TestBench 'toHalfBasic) #-}
+
+toDoubleBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ToDoubleDefDelay Double
+toDoubleBasic clk x = withClock clk $ withEnable enableGen $ F.toDouble x
+{-# OPAQUE toDoubleBasic #-}
+{-# ANN toDoubleBasic (unaryTopAnn "toDoubleBasic") #-}
+
+toDoubleBasicTB :: Signal XilinxSystem Bool
+toDoubleBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> toDoubleBasic clk a)
+    0
+    $(memBlobTH Nothing singleToDoubleSamples)
+{-# ANN toDoubleBasicTB (TestBench 'toDoubleBasic) #-}
+
+fromU64Basic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 (Unsigned 64)
+  -> DSignal XilinxSystem F.FromU64DefDelay Float
+fromU64Basic clk x = withClock clk $ withEnable enableGen $ F.fromU64 x
+{-# OPAQUE fromU64Basic #-}
+{-# ANN fromU64Basic (unaryTopAnn "fromU64Basic") #-}
+
+fromU64BasicTB :: Signal XilinxSystem Bool
+fromU64BasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> fromU64Basic clk a)
+    0
+    $(memBlobTH Nothing singleFromU64Samples)
+{-# ANN fromU64BasicTB (TestBench 'fromU64Basic) #-}
+
+fromS64Basic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 (Signed 64)
+  -> DSignal XilinxSystem F.FromS64DefDelay Float
+fromS64Basic clk x = withClock clk $ withEnable enableGen $ F.fromS64 x
+{-# OPAQUE fromS64Basic #-}
+{-# ANN fromS64Basic (unaryTopAnn "fromS64Basic") #-}
+
+fromS64BasicTB :: Signal XilinxSystem Bool
+fromS64BasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> fromS64Basic clk a)
+    0
+    $(memBlobTH Nothing singleFromS64Samples)
+{-# ANN fromS64BasicTB (TestBench 'fromS64Basic) #-}
+
+toS32Basic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ToS32DefDelay (Signed 32)
+toS32Basic clk x = withClock clk $ withEnable enableGen $ F.toS32 x
+{-# OPAQUE toS32Basic #-}
+{-# ANN toS32Basic (unaryTopAnn "toS32Basic") #-}
+
+toS32BasicTB :: Signal XilinxSystem Bool
+toS32BasicTB =
+  unaryRomTB
+    toS32Basic
+    0
+    $(memBlobTH Nothing singleToS32Samples)
+{-# ANN toS32BasicTB (TestBench 'toS32Basic) #-}
+
+recipBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.RecipDefDelay Float
+recipBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.recip x
+{-# OPAQUE recipBasic #-}
+{-# ANN recipBasic (unaryTopAnn "recipBasic") #-}
+
+recipBasicTB :: Signal XilinxSystem Bool
+recipBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> recipBasic clk a)
+    0
+    $(memBlobTH Nothing singleRecipSamples)
+{-# ANN recipBasicTB (TestBench 'recipBasic) #-}
+
+-- | Reciprocal without DSP slices
+recipNoDsp
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem SingleRecipNoDspDelay Float
+recipNoDsp clk x =
+  withClock clk $ withEnable enableGen $
+    F.recipWith F.defConfig{F.dspUsage = F.NoDspUsage} x
+{-# OPAQUE recipNoDsp #-}
+{-# ANN recipNoDsp (unaryTopAnn "recipNoDsp") #-}
+
+recipNoDspTB :: Signal XilinxSystem Bool
+recipNoDspTB =
+  unaryRomTB
+    (\clk a -> pack <$> recipNoDsp clk a)
+    0
+    $(memBlobTH Nothing singleRecipNoDspSamples)
+{-# ANN recipNoDspTB (TestBench 'recipNoDsp) #-}
+
+rsqrtBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.RSqrtDefDelay Float
+rsqrtBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.rsqrt x
+{-# OPAQUE rsqrtBasic #-}
+{-# ANN rsqrtBasic (unaryTopAnn "rsqrtBasic") #-}
+
+rsqrtBasicTB :: Signal XilinxSystem Bool
+rsqrtBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> rsqrtBasic clk a)
+    0
+    $(memBlobTH Nothing singleRSqrtSamples)
+{-# ANN rsqrtBasicTB (TestBench 'rsqrtBasic) #-}
+
+expBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.ExpDefDelay Float
+expBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.exp x
+{-# OPAQUE expBasic #-}
+{-# ANN expBasic (unaryTopAnn "expBasic") #-}
+
+expBasicTB :: Signal XilinxSystem Bool
+expBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> expBasic clk a)
+    0
+    $(memBlobTH Nothing singleExpSamples)
+{-# ANN expBasicTB (TestBench 'expBasic) #-}
+
+-- | Exponential with block memory and medium DSP slice usage
+expBram
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem SingleExpBramDelay Float
+expBram clk x =
+  withClock clk $ withEnable enableGen $
+    F.expWith F.defConfig{F.dspUsage = F.MediumDspUsage, F.bMemUsage = F.FullBMemUsage} x
+{-# OPAQUE expBram #-}
+{-# ANN expBram (unaryTopAnn "expBram") #-}
+
+expBramTB :: Signal XilinxSystem Bool
+expBramTB =
+  unaryRomTB
+    (\clk a -> pack <$> expBram clk a)
+    0
+    $(memBlobTH Nothing singleExpBramSamples)
+{-# ANN expBramTB (TestBench 'expBram) #-}
+
+logBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.LogDefDelay Float
+logBasic clk x =
+  withClock clk $ withEnable enableGen $
+    F.log x
+{-# OPAQUE logBasic #-}
+{-# ANN logBasic (unaryTopAnn "logBasic") #-}
+
+logBasicTB :: Signal XilinxSystem Bool
+logBasicTB =
+  unaryRomTB
+    (\clk a -> pack <$> logBasic clk a)
+    0
+    $(memBlobTH Nothing singleLogSamples)
+{-# ANN logBasicTB (TestBench 'logBasic) #-}
+
+fmaBasic
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.FmaDefDelay Float
+fmaBasic clk x y z = withClock clk $ withEnable enableGen $ F.fma x y z
+{-# OPAQUE fmaBasic #-}
+{-# ANN fmaBasic (ternaryTopAnn "fmaBasic") #-}
+
+fmaBasicTB :: Signal XilinxSystem Bool
+fmaBasicTB =
+  ternaryRomTB
+    (\clk a b c -> pack <$> fmaBasic clk a b c)
+    0
+    $(memBlobTH Nothing singleFmaSamples)
+{-# ANN fmaBasicTB (TestBench 'fmaBasic) #-}
+
+-- | Fused multiply-add with medium DSP usage, at its maximum latency
+fmaMedium
+  :: Clock XilinxSystem
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem SingleFmaMediumDelay Float
+fmaMedium clk x y z =
+  withClock clk $ withEnable enableGen $
+    F.fmaWith F.defConfig{F.dspUsage = F.MediumDspUsage} x y z
+{-# OPAQUE fmaMedium #-}
+{-# ANN fmaMedium (ternaryTopAnn "fmaMedium") #-}
+
+fmaMediumTB :: Signal XilinxSystem Bool
+fmaMediumTB =
+  ternaryRomTB
+    (\clk a b c -> pack <$> fmaMedium clk a b c)
+    0
+    $(memBlobTH Nothing singleFmaMediumSamples)
+{-# ANN fmaMediumTB (TestBench 'fmaMedium) #-}
+
+-- | Accumulator with the default settings, without flags
+accumBasic
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem F.AccumDefDelay Float
+accumBasic clk en lst x = withClock clk $ withEnable en $ F.accum lst x
+{-# OPAQUE accumBasic #-}
+{-# ANN accumBasic (accumTopAnn "accumBasic") #-}
+
+accumBasicTB :: Signal XilinxSystem Bool
+accumBasicTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumBasic clk en l a)
+    $(memBlobTH Nothing singleAccumBasicRom)
+{-# ANN accumBasicTB (TestBench 'accumBasic) #-}
+
+-- | Accumulator with narrow bounds and flags, below its maximum latency
+accumFlags
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem AccumCustomDelay (Float, F.AccumFlags)
+accumFlags clk en lst x =
+  withClock clk $ withEnable en $
+    F.accumWithFlags (accumNarrowConfig F.NoDspUsage) lst x
+{-# OPAQUE accumFlags #-}
+{-# ANN accumFlags (accumTopAnn "accumFlags") #-}
+
+accumFlagsTB :: Signal XilinxSystem Bool
+accumFlagsTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumFlags clk en l a)
+    $(memBlobTH Nothing singleAccumFlagsRom)
+{-# ANN accumFlagsTB (TestBench 'accumFlags) #-}
+
+-- | Accumulator with sums below the smallest normal number
+accumTiny
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem AccumCustomDelay (Float, F.AccumFlags)
+accumTiny clk en lst x =
+  withClock clk $ withEnable en $
+    F.accumWithFlags (accumTinyConfig @Float) lst x
+{-# OPAQUE accumTiny #-}
+{-# ANN accumTiny (accumTopAnn "accumTiny") #-}
+
+accumTinyTB :: Signal XilinxSystem Bool
+accumTinyTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumTiny clk en l a)
+    $(memBlobTH Nothing singleAccumTinyRom)
+{-# ANN accumTinyTB (TestBench 'accumTiny) #-}
+
+-- | Accumulator with sums beyond the largest finite number
+accumHuge
+  :: Clock XilinxSystem
+  -> Enable XilinxSystem
+  -> DSignal XilinxSystem 0 Bool
+  -> DSignal XilinxSystem 0 Float
+  -> DSignal XilinxSystem AccumCustomDelay (Float, F.AccumFlags)
+accumHuge clk en lst x =
+  withClock clk $ withEnable en $
+    F.accumWithFlags (accumHugeConfig @Float) lst x
+{-# OPAQUE accumHuge #-}
+{-# ANN accumHuge (accumTopAnn "accumHuge") #-}
+
+accumHugeTB :: Signal XilinxSystem Bool
+accumHugeTB =
+  accumRomTB
+    (\clk en l a -> pack <$> accumHuge clk en l a)
+    $(memBlobTH Nothing singleAccumHugeRom)
+{-# ANN accumHugeTB (TestBench 'accumHuge) #-}

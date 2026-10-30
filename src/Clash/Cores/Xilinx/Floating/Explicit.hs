@@ -4,49 +4,22 @@ Copyright  :  (C) 2021,      QBayLogic B.V.,
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
-Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point).
+Support for the [Xilinx Floating-Point LogiCORE IP v7.1](https://docs.amd.com/v/u/en-US/pg060-floating-point)
+in single precision ('Float'), with explicit clock and enable arguments.
 
-The functions in this module make it possible to use the Xilinx IP in Clash.
-Compilation will instantiate the Xilinx IP. Clash will output a TCL script
-named @floating_point@/.../@.clash.tcl@ which needs to be executed in the Vivado
-project to create the proper entity. Simulation in Clash produces bit-identical
-results to synthesis.
+"Clash.Cores.Xilinx.Floating" has the same functions with a hidden clock and
+enable. See there for how the functions instantiate the IP, how they behave and
+the maximum latency of each operation.
 
-Most functions allow customization of the Xilinx IP. Valid combinations will
-need to be gleaned from, e.g., the Vivado wizard (IP Catalog -> Floating-point).
-All IP instantiated by this module always has the following properties:
+Related modules:
 
-* Single precision
-* Non-blocking
-* No reset input
-* No optional output fields, no @TLAST@, no @TUSER@
-* @TVALID@ on the inputs is always asserted, @TVALID@ on the output is ignored.
-Note that it would appear the Xilinx IP does not use these signals in
-non-blocking mode anyway.
-* 1 cycle per operation (meaning there need not be any dummy cycles between
-consecutive inputs)
+* "Clash.Cores.Xilinx.Floating.Half.Explicit" and
+  "Clash.Cores.Xilinx.Floating.Double.Explicit" are the same for half and
+  double precision.
 
-The latency of the IP is set through the delay argument of the 'DSignal'. Other
-customization is done through the 'Config' argument of customizable functions.
-
-De-asserting the 'Enable' signal of a function will stall the whole pipeline.
-
-The Xilinx IP does not support calculations with subnormal numbers. All
-subnormal numbers are rounded to zero on both input and output. Note that this
-introduces a slight bias as the larger subnormal numbers are closer to the
-smallest normal number, but they are rounded to zero nonetheless!
-
-For each customizable operation, there also exists a function that uses the
-defaults. These functions use the settings from 'defConfig' and the maximum
-delay for the Xilinx IP with that configuration. That delay is also defined as a
-type variable for delay annotation in circuits.
+* "Clash.Cores.Xilinx.Floating.Generic.Explicit" has the same functions,
+  generic in the precision.
 -}
-
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
-
-{-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE NamedFieldPuns #-}
 
 module Clash.Cores.Xilinx.Floating.Explicit
   ( -- * Instantiating IP
@@ -73,24 +46,72 @@ module Clash.Cores.Xilinx.Floating.Explicit
   , fromS32With
   , fromS32
   , FromS32DefDelay
+  , sqrtWith
+  , sqrt
+  , SqrtDefDelay
+  , abs
+  , fromU64With
+  , fromU64
+  , FromU64DefDelay
+  , fromS64With
+  , fromS64
+  , FromS64DefDelay
+  , toS32With
+  , toS32
+  , ToS32DefDelay
+  , convertWith
+  , convert
+  , ConvertDefDelay
+  , toHalfWith
+  , toHalf
+  , ToHalfDefDelay
+  , toDoubleWith
+  , toDouble
+  , ToDoubleDefDelay
+  , recipWith
+  , recip
+  , RecipDefDelay
+  , rsqrtWith
+  , rsqrt
+  , RSqrtDefDelay
+  , expWith
+  , exp
+  , ExpDefDelay
+  , logWith
+  , log
+  , LogDefDelay
+  , fmaWith
+  , fma
+  , FmaDefDelay
+  , accumWith
+  , accum
+  , accumWithFlags
+  , AccumDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
   , ArchOpt(..)
   , DspUsage(..)
   , BMemUsage(..)
+  , AccumConfig(..)
+  , defAccumConfig
+  , AccumFlags(..)
     -- * Additional functions
   , xilinxNaN
   ) where
 
-import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Explicit.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, abs, recip, exp, log)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
+import Numeric.Half (Half)
 
+import Clash.Cores.Xilinx.Floating.Generic.Explicit (defConfig)
+import qualified Clash.Cores.Xilinx.Floating.Generic.Explicit as G
 import Clash.Cores.Xilinx.Floating.Internal
-import Clash.Cores.Xilinx.Xpm.Cdc.Internal
-
-import qualified Clash.Signal.Delayed as D
+  ( AccumConfig(..), AccumFlags(..), ArchOpt(..), BMemUsage(..), Config(..)
+  , DspUsage(..), Ordering(..)
+  , XilinxFloat, toMaybeOrdering, xilinxNaN )
 
 -- | Customizable floating point addition.
 addWith
@@ -105,18 +126,8 @@ addWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-addWith Config{archOpt, dspUsage} clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk . conditionFloatF $ conditionFloatF x + conditionFloatF y
-  und = withFrozenCallStack $ deepErrorX "Initial values of add undefined"
-  extraOpts =
-       ("CONFIG.Add_Sub_Value",  StrOpt "Add")
-    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
-    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
-    :> Nil
-  synth = binaryInst "add" "Add_Subtract" extraOpts  clk en x y
+addWith = withFrozenCallStack G.addWith
+{-# INLINE addWith #-}
 
 -- | Floating point addition with default settings.
 add
@@ -129,11 +140,11 @@ add
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + AddDefDelay) Float
-add = withFrozenCallStack $ addWith defConfig
+add = withFrozenCallStack G.add
 {-# INLINE add #-}
 
 -- | The default delay for floating point addition with default customization.
-type AddDefDelay = 11
+type AddDefDelay = G.AddDefDelay Float
 
 -- | Customizable floating point subtraction.
 subWith
@@ -148,18 +159,7 @@ subWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-subWith Config{archOpt, dspUsage} clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk . conditionFloatF $ conditionFloatF x - conditionFloatF y
-  und = withFrozenCallStack $ deepErrorX "Initial values of sub undefined"
-  extraOpts =
-       ("CONFIG.Add_Sub_Value",  StrOpt "Subtract")
-    :> ("CONFIG.C_Optimization", StrOpt (archOptToTcl archOpt))
-    :> ("CONFIG.C_Mult_Usage",   StrOpt (dspUsageToTcl dspUsage))
-    :> Nil
-  synth = binaryInst "sub" "Add_Subtract" extraOpts  clk en x y
+subWith = withFrozenCallStack G.subWith
 {-# INLINE subWith #-}
 
 -- | Floating point subtraction with default settings.
@@ -173,12 +173,12 @@ sub
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + SubDefDelay) Float
-sub = withFrozenCallStack $ subWith defConfig
+sub = withFrozenCallStack G.sub
 {-# INLINE sub #-}
 
 -- | The default delay for floating point subtraction with default
 -- customization.
-type SubDefDelay = 11
+type SubDefDelay = G.SubDefDelay Float
 
 -- | Customizable floating point multiplication.
 mulWith
@@ -193,14 +193,7 @@ mulWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-mulWith Config{dspUsage} clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  und = withFrozenCallStack $ deepErrorX "Initial values of mul undefined"
-  sim = delayI und en clk . conditionFloatF $ conditionFloatF x * conditionFloatF y
-  extraOpts = ("CONFIG.C_Mult_Usage", StrOpt $ dspUsageToTcl dspUsage) :> Nil
-  synth = binaryInst "mul" "Multiply" extraOpts  clk en x y
+mulWith = withFrozenCallStack G.mulWith
 {-# INLINE mulWith #-}
 
 -- | Floating point multiplication with default settings.
@@ -214,12 +207,12 @@ mul
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + MulDefDelay) Float
-mul = withFrozenCallStack $ mulWith defConfig
+mul = withFrozenCallStack G.mul
 {-# INLINE mul #-}
 
 -- | The default delay for floating point multiplication with default
 -- customization.
-type MulDefDelay = 8
+type MulDefDelay = G.MulDefDelay Float
 
 -- | Customizable floating point division.
 divWith
@@ -234,13 +227,7 @@ divWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Float
-divWith !_ clk en x y
-  | clashSimulation = sim
-  | otherwise = synth
- where
-  sim = delayI und en clk . conditionFloatF $ conditionFloatF x / conditionFloatF y
-  und = withFrozenCallStack $ deepErrorX "Initial values of div undefined"
-  synth = binaryInst "div" "Divide" Nil clk en x y
+divWith = withFrozenCallStack G.divWith
 {-# INLINE divWith #-}
 
 -- | Floating point division with default settings.
@@ -254,11 +241,11 @@ div
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + DivDefDelay) Float
-div = withFrozenCallStack $ divWith defConfig
+div = withFrozenCallStack G.div
 {-# INLINE div #-}
 
 -- | The default delay for floating point division with default customization.
-type DivDefDelay = 28
+type DivDefDelay = G.DivDefDelay Float
 
 -- | Customizable conversion of @Unsigned 32@ to @Float@
 --
@@ -274,44 +261,7 @@ fromU32With
   -> Enable dom
   -> DSignal dom n (Unsigned 32)
   -> DSignal dom (n + d) Float
-fromU32With clk en inp
-  | clashSimulation = sim
-  | otherwise = D.unsafeFromSignal synth
- where
-  sim = delayI und en clk $ fmap fromIntegral inp
-  und = withFrozenCallStack $ errorX "Initial values of fromU32 undefined"
-  synth = unpack <$> unPort (snd go)
-   where
-    go ::
-      ( Port "m_axis_result_tvalid" dom Bit
-      , Port "m_axis_result_tdata" dom (BitVector 32)
-      )
-    go =
-      instWithXilinxWizard
-        (instConfig "fromU32")
-        (XilinxWizard
-          { wiz_name = "floating_point"
-          , wiz_vendor = "xilinx.com"
-          , wiz_library = "ip"
-          , wiz_version = "7.1"
-          , wiz_options =
-               ("CONFIG.Operation_Type",     StrOpt "Fixed_to_float")
-            :> ("CONFIG.A_Precision_Type",   StrOpt "Uint32")
-            :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
-            :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
-            :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
-            :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
-            :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
-            :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
-            :> ("CONFIG.C_Rate",             IntegerOpt 1)
-            :> ("CONFIG.Maximum_Latency",    BoolOpt False)
-            :> Nil
-          }
-        )
-        (ClockPort @"aclk" clk)
-        (Port @"aclken" (boolToBit <$> fromEnable en))
-        (Port @"s_axis_a_tdata" (pack <$> D.toSignal inp))
-        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+fromU32With = withFrozenCallStack G.fromU32With
 {-# INLINE fromU32With #-}
 
 -- | Conversion of @Unsigned 32@ to @Float@, with default delay
@@ -324,11 +274,11 @@ fromU32
   -> Enable dom
   -> DSignal dom n (Unsigned 32)
   -> DSignal dom (n + FromU32DefDelay) Float
-fromU32 = withFrozenCallStack fromU32With
+fromU32 = withFrozenCallStack G.fromU32
 {-# INLINE fromU32 #-}
 
 -- | The default delay for conversion of @Unsigned 32@ to @Float@
-type FromU32DefDelay = 5
+type FromU32DefDelay = G.FromU32DefDelay Float
 
 -- | Customizable conversion of @Signed 32@ to @Float@
 --
@@ -344,44 +294,7 @@ fromS32With
   -> Enable dom
   -> DSignal dom n (Signed 32)
   -> DSignal dom (n + d) Float
-fromS32With clk en inp
-  | clashSimulation = sim
-  | otherwise = D.unsafeFromSignal synth
- where
-  sim = delayI und en clk $ fmap fromIntegral inp
-  und = withFrozenCallStack $ errorX "Initial values of fromS32 undefined"
-  synth = unpack <$> unPort (snd go)
-   where
-    go ::
-      ( Port "m_axis_result_tvalid" dom Bit
-      , Port "m_axis_result_tdata" dom (BitVector 32)
-      )
-    go =
-      instWithXilinxWizard
-        (instConfig "fromS32")
-        (XilinxWizard
-          { wiz_name = "floating_point"
-          , wiz_vendor = "xilinx.com"
-          , wiz_library = "ip"
-          , wiz_version = "7.1"
-          , wiz_options =
-               ("CONFIG.Operation_Type",     StrOpt "Fixed_to_float")
-            :> ("CONFIG.A_Precision_Type",   StrOpt "Int32")
-            :> ("CONFIG.Flow_Control",       StrOpt "NonBlocking")
-            :> ("CONFIG.Has_ACLKEN",         BoolOpt True)
-            :> ("CONFIG.C_A_Exponent_Width", IntegerOpt 32)
-            :> ("CONFIG.C_A_Fraction_Width", IntegerOpt 0)
-            :> ("CONFIG.Has_RESULT_TREADY",  BoolOpt False)
-            :> ("CONFIG.C_Latency",          IntegerOpt (natToNum @d))
-            :> ("CONFIG.C_Rate",             IntegerOpt 1)
-            :> ("CONFIG.Maximum_Latency",    BoolOpt False)
-            :> Nil
-          }
-        )
-        (ClockPort @"aclk" clk)
-        (Port @"aclken" (boolToBit <$> fromEnable en))
-        (Port @"s_axis_a_tdata" (pack <$> D.toSignal inp))
-        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
+fromS32With = withFrozenCallStack G.fromS32With
 {-# INLINE fromS32With #-}
 
 -- | Conversion of @Signed 32@ to @Float@, with default delay
@@ -394,16 +307,16 @@ fromS32
   -> Enable dom
   -> DSignal dom n (Signed 32)
   -> DSignal dom (n + FromS32DefDelay) Float
-fromS32 = withFrozenCallStack fromS32With
+fromS32 = withFrozenCallStack G.fromS32
 {-# INLINE fromS32 #-}
 
 -- | The default delay for conversion of @Signed 32@ to @Float@
-type FromS32DefDelay = 6
+type FromS32DefDelay = G.FromS32DefDelay Float
 
 -- | Customizable floating point comparison
 --
 -- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
 --
 -- Only the delay is configurable, so this function does not take a @Config@
 -- argument.
@@ -418,57 +331,13 @@ compareWith
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + d) Ordering
-compareWith clk ena a b
-  | clashSimulation = sim
-  | otherwise = D.unsafeFromSignal synth
- where
-  sim = delayI und ena clk (xilinxCompare <$> a <*> b)
-  und = withFrozenCallStack $ errorX "Initial values of compare undefined"
-  synth = unpack . resize <$> unPort (snd go)
-   where
-    go ::
-      ( Port "m_axis_result_tvalid" dom Bit
-      , Port "m_axis_result_tdata" dom (BitVector 8)
-      )
-    go =
-      instWithXilinxWizard
-        (instConfig "compare")
-        (XilinxWizard
-          { wiz_name = "floating_point"
-          , wiz_vendor = "xilinx.com"
-          , wiz_library = "ip"
-          , wiz_version = "7.1"
-          , wiz_options =
-                 ("CONFIG.Operation_Type",          StrOpt "Compare")
-              :> ("CONFIG.C_Compare_Operation",     StrOpt "Condition_Code")
-              :> ("CONFIG.Flow_Control",            StrOpt "NonBlocking")
-              :> ("CONFIG.Maximum_Latency",         BoolOpt False)
-              :> ("CONFIG.Has_ACLKEN",              BoolOpt True)
-              :> ("CONFIG.A_Precision_Type",        StrOpt "Single")
-              :> ("CONFIG.C_A_Exponent_Width",      IntegerOpt 8)
-              :> ("CONFIG.C_A_Fraction_Width",      IntegerOpt 24)
-              :> ("CONFIG.Result_Precision_Type",   StrOpt "Custom")
-              :> ("CONFIG.C_Result_Exponent_Width", IntegerOpt 4)
-              :> ("CONFIG.C_Result_Fraction_Width", IntegerOpt 0)
-              :> ("CONFIG.C_Mult_Usage",            StrOpt "No_Usage")
-              :> ("CONFIG.Has_RESULT_TREADY",       BoolOpt False)
-              :> ("CONFIG.C_Latency",               IntegerOpt (natToNum @d))
-              :> ("CONFIG.C_Rate",                  IntegerOpt 1)
-              :> Nil
-          }
-        )
-        (ClockPort @"aclk" clk)
-        (Port @"aclken" (boolToBit <$> fromEnable ena))
-        (Port @"s_axis_a_tdata" (pack <$> D.toSignal a))
-        (Port @"s_axis_a_tvalid" (pure 1 :: Signal dom Bit))
-        (Port @"s_axis_b_tdata" (pack <$> D.toSignal b))
-        (Port @"s_axis_b_tvalid" (pure 1 :: Signal dom Bit))
+compareWith = withFrozenCallStack G.compareWith
 {-# INLINE compareWith #-}
 
 -- | Floating point comparison, with default delay
 --
 -- Produces 'Clash.Cores.Xilinx.Floating.Explicit.NaN' if any of the inputs is
--- NaN. Otherwise, it behaves like Haskell's 'P.compare'.
+-- NaN. Otherwise, it behaves like Haskell's 'Prelude.compare'.
 compare
   :: forall dom n
    . ( KnownDomain dom
@@ -479,22 +348,664 @@ compare
   -> DSignal dom n Float
   -> DSignal dom n Float
   -> DSignal dom (n + CompareDefDelay) Ordering
-compare = compareWith
+compare = withFrozenCallStack G.compare
 {-# INLINE compare #-}
 
 -- | The default delay for @Float@ comparison
-type CompareDefDelay = 2
+type CompareDefDelay = G.CompareDefDelay Float
 
--- | Default customization options.
+-- | Customizable floating point square root.
 --
--- For those operations that support it, the default options are:
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
 --
--- * Speed-optimized architecture ('SpeedArch')
--- * Full DSP slice usage ('FullDspUsage')
--- * Exponential operator does not use block memory ('NoBMemUsage')
-defConfig :: Config
-defConfig = Config
-  { archOpt = SpeedArch
-  , dspUsage = FullDspUsage
-  , bMemUsage = NoBMemUsage
-  }
+-- The t'Config' makes no difference in single precision: only the square root
+-- in half precision uses it (@bMemUsage@).
+sqrtWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sqrtWith = withFrozenCallStack G.sqrtWith
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root with default settings.
+--
+-- The square root of a negative zero is a negative zero. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the square root of a negative subnormal number is a negative zero too. The
+-- square root of any other negative number, including negative infinity, is
+-- NaN.
+sqrt
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + SqrtDefDelay) Float
+sqrt = withFrozenCallStack G.sqrt
+{-# INLINE sqrt #-}
+
+-- | The default delay for floating point square root with default
+-- customization.
+type SqrtDefDelay = G.SqrtDefDelay Float
+
+-- | Floating point absolute value.
+--
+-- The IP only clears the sign bit. Unlike the other operations, it leaves
+-- subnormal numbers and the payloads of NaNs alone.
+--
+-- The IP only supports a latency of zero, so the result has the same delay as
+-- the input. The IP is then combinational, without a clock or clock enable,
+-- so this function does not take them either.
+abs
+  :: forall dom n
+   . KnownDomain dom
+  => DSignal dom n Float
+  -> DSignal dom n Float
+abs = G.abs
+{-# INLINE abs #-}
+
+-- | Customizable conversion of @Unsigned 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromU64With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + d) Float
+fromU64With = withFrozenCallStack G.fromU64With
+{-# INLINE fromU64With #-}
+
+-- | Conversion of @Unsigned 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromU64
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Unsigned 64)
+  -> DSignal dom (n + FromU64DefDelay) Float
+fromU64 = withFrozenCallStack G.fromU64
+{-# INLINE fromU64 #-}
+
+-- | The default delay for conversion of @Unsigned 64@ to @Float@
+type FromU64DefDelay = G.FromU64DefDelay Float
+
+-- | Customizable conversion of @Signed 64@ to @Float@. It rounds to
+-- nearest, ties to even.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+fromS64With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Signed 64)
+  -> DSignal dom (n + d) Float
+fromS64With = withFrozenCallStack G.fromS64With
+{-# INLINE fromS64With #-}
+
+-- | Conversion of @Signed 64@ to @Float@, with default delay. It rounds to
+-- nearest, ties to even.
+fromS64
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n (Signed 64)
+  -> DSignal dom (n + FromS64DefDelay) Float
+fromS64 = withFrozenCallStack G.fromS64
+{-# INLINE fromS64 #-}
+
+-- | The default delay for conversion of @Signed 64@ to @Float@
+type FromS64DefDelay = G.FromS64DefDelay Float
+
+-- | Customizable conversion of @Float@ to @Signed 32@.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toS32With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Signed 32)
+toS32With = withFrozenCallStack G.toS32With
+{-# INLINE toS32With #-}
+
+-- | Conversion of @Float@ to @Signed 32@, with default delay.
+--
+-- It rounds to nearest, ties to even, so @2.5@ becomes @2@ and @3.5@ becomes
+-- @4@. Numbers that are out of range after rounding, including infinities,
+-- saturate to 'minBound' or 'maxBound'. Every NaN becomes 'minBound'.
+-- Subnormal numbers become zero.
+toS32
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ToS32DefDelay) (Signed 32)
+toS32 = withFrozenCallStack G.toS32
+{-# INLINE toS32 #-}
+
+-- | The default delay for conversion of @Float@ to @Signed 32@
+type ToS32DefDelay = G.ToS32DefDelay Float
+
+-- | Customizable conversion of @Float@ to precision @b@, which can be @Float@
+-- itself.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+convertWith
+  :: forall b d dom n
+   . ( XilinxFloat b
+     , KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) b
+convertWith = withFrozenCallStack G.convertWith
+{-# INLINE convertWith #-}
+
+-- | Conversion of @Float@ to precision @b@, which can be @Float@ itself, with
+-- default delay.
+--
+-- Conversions to a narrower precision round to nearest, ties to even. Results
+-- below the smallest normal number of the target precision become a zero of
+-- the same sign, results beyond its largest finite number an infinity of the
+-- same sign. Other conversions are exact. Like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates, also when converting to the same precision.
+convert
+  :: forall b dom n
+   . ( XilinxFloat b
+     , KnownNat (ConvertDefDelay b)
+     , KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ConvertDefDelay b) b
+convert = withFrozenCallStack G.convert
+{-# INLINE convert #-}
+
+-- | The default delay for conversion of @Float@ to precision @b@
+type ConvertDefDelay b = G.ConvertDefDelay Float b
+
+-- | Customizable conversion of @Float@ to @Half@.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toHalfWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Half
+toHalfWith = withFrozenCallStack G.convertWith
+{-# INLINE toHalfWith #-}
+
+-- | Conversion of @Float@ to @Half@, with default delay.
+--
+-- It rounds to nearest, ties to even. Results below the smallest normal
+-- number of the target precision become a zero of the same sign, results
+-- beyond its largest finite number an infinity of the same sign. Like the
+-- other operations, the IP treats subnormal inputs as a zero of the same
+-- sign and turns every NaN into the NaN it generates.
+toHalf
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ToHalfDefDelay) Half
+toHalf = withFrozenCallStack G.convert
+{-# INLINE toHalf #-}
+
+-- | The default delay for conversion of @Float@ to @Half@
+type ToHalfDefDelay = G.ConvertDefDelay Float Half
+
+-- | Customizable conversion of @Float@ to @Double@.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+--
+-- Only the delay is configurable, so this function does not take a @Config@
+-- argument.
+toDoubleWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Double
+toDoubleWith = withFrozenCallStack G.convertWith
+{-# INLINE toDoubleWith #-}
+
+-- | Conversion of @Float@ to @Double@, with default delay.
+--
+-- The conversion is exact, except that, like the other operations, the IP
+-- treats subnormal inputs as a zero of the same sign and turns every NaN into
+-- the NaN it generates.
+toDouble
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ToDoubleDefDelay) Double
+toDouble = withFrozenCallStack G.convert
+{-# INLINE toDouble #-}
+
+-- | The default delay for conversion of @Float@ to @Double@
+type ToDoubleDefDelay = G.ConvertDefDelay Float Double
+
+-- | Customizable floating point reciprocal, @1 / x@.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.2% of all inputs.
+-- Clash simulation reproduces its algorithm, and so gives the IP's results bit
+-- for bit. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP rejects
+-- @MediumDspUsage@ and @MaxDspUsage@.
+recipWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+recipWith = withFrozenCallStack G.recipWith
+{-# INLINE recipWith #-}
+
+-- | Floating point reciprocal, @1 / x@, with default settings.
+--
+-- The reciprocal of a zero is an infinity of the same sign, and that of an
+-- infinity a zero of the same sign. Like the other operations, the IP treats
+-- subnormal inputs as a zero of the same sign and flushes results below the
+-- smallest normal number to a zero of the same sign.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'recipWith'.
+recip
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + RecipDefDelay) Float
+recip = withFrozenCallStack G.recip
+{-# INLINE recip #-}
+
+-- | The default delay for floating point reciprocal with default
+-- customization.
+type RecipDefDelay = G.RecipDefDelay Float
+
+-- | Customizable floating point reciprocal square root, @1 / sqrt x@.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for 2.0% of all inputs.
+-- Clash simulation reproduces its algorithm, and so gives the IP's results bit
+-- for bit. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP rejects
+-- @MediumDspUsage@ and @MaxDspUsage@.
+rsqrtWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+rsqrtWith = withFrozenCallStack G.rsqrtWith
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, @1 / sqrt x@, with default settings.
+--
+-- The reciprocal square root of a zero is an infinity of the same sign. Like
+-- the other operations, the IP treats subnormal inputs as a zero of the same
+-- sign, so the reciprocal square root of a negative subnormal number is
+-- negative infinity. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive zero.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'rsqrtWith'.
+rsqrt
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + RSqrtDefDelay) Float
+rsqrt = withFrozenCallStack G.rsqrt
+{-# INLINE rsqrt #-}
+
+-- | The default delay for floating point reciprocal square root with default
+-- customization.
+type RSqrtDefDelay = G.RSqrtDefDelay Float
+
+-- | Customizable floating point exponential, @e^x@.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- its results differ from the correctly rounded ones for about 16% of random
+-- inputs. Clash simulation reproduces its algorithm, and so gives the IP's
+-- results bit for bit. See "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- The @dspUsage@ and @bMemUsage@ settings of the t'Config' matter. The IP
+-- rejects @MaxDspUsage@.
+expWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+expWith = withFrozenCallStack G.expWith
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, with default settings.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero, whose
+-- exponential is one. The exponential of positive infinity is positive
+-- infinity, that of negative infinity positive zero. Results beyond the
+-- largest finite number become positive infinity, results below the smallest
+-- normal number positive zero.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'expWith'.
+exp
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + ExpDefDelay) Float
+exp = withFrozenCallStack G.exp
+{-# INLINE exp #-}
+
+-- | The default delay for floating point exponential with default
+-- customization.
+type ExpDefDelay = G.ExpDefDelay Float
+
+-- | Customizable floating point natural logarithm, @log x@.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- __Accuracy.__ The IP is only accurate to one unit in the last place (PG060):
+-- it mostly rounds towards zero, so its results differ from the correctly
+-- rounded ones for about half of all inputs. Clash simulation reproduces its
+-- algorithm, and so gives the IP's results bit for bit. See
+-- "Clash.Cores.Xilinx.Floating.Generic#accuracy".
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP rejects
+-- @MaxDspUsage@.
+logWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+logWith = withFrozenCallStack G.logWith
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, @log x@, with default settings.
+--
+-- The logarithm of a zero of either sign is negative infinity. Like the other
+-- operations, the IP treats subnormal inputs as a zero of the same sign, so
+-- the logarithm of a subnormal number, even a negative one, is negative
+-- infinity too. That of any other negative number, including negative
+-- infinity, is NaN. That of positive infinity is positive infinity, and that
+-- of one positive zero.
+--
+-- Clash simulation gives the IP's results bit for bit. See 'logWith'.
+log
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + LogDefDelay) Float
+log = withFrozenCallStack G.log
+{-# INLINE log #-}
+
+-- | The default delay for floating point natural logarithm with default
+-- customization.
+type LogDefDelay = G.LogDefDelay Float
+
+-- | Customizable fused multiply-add: @fmaWith cfg clk en x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. For a fused
+-- multiply-subtract, flip the sign bit of the addend.
+--
+-- Like the other operations, the IP treats subnormal inputs as a zero of the
+-- same sign and flushes results below the smallest normal number to a zero of
+-- the same sign. The product is exact, so a product beyond the largest finite
+-- number still gives a finite result if the addend brings the sum back in
+-- range. An infinity times a zero is NaN, and so is an infinite product plus
+-- an infinity of the opposite sign. See
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.fmaWith' for the details.
+--
+-- Only the @dspUsage@ setting of the t'Config' matters. The IP accepts
+-- @MediumDspUsage@ and @FullDspUsage@ (the default), and rejects
+-- @NoDspUsage@ and @MaxDspUsage@.
+fmaWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+fmaWith = withFrozenCallStack G.fmaWith
+{-# INLINE fmaWith #-}
+
+-- | Fused multiply-add with default settings: @fma clk en x y z@ computes
+-- @x * y + z@ with a single rounding, like C's @fma@. See 'fmaWith'.
+fma
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + FmaDefDelay) Float
+fma = withFrozenCallStack G.fma
+{-# INLINE fma #-}
+
+-- | The default delay for fused multiply-add with default customization.
+type FmaDefDelay = G.FmaDefDelay Float
+
+-- | Customizable accumulator: @accumWith cfg clk en lst x@ gives the running
+-- sum of the inputs @x@. An input with @lst@ set is the last one of its
+-- accumulation: its result is the complete sum, and the next input starts a
+-- new accumulation. De-asserting the 'Enable' stalls the IP: the input of that
+-- cycle is ignored.
+--
+-- The IP adds in fixed point, with the bounds of the t'AccumConfig': inputs
+-- are truncated towards zero to a multiple of @2^accumLsb@ and added exactly,
+-- and the result is the sum rounded __towards zero__. Inputs whose magnitude
+-- reaches @2^(accumInputMsb + 1)@ and sums whose magnitude reaches
+-- @2^(accumMsb + 1)@ make the result NaN until the end of the accumulation.
+-- See 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWith' for the details
+-- and the bounds the IP accepts.
+accumWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+accumWith = withFrozenCallStack G.accumWith
+{-# INLINE accumWith #-}
+
+-- | Accumulator with the IP's default settings ('defAccumConfig'). See
+-- 'accumWith'.
+accum
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + AccumDefDelay) Float
+accum = withFrozenCallStack G.accum
+{-# INLINE accum #-}
+
+-- | Customizable accumulator that also outputs the IP's exception flags, see
+-- t'AccumFlags' and
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.accumWithFlags'.
+accumWithFlags
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , 1 <= d
+     , HasCallStack
+     )
+  => AccumConfig
+  -> Clock dom
+  -> Enable dom
+  -> DSignal dom n Bool
+  -- ^ Whether the input is the last one of an accumulation
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Float, AccumFlags)
+accumWithFlags = withFrozenCallStack G.accumWithFlags
+{-# INLINE accumWithFlags #-}
+
+-- | The default delay of the accumulator with the default settings
+-- ('defAccumConfig').
+type AccumDefDelay = G.AccumDefDelay Float
+
+-- | The IP's default settings of the accumulator in single precision. See
+-- 'Clash.Cores.Xilinx.Floating.Generic.Explicit.defAccumConfig'.
+defAccumConfig :: AccumConfig
+defAccumConfig = G.defAccumConfig @Float
