@@ -48,7 +48,7 @@ import Clash.Prelude
 
 import qualified Prelude as P
 
-import Numeric (showHex)
+import Clash.Cores.Xilinx.Xpm.Fifo.Internal.TH (hexStringTree)
 
 -- | Memory primitive the FIFO is mapped to, parameter @FIFO_MEMORY_TYPE@.
 data FifoMemoryType
@@ -199,13 +199,11 @@ allAdvFeatures = AdvFeatures
 -- "1f1f"
 advFeaturesParam :: AdvFeatures -> String
 advFeaturesParam AdvFeatures{..} =
-  pad (showHex (P.sum [bit i | (i, True) <- P.zip [0 :: Int ..] bits] :: Integer) "")
- where
-  pad s = P.replicate (4 - P.length s) '0' <> s
-  bits =
-    [ enOverflow, enProgFull, enWrDataCount, enAlmostFull, enWrAck
-    , False, False, False
-    , enUnderflow, enProgEmpty, enRdDataCount, enAlmostEmpty, enDataValid ]
+  -- Clash can only render string literals as parameters, so instead of computing
+  -- the string we select it from a tree of literals. See 'hexStringTree'.
+  $(hexStringTree 4 [0, 1, 2, 3, 4, 8, 9, 10, 11, 12])
+    enOverflow enProgFull enWrDataCount enAlmostFull enWrAck
+    enUnderflow enProgEmpty enRdDataCount enAlmostEmpty enDataValid
 
 -- | Legal range of @PROG_FULL_THRESH@, as checked by the XPM, for a FIFO with
 -- equal read and write widths.
