@@ -11,11 +11,13 @@
 module Clash.Cores.Xilinx.Xpm
   ( module Clash.Cores.Xilinx.Xpm.Cdc
   , module Clash.Cores.Xilinx.Xpm.Fifo
+  , module Clash.Cores.Xilinx.Xpm.Fifo.Axif
   , module Clash.Cores.Xilinx.Xpm.Fifo.Axil
   , module Clash.Cores.Xilinx.Xpm.Fifo.Axis
   ) where
 
 import Clash.Cores.Xilinx.Xpm.Cdc
 import Clash.Cores.Xilinx.Xpm.Fifo
+import Clash.Cores.Xilinx.Xpm.Fifo.Axif
 import Clash.Cores.Xilinx.Xpm.Fifo.Axil
 import Clash.Cores.Xilinx.Xpm.Fifo.Axis
