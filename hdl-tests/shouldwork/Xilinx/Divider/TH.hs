@@ -10,6 +10,7 @@ simulating the functions under test.
 {-# OPTIONS_GHC -fconstraint-solver-iterations=10 -Wall -Werror #-}
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Divider.TH where
 
@@ -114,6 +115,22 @@ stimuli seed = P.take nSamples (go (mkStdGen seed))
       let (i, g') = uniformR (0, P.length vs - 1) g
       in (vs P.!! i, g')
 
+-- | Stimuli for 'Div.divHighRadix' that hit its rounding corner cases: many
+-- dividends divided by small divisors, including divisors of 1.5 times a power
+-- of two. All quotients are exact or fall halfway between two values often.
+tieStimuli :: forall m n. (KnownNat m, KnownNat n) => [(Bool, Signed m, Signed n)]
+tieStimuli =
+  P.take nSamples
+    [ (True, x, y)
+    | (x, y) <- P.zip xs (P.cycle ys)
+    ]
+ where
+  xs = P.cycle [minBound, minBound + 1 .. maxBound]
+  ys =
+    P.map fromInteger $
+      P.filter (\y -> toInteger (minBound @(Signed n)) <= y && y <= toInteger (maxBound @(Signed n)))
+        [3, 6, 12, 24, 48, -3, -6, -12, 2, -2, 4, -4, 5, -5, 7, 1, -1]
+
 ------------------------------------------------------------------------------
 -- Functions under test, wrapped in top entities in "Divider"
 ------------------------------------------------------------------------------
@@ -180,3 +197,30 @@ quotFracU10U6' ::
   DSignal XilinxSystem 7 (Maybe (Unsigned 10, UFixed 0 4))
 quotFracU10U6' = Div.quotFracWith
 {-# INLINE quotFracU10U6' #-}
+
+divHighRadixS8S8' ::
+  Clock XilinxSystem ->
+  Enable XilinxSystem ->
+  DSignal XilinxSystem 0 (Signed 8) ->
+  DSignal XilinxSystem 0 (Signed 8) ->
+  DSignal XilinxSystem (Div.HighRadixDefDelay 8) (Maybe (SFixed 8 0))
+divHighRadixS8S8' = Div.divHighRadix
+{-# INLINE divHighRadixS8S8' #-}
+
+divHighRadixS6S12' ::
+  Clock XilinxSystem ->
+  Enable XilinxSystem ->
+  DSignal XilinxSystem 0 (Signed 6) ->
+  DSignal XilinxSystem 0 (Signed 12) ->
+  DSignal XilinxSystem 2 (Maybe (SFixed 6 6))
+divHighRadixS6S12' = Div.divHighRadixWith
+{-# INLINE divHighRadixS6S12' #-}
+
+divHighRadixS4S40' ::
+  Clock XilinxSystem ->
+  Enable XilinxSystem ->
+  DSignal XilinxSystem 0 (Signed 4) ->
+  DSignal XilinxSystem 0 (Signed 40) ->
+  DSignal XilinxSystem (Div.HighRadixDefDelay 40) (Maybe (SFixed 4 8))
+divHighRadixS4S40' = Div.divHighRadix
+{-# INLINE divHighRadixS4S40' #-}

@@ -23,7 +23,7 @@ All IP instantiated by this module has the following properties:
 * No @TLAST@, no @TUSER@ on the inputs
 
 The latency of the IP is set through the delay argument of the 'DSignal'.
-Other customization is done through the 'Config' argument of 'quotRemWith'.
+Other customization is done through the t'Config' argument of 'quotRemWith'.
 For each operation, there also exists a function that uses the defaults: the
 maximum (fully pipelined) latency of the IP and, for 'quotRem', the settings
 from 'defConfig'. That latency is also defined as a type for delay annotation
@@ -37,19 +37,22 @@ The IP supports the following operations, see PG151 for details:
   /LutMult/ algorithm and its /Remainder/ output
 * 'quotFrac': division with a quotient and a fractional part, using the
   IP's /Radix2/ algorithm and its /Fractional/ output
+* 'divHighRadix': division with a rounded fixed-point quotient of up to 12
+  bits, using the IP's /High Radix/ algorithm
 
 Not supported:
 
 * Blocking mode, back pressure (@TREADY@), reset
 * Passing @TLAST@ and @TUSER@ from the inputs to the output
 * /Radix2/ with more than one clock cycle per division
+* /High Radix/ with quotients of more than 12 bits. The IP then needs more
+  than one iteration per division, so it cannot start a new division every
+  clock cycle.
 * A latency of zero: the IP then has no clock input
 -}
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE NamedFieldPuns #-}
-
-{-# OPTIONS_HADDOCK hide #-}
 
 {-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
 
@@ -59,8 +62,11 @@ module Clash.Cores.Xilinx.Divider.Explicit
   , quotRem
   , quotFracWith
   , quotFrac
+  , divHighRadixWith
+  , divHighRadix
+  , HighRadixDefDelay
     -- * Operands
-  , DividerOperand(Fraction, FractionWidth, QuotRemDefDelay, QuotFracDefDelay)
+  , DividerOperand(..)
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -242,6 +248,106 @@ quotFrac ::
   DSignal dom (k + QuotFracDefDelay a m f) (Maybe (a m, Fraction a f))
 quotFrac = withFrozenCallStack $ quotFracWith @(QuotFracDefDelay a m f)
 {-# INLINE quotFrac #-}
+
+-- | Customizable division with a rounded fixed-point quotient, using the IP's
+-- /High Radix/ algorithm.
+--
+-- The quotient has @m@ integer bits, like the dividend, and @f@ fractional
+-- bits. The IP rounds it to the nearest multiple of @2^-f@, but its
+-- prescaling makes it deviate from that a little: see below. When dividing the
+-- most negative dividend by -1, the quotient wraps around to the most negative
+-- dividend. Division by zero gives 'Nothing'.
+--
+-- The IP's /High Radix/ algorithm is iterative. This function only supports
+-- quotients of up to 12 bits (@m + f <= 12@), which the IP computes in a single
+-- iteration: only then can it start a new division every clock cycle. The
+-- divisor width @n@ should be between 4 and 64 bits. The latency @d@ should be
+-- at least 2 and at most 'HighRadixDefDelay'. Vivado reports an error when
+-- creating the IP otherwise.
+--
+-- The rounding of the IP, which the simulation model reproduces bit for bit:
+--
+-- 1. The IP normalizes the divisor @y@ to @y / 2^e@ with @e = floor (log2 |y|)@,
+--    and shifts the dividend right by @e@ as well. It keeps only @f + 2@
+--    fractional bits of the shifted dividend, rounding down.
+--
+-- 2. It computes the quotient with @14 - m - f@ extra fractional bits. It
+--    rounds down for a positive divisor and to the nearest value (half up) for
+--    a negative divisor. In case of a tie (the exact quotient of the shifted
+--    dividend falls on the rounding boundary), it picks the value closer to
+--    zero, except for a positive divisor that is 1.5 times a power of two,
+--    where it picks the value further from zero.
+--
+-- 3. It rounds the extended quotient to @f@ fractional bits, to the nearest
+--    value, half up.
+--
+-- The result is within 3/4 of its least significant bit from the exact
+-- quotient.
+divHighRadixWith ::
+  forall d m n f dom k.
+  ( KnownDomain dom
+  , KnownNat m
+  , KnownNat n
+  , KnownNat f
+  , KnownNat d
+  , 2 <= d
+  , m + f <= 12
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  -- | Dividend
+  DSignal dom k (Signed m) ->
+  -- | Divisor
+  DSignal dom k (Signed n) ->
+  -- | Quotient
+  DSignal dom (k + d) (Maybe (SFixed m f))
+divHighRadixWith clk en x y
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  sim =
+        uncurry (highRadixModel @m @n @f) . operandsFromBits
+    <$> delayI und en clk (operandsToBits <$> x <*> y)
+  und = withFrozenCallStack $ errorX "Initial values of divHighRadix undefined"
+
+  synth = D.unsafeFromSignal (toResult <$> tuser <*> tdata)
+   where
+    (tuser, tdata) =
+      highRadixInst @d @(ByteWidth m) @(ByteWidth n) @(ByteWidth (m + f))
+        "divHighRadix"
+        (opts @Signed @m @n "High_Radix" "Fractional" (natToNum @f))
+        clk en (padOperand x) (padOperand y)
+
+  toResult :: Bit -> BitVector (ByteWidth (m + f)) -> Maybe (SFixed m f)
+  toResult divByZero dout
+    | divByZero == 1 = Nothing
+    | otherwise = Just (unpack (resize dout))
+{-# INLINE divHighRadixWith #-}
+
+-- | Division with a rounded fixed-point quotient, with the default (maximum)
+-- latency. See 'divHighRadixWith'.
+divHighRadix ::
+  forall m n f dom k.
+  ( KnownDomain dom
+  , KnownNat m
+  , KnownNat n
+  , KnownNat f
+  , KnownNat (HighRadixDefDelay n)
+  , 2 <= HighRadixDefDelay n
+  , m + f <= 12
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  -- | Dividend
+  DSignal dom k (Signed m) ->
+  -- | Divisor
+  DSignal dom k (Signed n) ->
+  -- | Quotient
+  DSignal dom (k + HighRadixDefDelay n) (Maybe (SFixed m f))
+divHighRadix = withFrozenCallStack $ divHighRadixWith @(HighRadixDefDelay n)
+{-# INLINE divHighRadix #-}
 
 -- | IP options for the algorithm, the operand sign, the remainder type and the
 -- fractional width. The IP ignores the latter for remainder outputs, but the

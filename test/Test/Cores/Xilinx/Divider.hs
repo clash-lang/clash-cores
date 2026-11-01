@@ -42,8 +42,9 @@
 
   If neither is set, or the C model is not where they point, the tests fail.
 
-  Each test case is a batch of 'batchSize' divisions; use @--hedgehog-tests@
-  to change the number of batches.
+  Small configurations are tested exhaustively. For the others, each
+  Hedgehog test case is a batch of 'batchSize' random divisions; use
+  @--hedgehog-tests@ to change the number of batches from 'nBatches'.
 -}
 module Test.Cores.Xilinx.Divider (tests) where
 
@@ -55,7 +56,6 @@ import Control.Monad (forM, forM_, unless, void, when)
 import Data.Bits (shiftL, (.|.))
 import Data.Char (isSpace)
 import Data.List (find)
-import Data.Maybe (isNothing)
 import Data.Proxy (Proxy (..))
 import Data.String (fromString)
 import Foreign.C.String (CString, peekCString, withCString)
@@ -63,7 +63,8 @@ import Foreign.C.Types (CInt (..), CSize (..), CUInt (..))
 import Foreign.Marshal.Alloc (alloca, allocaBytes)
 import Foreign.Ptr (FunPtr, Ptr, nullFunPtr, nullPtr)
 import Foreign.Storable (peek, pokeByteOff)
-import GHC.TypeLits (KnownNat, natVal)
+import Data.Kind (Type)
+import GHC.TypeLits (KnownNat, Nat, natVal)
 import Numeric (readHex, showHex)
 import System.Directory
   ( createDirectory, doesDirectoryExist, doesFileExist, makeAbsolute
@@ -81,14 +82,13 @@ import qualified Clash.Signal.Delayed as D
 
 import Clash.Cores.Xilinx.Divider.Explicit (Algorithm (..), Config (..), DividerOperand (..))
 import qualified Clash.Cores.Xilinx.Divider.Explicit as Div
-import Clash.Cores.Xilinx.Divider.Internal (operandFromInteger, operandToInteger)
-import qualified Clash.Cores.Xilinx.Divider.Internal as Div (operandSign)
 
-import Hedgehog (Gen, Property, (===))
+import Hedgehog (Gen)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Test.Tasty
+import Test.Tasty.HUnit (assertFailure, testCase)
 import Test.Tasty.Hedgehog (testPropertyNamed)
 
 ------------------------------------------------------------------------------
@@ -122,45 +122,61 @@ tests =
   withResource (loadDivGen divGenCModel) unloadDivGen $ \getCModel ->
     testGroup "Xilinx divider vs. C model"
       [ testGroup "quotRem Radix2"
-          [ quotRemTest @Signed @8 @8 getCModel Radix2
-          , quotRemTest @Unsigned @8 @8 getCModel Radix2
-          , quotRemTest @Signed @2 @2 getCModel Radix2
-          , quotRemTest @Unsigned @2 @2 getCModel Radix2
-          , quotRemTest @Signed @16 @5 getCModel Radix2
-          , quotRemTest @Unsigned @5 @16 getCModel Radix2
-          , quotRemTest @Signed @32 @32 getCModel Radix2
-          , quotRemTest @Unsigned @32 @17 getCModel Radix2
-          , quotRemTest @Signed @64 @64 getCModel Radix2
-          , quotRemTest @Unsigned @64 @64 getCModel Radix2
-          , quotRemTest @Signed @64 @3 getCModel Radix2
-          , quotRemTest @Unsigned @3 @64 getCModel Radix2
-          , quotRemTest @Signed @41 @23 getCModel Radix2
+          [ quotRemTest @Signed @8 @8 Exhaustive getCModel Radix2
+          , quotRemTest @Unsigned @8 @8 Exhaustive getCModel Radix2
+          , quotRemTest @Signed @2 @2 Exhaustive getCModel Radix2
+          , quotRemTest @Unsigned @2 @2 Exhaustive getCModel Radix2
+          , quotRemTest @Signed @16 @5 Random getCModel Radix2
+          , quotRemTest @Unsigned @5 @16 Random getCModel Radix2
+          , quotRemTest @Signed @32 @32 Random getCModel Radix2
+          , quotRemTest @Unsigned @32 @17 Random getCModel Radix2
+          , quotRemTest @Signed @64 @64 Random getCModel Radix2
+          , quotRemTest @Unsigned @64 @64 Random getCModel Radix2
+          , quotRemTest @Signed @64 @3 Random getCModel Radix2
+          , quotRemTest @Unsigned @3 @64 Random getCModel Radix2
+          , quotRemTest @Signed @41 @23 Random getCModel Radix2
           ]
       , testGroup "quotRem LutMult"
-          [ quotRemTest @Signed @8 @8 getCModel LutMult
-          , quotRemTest @Unsigned @8 @8 getCModel LutMult
-          , quotRemTest @Signed @2 @2 getCModel LutMult
-          , quotRemTest @Unsigned @2 @2 getCModel LutMult
-          , quotRemTest @Signed @17 @6 getCModel LutMult
-          , quotRemTest @Unsigned @17 @6 getCModel LutMult
-          , quotRemTest @Signed @11 @12 getCModel LutMult
-          , quotRemTest @Unsigned @12 @11 getCModel LutMult
-          , quotRemTest @Signed @5 @12 getCModel LutMult
+          [ quotRemTest @Signed @8 @8 Exhaustive getCModel LutMult
+          , quotRemTest @Unsigned @8 @8 Exhaustive getCModel LutMult
+          , quotRemTest @Signed @2 @2 Exhaustive getCModel LutMult
+          , quotRemTest @Unsigned @2 @2 Exhaustive getCModel LutMult
+          , quotRemTest @Signed @17 @6 Random getCModel LutMult
+          , quotRemTest @Unsigned @17 @6 Random getCModel LutMult
+          , quotRemTest @Signed @11 @12 Random getCModel LutMult
+          , quotRemTest @Unsigned @12 @11 Random getCModel LutMult
+          , quotRemTest @Signed @5 @12 Random getCModel LutMult
           ]
       , testGroup "quotFrac"
-          [ quotFracTest @Signed @8 @8 @7 getCModel
-          , quotFracTest @Unsigned @8 @8 @8 getCModel
-          , quotFracTest @Signed @2 @2 @1 getCModel
-          , quotFracTest @Unsigned @2 @2 @2 getCModel
-          , quotFracTest @Signed @12 @5 @6 getCModel
-          , quotFracTest @Unsigned @10 @6 @4 getCModel
-          , quotFracTest @Signed @2 @16 @15 getCModel
-          , quotFracTest @Unsigned @2 @16 @16 getCModel
-          , quotFracTest @Signed @32 @16 @31 getCModel
-          , quotFracTest @Unsigned @16 @32 @20 getCModel
-          , quotFracTest @Signed @64 @64 @63 getCModel
-          , quotFracTest @Unsigned @64 @64 @64 getCModel
-          , quotFracTest @Signed @3 @64 @2 getCModel
+          [ quotFracTest @Signed @8 @8 @7 Exhaustive getCModel
+          , quotFracTest @Unsigned @8 @8 @8 Exhaustive getCModel
+          , quotFracTest @Signed @2 @2 @1 Exhaustive getCModel
+          , quotFracTest @Unsigned @2 @2 @2 Exhaustive getCModel
+          , quotFracTest @Signed @12 @5 @6 Random getCModel
+          , quotFracTest @Unsigned @10 @6 @4 Random getCModel
+          , quotFracTest @Signed @2 @16 @15 Random getCModel
+          , quotFracTest @Unsigned @2 @16 @16 Random getCModel
+          , quotFracTest @Signed @32 @16 @31 Random getCModel
+          , quotFracTest @Unsigned @16 @32 @20 Random getCModel
+          , quotFracTest @Signed @64 @64 @63 Random getCModel
+          , quotFracTest @Unsigned @64 @64 @64 Random getCModel
+          , quotFracTest @Signed @3 @64 @2 Random getCModel
+          ]
+      , testGroup "divHighRadix"
+          [ highRadixTest @8 @8 @0 Exhaustive getCModel
+          , highRadixTest @6 @8 @4 Exhaustive getCModel
+          , highRadixTest @4 @6 @8 Exhaustive getCModel
+          , highRadixTest @7 @7 @5 Exhaustive getCModel
+          , highRadixTest @2 @4 @10 Exhaustive getCModel
+          , highRadixTest @12 @12 @0 Random getCModel
+          , highRadixTest @11 @11 @1 Random getCModel
+          , highRadixTest @6 @12 @6 Random getCModel
+          , highRadixTest @12 @4 @0 Random getCModel
+          , highRadixTest @4 @20 @8 Random getCModel
+          , highRadixTest @2 @40 @10 Random getCModel
+          , highRadixTest @10 @64 @2 Random getCModel
+          , highRadixTest @12 @64 @0 Random getCModel
+          , highRadixTest @3 @33 @9 Random getCModel
           ]
       ]
 
@@ -558,7 +574,22 @@ instance TestOperand Unsigned where
 natInt :: forall n. KnownNat n => Int
 natInt = fromInteger (natVal (Proxy @n))
 
--- | Test 'Div.quotRemWith' with the maximum latency
+-- | A function under test, and how to compare it with the C model
+data Subject (a :: Nat -> Type) (m :: Nat) (n :: Nat) r = Subject
+  { sName :: String
+  , sConfig :: CConfig
+  , sHaskell :: [(a m, a n)] -> [Maybe r]
+  -- ^ Run the Haskell model on a list of operands
+  , sHaskellBits :: r -> Integer
+  -- ^ Bits of a result of the Haskell model
+  , sCBits :: CResult -> Integer
+  -- ^ Bits of a result of the C model
+  }
+
+-- | How to pick operands
+data Operands = Random | Exhaustive
+
+-- | Test 'Div.quotRemWith', with a small latency
 quotRemTest ::
   forall a m n.
   ( TestOperand a
@@ -572,35 +603,31 @@ quotRemTest ::
   , C.BitSize (a n) ~ n
   , Show (a m)
   , Show (a n)
-  , Eq (a m)
-  , Eq (a n)
   ) =>
+  Operands ->
   IO DivGen ->
   Algorithm ->
   TestTree
-quotRemTest getCModel algo =
-  testPropertyNamed name (fromString ("prop_" <> name)) $
-    -- Shrinking a batch takes long, and the failure shows the failing division
-    H.withShrinks 0 $ H.withTests nBatches $
-      prop_division
-        getCModel
-        cfg
-        (genOperands @a @m @n)
-        (runPipeline @3 (Div.quotRemWith @3 (Config{algorithm = algo}) clk en))
-        (fmap (\(q, r) -> (toBits q, toBits r)))
-        (\CResult{crQuotient, crRemainder} -> (crQuotient, crRemainder))
- where
-  name = operandsName @a @m @n
-  cfg =
-    CConfig
-      { ccAlgorithm = case algo of Radix2 -> CRadix2; LutMult -> CLutMult
-      , ccSigned = isSigned @a
-      , ccDividendWidth = natInt @m
-      , ccDivisorWidth = natInt @n
-      , ccFractional = Nothing
+quotRemTest operands getCModel algo =
+  divisionTest @a @m @n operands getCModel $
+    Subject
+      { sName = operandsName @a @m @n
+      , sConfig =
+          CConfig
+            { ccAlgorithm = case algo of Radix2 -> CRadix2; LutMult -> CLutMult
+            , ccSigned = isSigned @a
+            , ccDividendWidth = natInt @m
+            , ccDivisorWidth = natInt @n
+            , ccFractional = Nothing
+            }
+      , sHaskell = runPipeline @3 (Div.quotRemWith @3 (Config{algorithm = algo}) clk en)
+      , -- The C model gives the quotient and the remainder separately
+        sHaskellBits = \(q, r) -> toBits q `shiftL` natInt @n .|. toBits r
+      , sCBits = \CResult{crQuotient, crRemainder} ->
+          crQuotient `shiftL` natInt @n .|. crRemainder
       }
 
--- | Test 'Div.quotFracWith' with a small latency
+-- | Test 'Div.quotFracWith', with a small latency
 quotFracTest ::
   forall a m n f.
   ( TestOperand a
@@ -620,29 +647,54 @@ quotFracTest ::
   , Show (a n)
   , Show (Fraction a f)
   ) =>
+  Operands ->
   IO DivGen ->
   TestTree
-quotFracTest getCModel =
-  testPropertyNamed name (fromString ("prop_" <> name)) $
-    -- Shrinking a batch takes long, and the failure shows the failing division
-    H.withShrinks 0 $ H.withTests nBatches $
-      prop_division
-        getCModel
-        cfg
-        (genOperands @a @m @n)
-        (runPipeline @3 (Div.quotFracWith @3 @a @m @n @f clk en))
-        (fmap (\(q, fr) -> (toBits q `shiftL` fracWidth .|. toBits fr, 0)))
-        (\CResult{crQuotient} -> (crQuotient, 0))
+quotFracTest operands getCModel =
+  divisionTest @a @m @n operands getCModel $
+    Subject
+      { sName = operandsName @a @m @n <> ", " <> show fracWidth <> "-bit fraction"
+      , sConfig =
+          CConfig
+            { ccAlgorithm = CRadix2
+            , ccSigned = isSigned @a
+            , ccDividendWidth = natInt @m
+            , ccDivisorWidth = natInt @n
+            , ccFractional = Just fracWidth
+            }
+      , sHaskell = runPipeline @3 (Div.quotFracWith @3 @a @m @n @f clk en)
+      , sHaskellBits = \(q, fr) -> toBits q `shiftL` fracWidth .|. toBits fr
+      , sCBits = crQuotient
+      }
  where
   fracWidth = natInt @(FractionWidth a f)
-  name = operandsName @a @m @n <> ", " <> show fracWidth <> "-bit fraction"
-  cfg =
-    CConfig
-      { ccAlgorithm = CRadix2
-      , ccSigned = isSigned @a
-      , ccDividendWidth = natInt @m
-      , ccDivisorWidth = natInt @n
-      , ccFractional = Just fracWidth
+
+-- | Test 'Div.divHighRadixWith', with its smallest latency
+highRadixTest ::
+  forall m n f.
+  ( KnownNat m
+  , KnownNat n
+  , KnownNat f
+  , (m C.+ f) C.<= 12
+  ) =>
+  Operands ->
+  IO DivGen ->
+  TestTree
+highRadixTest operands getCModel =
+  divisionTest @Signed @m @n operands getCModel $
+    Subject
+      { sName = operandsName @Signed @m @n <> ", " <> show (natInt @f) <> "-bit fraction"
+      , sConfig =
+          CConfig
+            { ccAlgorithm = CHighRadix
+            , ccSigned = True
+            , ccDividendWidth = natInt @m
+            , ccDivisorWidth = natInt @n
+            , ccFractional = Just (natInt @f)
+            }
+      , sHaskell = runPipeline @2 (Div.divHighRadixWith @2 @m @n @f clk en)
+      , sHaskellBits = toBits
+      , sCBits = crQuotient
       }
 
 -- | Name of a test, without slashes: Tasty patterns would split names at them
@@ -655,57 +707,79 @@ operandsName =
 toBits :: (BitPack a, KnownNat (C.BitSize a)) => a -> Integer
 toBits = toInteger . pack
 
+-- | Compare a function with the C model, on batches of random operands or on
+-- all operands
+divisionTest ::
+  forall a m n r.
+  (TestOperand a, KnownNat m, KnownNat n, Show (a m), Show (a n), Show r) =>
+  Operands ->
+  IO DivGen ->
+  Subject a m n r ->
+  TestTree
+divisionTest operands getCModel subject@Subject{sName} =
+  case operands of
+    Random ->
+      testPropertyNamed sName (fromString ("prop_" <> sName)) $
+        -- Shrinking a batch takes long, and the failure shows the failing division
+        H.withShrinks 0 $ H.withTests nBatches $ H.property $ do
+          batch <- H.forAllWith (const "<batch>") (Gen.list (Range.singleton batchSize) genOperands)
+          cmodel <- H.evalIO getCModel
+          (failure, divByZero) <- H.evalIO (compareBatch cmodel subject batch)
+          H.classify "contains a division by zero" divByZero
+          mapM_ (\msg -> H.footnote msg >> H.failure) failure
+    Exhaustive ->
+      -- Not a Hedgehog property, so that @--hedgehog-tests@ does not repeat it
+      testCase (sName <> ", exhaustive") $ do
+        cmodel <- getCModel
+        forM_ (chunksOf (10 * batchSize) allOperands) $ \batch -> do
+          (failure, _) <- compareBatch cmodel subject batch
+          mapM_ assertFailure failure
+ where
+  allOperands =
+    [ (operandFromInteger x, operandFromInteger y)
+    | let (xLo, xHi) = operandRange @a (natInt @m)
+    , let (yLo, yHi) = operandRange @a (natInt @n)
+    , x <- [xLo .. xHi]
+    , y <- [yLo .. yHi]
+    ]
+  chunksOf k xs = case splitAt k xs of
+    (c, []) -> [c]
+    (c, rest) -> c : chunksOf k rest
+
 {- | Run a batch of divisions on both the C model and the Haskell model, and
 compare the results. On division by zero, only check that the Haskell model
-gives 'Nothing'.
+gives 'Nothing'. Gives a description of the first mismatch, if any, and
+whether the batch contains a division by zero.
 -}
-prop_division ::
+compareBatch ::
   forall a m n r.
-  ( TestOperand a
-  , KnownNat m
-  , KnownNat n
-  , Show (a m)
-  , Show (a n)
-  , Show r
-  ) =>
-  IO DivGen ->
-  CConfig ->
-  Gen (a m, a n) ->
-  -- | Haskell model
-  ([(a m, a n)] -> [Maybe r]) ->
-  -- | Bits of the Haskell model's result
-  (Maybe r -> Maybe (Integer, Integer)) ->
-  -- | Bits of the C model's result
-  (CResult -> (Integer, Integer)) ->
-  Property
-prop_division getCModel cfg gen haskellModel haskellBits cBits = H.property $ do
-  cmodel <- H.evalIO getCModel
-  operands <- H.forAllWith (const "<batch>") (Gen.list (Range.singleton batchSize) gen)
+  (TestOperand a, KnownNat m, KnownNat n, Show (a m), Show (a n), Show r) =>
+  DivGen ->
+  Subject a m n r ->
+  [(a m, a n)] ->
+  IO (Maybe String, Bool)
+compareBatch cmodel Subject{sConfig, sHaskell, sHaskellBits, sCBits} operands = do
   cResults <-
-    H.evalIO $
-      runDivGen cmodel cfg
-        [(operandToInteger x, operandToInteger y) | (x, y) <- operands]
+    runDivGen cmodel sConfig
+      [(operandToInteger x, operandToInteger y) | (x, y) <- operands]
   let
-    hResults = haskellModel operands
-    compared =
-      [ (x, y, h, c)
-      | ((x, y), h, c) <- zip3 operands hResults cResults
-      ]
+    compared = zip3 operands (sHaskell operands) cResults
     expected c
       | crDivByZero c = Nothing
-      | otherwise = Just (cBits c)
-    ok (_, _, h, c)
-      | crDivByZero c = isNothing h
-      | otherwise = haskellBits h == expected c
-  H.classify "contains a division by zero" (any (\(_, _, _, c) -> crDivByZero c) compared)
-  case find (not . ok) compared of
-    Nothing -> pure ()
-    Just (x, y, h, c) -> do
-      H.footnote ("Dividend: " <> show x <> ", divisor: " <> show y)
-      H.footnote ("Haskell model: " <> show h <> ", C model: " <> show c)
-      (showHexs <$> haskellBits h) === (showHexs <$> expected c)
+      | otherwise = Just (sCBits c)
+    ok (_, h, c) = (sHaskellBits <$> h) == expected c
+    mismatch ((x, y), h, c) =
+      unlines
+        [ "Dividend: " <> show x <> ", divisor: " <> show y
+        , "Haskell model: " <> show h <> ", bits: " <> show (showHex' . sHaskellBits <$> h)
+        , "C model: " <> show c <> ", bits: " <> show (showHex' <$> expected c)
+        ]
+  pure
+    ( mismatch <$> find (not . ok) compared
+    , any (\(_, _, c) -> crDivByZero c) compared
+    )
  where
-  showHexs (a, b) = ("0x" <> showHex a "", "0x" <> showHex b "")
+  showHex' v = "0x" <> showHex v ""
 
 ------------------------------------------------------------------------------
 -- Generators

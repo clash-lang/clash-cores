@@ -169,3 +169,55 @@ quotFracU10U6 = quotFracU10U6'
 quotFracU10U6TB :: Signal XilinxSystem Bool
 quotFracU10U6TB = divTB quotFracU10U6 $(memBlobTH (Just 0) (samples quotFracU10U6' (stimuli 7)))
 {-# ANN quotFracU10U6TB (TestBench 'quotFracU10U6) #-}
+
+------------------------------------------------------------------------------
+-- divHighRadix
+------------------------------------------------------------------------------
+
+divHighRadixS8S8 ::
+  Clock XilinxSystem ->
+  Enable XilinxSystem ->
+  DSignal XilinxSystem 0 (Signed 8) ->
+  DSignal XilinxSystem 0 (Signed 8) ->
+  DSignal XilinxSystem (Div.HighRadixDefDelay 8) (Maybe (SFixed 8 0))
+divHighRadixS8S8 = divHighRadixS8S8'
+{-# OPAQUE divHighRadixS8S8 #-}
+{-# ANN divHighRadixS8S8 (topAnn "divHighRadixS8S8") #-}
+
+divHighRadixS8S8TB :: Signal XilinxSystem Bool
+divHighRadixS8S8TB =
+  divTB divHighRadixS8S8
+    $(memBlobTH (Just 0) (samples divHighRadixS8S8' (stimuli 8 <> tieStimuli)))
+{-# ANN divHighRadixS8S8TB (TestBench 'divHighRadixS8S8) #-}
+
+divHighRadixS6S12 ::
+  Clock XilinxSystem ->
+  Enable XilinxSystem ->
+  DSignal XilinxSystem 0 (Signed 6) ->
+  DSignal XilinxSystem 0 (Signed 12) ->
+  DSignal XilinxSystem 2 (Maybe (SFixed 6 6))
+divHighRadixS6S12 = divHighRadixS6S12'
+{-# OPAQUE divHighRadixS6S12 #-}
+{-# ANN divHighRadixS6S12 (topAnn "divHighRadixS6S12") #-}
+
+divHighRadixS6S12TB :: Signal XilinxSystem Bool
+divHighRadixS6S12TB =
+  divTB divHighRadixS6S12
+    $(memBlobTH (Just 0) (samples divHighRadixS6S12' (stimuli 9 <> tieStimuli)))
+{-# ANN divHighRadixS6S12TB (TestBench 'divHighRadixS6S12) #-}
+
+divHighRadixS4S40 ::
+  Clock XilinxSystem ->
+  Enable XilinxSystem ->
+  DSignal XilinxSystem 0 (Signed 4) ->
+  DSignal XilinxSystem 0 (Signed 40) ->
+  DSignal XilinxSystem (Div.HighRadixDefDelay 40) (Maybe (SFixed 4 8))
+divHighRadixS4S40 = divHighRadixS4S40'
+{-# OPAQUE divHighRadixS4S40 #-}
+{-# ANN divHighRadixS4S40 (topAnn "divHighRadixS4S40") #-}
+
+divHighRadixS4S40TB :: Signal XilinxSystem Bool
+divHighRadixS4S40TB =
+  divTB divHighRadixS4S40
+    $(memBlobTH (Just 0) (samples divHighRadixS4S40' (stimuli 10 <> tieStimuli)))
+{-# ANN divHighRadixS4S40TB (TestBench 'divHighRadixS4S40) #-}

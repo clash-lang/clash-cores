@@ -201,6 +201,9 @@ runClashTest = defaultMain $ clashTestRoot
                 , "quotRemLutU12U11TB"
                 , "quotFracS12S5TB"
                 , "quotFracU10U6TB"
+                , "divHighRadixS8S8TB"
+                , "divHighRadixS6S12TB"
+                , "divHighRadixS4S40TB"
                 ]
             }
         , runTest "Ibufds" def
