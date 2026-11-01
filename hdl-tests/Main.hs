@@ -166,6 +166,19 @@ runClashTest = defaultMain $ clashTestRoot
               , hdlLoad=[Vivado]
               , hdlSim=[Vivado]
               }
+          , runTest "BoolStringParam" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
+            -- The Verilog simulation model of IBUF ends the simulation on an
+            -- illegal parameter value, which the test harness doesn't notice.
+            -- Check the rendered parameters too.
+          , outputTest "BoolStringParam" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[]
+              , hdlSim=[]
+              }
           , outputTest "DiffClockOutputTuple" def{hdlLoad=[], hdlSim=[]}
           , runTest "DiffClockOutput" def
               { hdlTargets=[VHDL, Verilog, SystemVerilog]
