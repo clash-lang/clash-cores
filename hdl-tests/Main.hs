@@ -173,6 +173,11 @@ runClashTest = defaultMain $ clashTestRoot
               , hdlLoad=[Vivado]
               , hdlSim=[Vivado]
               }
+          , runTest "ResetOutputs" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
           , runTest "ZeroWidthPorts" def
               { hdlTargets=[VHDL, Verilog, SystemVerilog]
               , hdlLoad=[Vivado]

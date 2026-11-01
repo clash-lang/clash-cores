@@ -819,7 +819,8 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
               #{ppShow userArgs}
           |]
 
-        outPorts <- mapM mkOutPort (P.zipWith addPrimPortMeta primResults1 outPortTys)
+        (outPorts, outExprs) <-
+          P.unzip <$> mapM mkOutPort (P.zipWith addPrimPortMeta primResults1 outPortTys)
         let
           -- Note that this critically depends on the Clash Netlist backed treating
           -- a data type with a single constructor with a single field as the
@@ -850,7 +851,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           inPorts1
           outPorts
 
-        pure (mkResult (snd <$> outPorts))
+        pure (mkResult outExprs)
  where
   mkParam :: PrimParam DSL.TExpr -> (Text, DSL.TExpr)
   mkParam (PrimParam{paramName, paramMeta, paramAsInteger}) =
@@ -895,7 +896,12 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
     DataCon _ (DC (Void Nothing, -1)) [e] -> stripNewtypeDataCon e
     e -> e
 
-  mkOutPort :: PrimPort HWType -> State (DSL.BlockState s) (Text, DSL.TExpr)
+  -- | Declare a signal for the HDL port of an output port. Returns the port
+  -- map entry and the expression for the corresponding (tuple element of the)
+  -- result.
+  mkOutPort ::
+    PrimPort HWType ->
+    State (DSL.BlockState s) ((Text, DSL.TExpr), DSL.TExpr)
   mkOutPort = \case
     PrimDiffClockPort{} -> do
       error "Internal error: unreachable code: PrimDiffClockPort in mkOutPort"
@@ -912,12 +918,12 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
             | otherwise -> DSL.notExpr name var
           Nothing ->
             error ("Internal error: could not find domain " <> Text.unpack dom)
-      pure (name, rst)
+      pure ((name, var), rst)
 
     port -> do
       let ty = meta port
       var <- DSL.declare (name port) ty
-      pure (name port, var)
+      pure ((name port, var), var)
 
 instBBTF _nExtraArgs _doms _config _maybeXilinxWizard _primArgs _primResults bbCtx =
   error (show 'instBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
