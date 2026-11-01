@@ -344,9 +344,11 @@ instConfig nm = InstConfig
 -- > a_0 -> a_1 -> ... -> a_n -> r
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
--- result type. Each argument can be a 'Port', 'ClockPort', 'ResetPort', or
--- 'Param'. The result type, @r@ can be a 'Port', 'ClockPort', 'ResetPort', or
--- a tuple of these.
+-- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', or 'Param'. The result
+-- type, @r@ can be a 'Port', 'ClockPort', 'DiffClockPort',
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalOutPort', a tuple of these, or
+-- unit (@()@).
 --
 -- See 'inst' for examples.
 class Inst a where
@@ -375,12 +377,22 @@ instance KnownDomain dom => IsPort (BiSignalOutPort s ds dom n) where
   type PortType (BiSignalOutPort s ds dom n) = BiSignalOut ds dom n
   unPort (BiSignalOutPort sig) = sig
 
+instance KnownDomain dom => IsPort (DiffClockPort name dom) where
+  type PortType (DiffClockPort name dom) = DiffClock dom
+  unPort (DiffClockPort clk) = clk
+
+instance KnownDomain dom => IsPort (NamedDiffClockPort nameP nameN dom) where
+  type PortType (NamedDiffClockPort nameP nameN dom) = DiffClock dom
+  unPort (NamedDiffClockPort clk) = clk
+
 -- "Terminating" instances for 'Inst'
 instance Inst () -- Inst with only inputs
 instance KnownDomain dom => Inst (Port s dom a) -- Inst with a single port output
 instance KnownDomain dom => Inst (ClockPort s dom) -- Inst with a single clock output
 instance KnownDomain dom => Inst (ResetPort s polarity dom) -- Inst with a single reset output
 instance KnownDomain dom => Inst (BiSignalOutPort s ds dom n) -- Inst with a single bi-signal output
+instance KnownDomain dom => Inst (DiffClockPort s dom) -- Inst with a single differential clock output
+instance KnownDomain dom => Inst (NamedDiffClockPort sP sN dom) -- Inst with a single differential clock output
 
 -- A generous number of tuple instances: users typically don't have any choice
 -- in how many output ports a primitive has. I.e., the only workaround would be
@@ -463,8 +475,11 @@ See https://github.com/clash-lang/clash-cores/issues/80.
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
 -- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', or 'Param'. The result type, @r@ can be a
--- 'Port', 'ClockPort', 'ResetPort', a tuple of these, or unit (@()@).
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', or 'Param'. The result
+-- type, @r@ can be a 'Port', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort',
+-- 'ResetPort', 'BiSignalOutPort', a tuple of these, or unit (@()@). Like
+-- arguments, a 'DiffClockPort' or 'NamedDiffClockPort' in the result maps to
+-- two HDL ports: one for the positive and one for the negative phase.
 --
 -- Ports with a zero-width type, such as a 'BiSignalOutPort' or a 'Port' carrying
 -- @()@, have no HDL representation and are left out of the instantiation. If an
@@ -577,6 +592,24 @@ tyToPrimPort ty@(splitTyConAppM -> Just (tyConName'@(Name{nameOcc=Text.unpack ->
     | tyConName == show 'ClockPort
     , LitTy (SymTy nm) : LitTy (SymTy domNm) : _ <- args
     = Right [(PrimClockPort{name=Text.pack nm, dom=Text.pack domNm, meta=()}, ty)]
+
+    | tyConName == show 'DiffClockPort
+    , LitTy (SymTy nm) : LitTy (SymTy domNm) : _ <- args
+    = Right [(PrimDiffClockPort
+        { nameP=Text.pack nm <> "_p"
+        , nameN=Text.pack nm <> "_n"
+        , dom=Text.pack domNm
+        , meta=()
+        }, ty)]
+
+    | tyConName == show 'NamedDiffClockPort
+    , LitTy (SymTy nmP) : LitTy (SymTy nmN) : LitTy (SymTy domNm) : _ <- args
+    = Right [(PrimDiffClockPort
+        { nameP=Text.pack nmP
+        , nameN=Text.pack nmN
+        , dom=Text.pack domNm
+        , meta=()
+        }, ty)]
 
     | tyConName == show 'ResetPort
     , LitTy (SymTy nm) : pol : LitTy (SymTy domNm) : _ <- args
@@ -819,7 +852,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
               #{ppShow userArgs}
           |]
 
-        (outPorts, outExprs) <-
+        (P.concat -> outPorts, outExprs) <-
           P.unzip <$> mapM mkOutPort (P.zipWith addPrimPortMeta primResults1 outPortTys)
         let
           -- Note that this critically depends on the Clash Netlist backed treating
@@ -896,15 +929,22 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
     DataCon _ (DC (Void Nothing, -1)) [e] -> stripNewtypeDataCon e
     e -> e
 
-  -- | Declare a signal for the HDL port of an output port. Returns the port
-  -- map entry and the expression for the corresponding (tuple element of the)
-  -- result.
+  -- | Declare signals for the HDL port(s) of an output port. Returns the port
+  -- map entries and the expression for the corresponding (tuple element of
+  -- the) result.
   mkOutPort ::
     PrimPort HWType ->
-    State (DSL.BlockState s) ((Text, DSL.TExpr), DSL.TExpr)
+    State (DSL.BlockState s) ([(Text, DSL.TExpr)], DSL.TExpr)
   mkOutPort = \case
-    PrimDiffClockPort{} -> do
-      error "Internal error: unreachable code: PrimDiffClockPort in mkOutPort"
+    PrimDiffClockPort{nameP, nameN, meta=ty} ->
+      case stripAnnotated ty of
+        diffClkTy@(Product _ _ [clkTyP, clkTyN]) -> do
+          clkP <- DSL.declare nameP clkTyP
+          clkN <- DSL.declare nameN clkTyN
+          diffClk <- DSL.assign "diff_clock" (DSL.constructProduct diffClkTy [clkP, clkN])
+          pure ([(nameP, clkP), (nameN, clkN)], diffClk)
+        _ ->
+          error ("Internal error: unexpected type for differential clock: " <> show ty)
 
     PrimBiSignalOutPort{} ->
       error "Internal error: unreachable code: zero-width PrimBiSignalOutPort in mkOutPort"
@@ -918,12 +958,12 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
             | otherwise -> DSL.notExpr name var
           Nothing ->
             error ("Internal error: could not find domain " <> Text.unpack dom)
-      pure ((name, var), rst)
+      pure ([(name, var)], rst)
 
     port -> do
       let ty = meta port
       var <- DSL.declare (name port) ty
-      pure ((name port, var), var)
+      pure ([(name port, var)], var)
 
 instBBTF _nExtraArgs _doms _config _maybeXilinxWizard _primArgs _primResults bbCtx =
   error (show 'instBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
