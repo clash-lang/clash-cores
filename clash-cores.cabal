@@ -38,6 +38,14 @@ flag xilinx-floating-cmodel
   default: False
   manual: True
 
+flag xilinx-cordic-cmodel
+  description:
+    Test the Xilinx CORDIC models against Xilinx's C model. The tests need the
+    C model, which ships with Vivado, when they run. See
+    test/Test/Cores/Xilinx/Cordic.hs.
+  default: False
+  manual: True
+
 flag clash-18
   description:
     Disable cores that require a Clash version later than 1.8
@@ -159,6 +167,9 @@ library
     Clash.Cores.Xilinx.BlockRam
     Clash.Cores.Xilinx.BlockRam.BlackBoxes
     Clash.Cores.Xilinx.BlockRam.Internal
+    Clash.Cores.Xilinx.Cordic
+    Clash.Cores.Xilinx.Cordic.Explicit
+    Clash.Cores.Xilinx.Cordic.Internal
     Clash.Cores.Xilinx.DcFifo
     Clash.Cores.Xilinx.DcFifo.Internal.BlackBoxes
     Clash.Cores.Xilinx.DcFifo.Internal.Instances
@@ -271,6 +282,16 @@ test-suite unit-tests
     cpp-options: -DXILINX_FLOATING_CMODEL
     other-modules:
       Test.Cores.Xilinx.Floating
+    build-depends:
+      directory,
+      filepath,
+      process,
+      temporary,
+
+  if flag(xilinx-cordic-cmodel)
+    cpp-options: -DXILINX_CORDIC_CMODEL
+    other-modules:
+      Test.Cores.Xilinx.Cordic
     build-depends:
       directory,
       filepath,
