@@ -41,6 +41,7 @@ module Clash.Cores.Xilinx.Xpm.Cdc.Internal
   -- * Params and ports
   , Param(..)
   , BitVectorParam(..)
+  , BoolStringParam(..)
   , ClockPort(..)
   , DiffClockPort (..)
   , NamedDiffClockPort (..)
@@ -105,7 +106,9 @@ import qualified Clash.Util.Interpolate as I
 import qualified Clash.Core.TermLiteral.Compat as Compat
 
 -- | VHDL generic or Verilog parameter. Contents should be able to render to an
--- HDL constant. Use 'BitVectorParam' for VHDL generics of type @bit_vector@.
+-- HDL constant. Use 'BitVectorParam' for VHDL generics of type @bit_vector@,
+-- and 'BoolStringParam' for parameters that are a @boolean@ in VHDL but a
+-- string in Verilog.
 data Param (name :: Symbol) a = Param a
 
 -- | Like @'Param' name ('Clash.Explicit.Prelude.BitVector' n)@, but rendered
@@ -118,6 +121,14 @@ data Param (name :: Symbol) a = Param a
 -- The 'Clash.Explicit.Prelude.BitVector' must be a constant without undefined
 -- bits.
 data BitVectorParam (name :: Symbol) n = BitVectorParam (BitVector n)
+
+-- | Boolean parameter in the style of Xilinx primitives, such as the
+-- @IBUF_LOW_PWR@ parameter of @IBUF@: a @boolean@ in VHDL (@true@ or @false@),
+-- but a string in Verilog and SystemVerilog (@\"TRUE\"@ or @\"FALSE\"@). Note
+-- that @'Param' name t'Bool'@ renders as a bit in Verilog and SystemVerilog.
+--
+-- The t'Bool' must be a constant.
+data BoolStringParam (name :: Symbol) = BoolStringParam Bool
 
 -- | Port with clock (bit) type, where @portName@ is the name of the port that
 -- is mapped in the target HDL.
@@ -169,6 +180,8 @@ data ParamRender
   -- ^ 'Param': render the argument like Clash would render it anywhere else
   | BitVectorRender Int Integer
   -- ^ 'BitVectorParam': width and value
+  | BoolStringRender Bool
+  -- ^ 'BoolStringParam'
   deriving (Show)
 
 -- | A term level, post-normalization version of 'ClockPort', 'DiffClockPort',
@@ -257,6 +270,18 @@ instance TermLiteral (PrimPortOrParam ()) where
             }))
         Just _ -> paramError param expected "a BitVector with undefined bits" "" arg
         Nothing -> nonLiteralParamError param expected arg
+
+    | constrName == show 'BoolStringParam
+    , [Right (LitTy (SymTy nm)), Left (stripAllTicks -> arg)] <- args
+    = case Compat.termToData arg of
+        Right b ->
+          pure (MkPrimParam (PrimParam
+            { paramName = Text.pack nm
+            , paramMeta = ()
+            , paramAsInteger = Nothing
+            , paramRender = BoolStringRender b
+            }))
+        Left _ -> nonLiteralParamError ("BoolStringParam " <> show nm) "a constant Bool" arg
 
     | constrName == show 'Port
     , (LitTy (SymTy nm) : LitTy (SymTy domNm) : _) <- rights args
@@ -443,10 +468,10 @@ instConfig nm = InstConfig
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
 -- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param', or
--- 'BitVectorParam'. The result type, @r@ can be a 'Port', 'ClockPort',
--- 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort', 'BiSignalOutPort', a
--- tuple of these, or unit (@()@).
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param',
+-- 'BitVectorParam', or 'BoolStringParam'. The result type, @r@ can be a
+-- 'Port', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort',
+-- 'BiSignalOutPort', a tuple of these, or unit (@()@).
 --
 -- See 'inst' for examples.
 class Inst a where
@@ -553,6 +578,9 @@ instance Inst a => Inst (Param s const -> a) where
 instance Inst a => Inst (BitVectorParam s n -> a) where
   instX !_i = instX @a
 
+instance Inst a => Inst (BoolStringParam s -> a) where
+  instX !_i = instX @a
+
 {- Note [inst and strictness]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 'inst' returns its 'Inst' dictionary, so GHC infers that it is strict in it.
@@ -576,12 +604,12 @@ See https://github.com/clash-lang/clash-cores/issues/80.
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
 -- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param', or
--- 'BitVectorParam'. The result type, @r@ can be a 'Port', 'ClockPort',
--- 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort', 'BiSignalOutPort', a
--- tuple of these, or unit (@()@). Like arguments, a 'DiffClockPort' or
--- 'NamedDiffClockPort' in the result maps to two HDL ports: one for the
--- positive and one for the negative phase.
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param',
+-- 'BitVectorParam', or 'BoolStringParam'. The result type, @r@ can be a
+-- 'Port', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort',
+-- 'BiSignalOutPort', a tuple of these, or unit (@()@). Like arguments, a
+-- 'DiffClockPort' or 'NamedDiffClockPort' in the result maps to two HDL ports:
+-- one for the positive and one for the negative phase.
 --
 -- Ports with a zero-width type, such as a 'BiSignalOutPort' or a 'Port' carrying
 -- @()@, have no HDL representation and are left out of the instantiation. If an
@@ -1002,6 +1030,10 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
             (paramName, DSL.TExpr (BitVector n) (Literal (Just (Vector n Bit, n)) (NumLit v)))
         | otherwise ->
             (paramName, DSL.TExpr (BitVector n) (Literal (Just (BitVector n, n)) (NumLit v)))
+      (Nothing, BoolStringRender b)
+        | hdl == VHDL -> (paramName, DSL.TExpr Bool (Literal Nothing (BoolLit b)))
+        | otherwise ->
+            (paramName, DSL.TExpr String (Literal Nothing (StringLit (if b then "TRUE" else "FALSE"))))
 
   mkInPort :: PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
   mkInPort = \case
