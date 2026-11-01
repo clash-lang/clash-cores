@@ -40,6 +40,7 @@ module Clash.Cores.Xilinx.Xpm.Cdc.Internal
 
   -- * Params and ports
   , Param(..)
+  , BitVectorParam(..)
   , ClockPort(..)
   , DiffClockPort (..)
   , NamedDiffClockPort (..)
@@ -60,7 +61,7 @@ import Clash.Explicit.Prelude hiding (someNatVal)
 import qualified Prelude as P
 
 import Control.Monad (when)
-import Control.Monad.State (State)
+import Control.Monad.State (State, gets)
 import Data.Proxy (Proxy)
 import Data.Either (lefts, partitionEithers, rights)
 import Data.Maybe (maybeToList, isJust)
@@ -82,11 +83,13 @@ import Clash.Annotations.Primitive
 import Clash.Backend (Backend, hdlKind)
 import Clash.Core.DataCon ( DataCon(MkData, dcName) )
 import Clash.Core.Name ( Name(Name, nameOcc) )
-import Clash.Core.Term ( Term(Data), collectArgs )
+import Clash.Core.Term ( Term(Data, Prim), PrimInfo(..), collectArgs, stripAllTicks )
 import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
+import Clash.Core.Pretty (showPpr)
 import Clash.Core.TyCon(isTupleTyConLike)
 import Clash.Core.Type (Type(..), LitTy (SymTy, NumTy), ConstTy(TyCon), splitTyConAppM, isIntegerTy)
+import Clash.Core.Util (undefinedPrims, undefinedXPrims)
 import Clash.Driver.Types (DomainMap, envDomains)
 import Clash.Netlist.BlackBox.Types
   ( BlackBoxFunction, BlackBoxMeta(bbKind, bbRenderVoid), TemplateKind(TDecl), emptyBlackBoxMeta
@@ -102,8 +105,19 @@ import qualified Clash.Util.Interpolate as I
 import qualified Clash.Core.TermLiteral.Compat as Compat
 
 -- | VHDL generic or Verilog parameter. Contents should be able to render to an
--- HDL constant.
+-- HDL constant. Use 'BitVectorParam' for VHDL generics of type @bit_vector@.
 data Param (name :: Symbol) a = Param a
+
+-- | Like @'Param' name ('Clash.Explicit.Prelude.BitVector' n)@, but rendered
+-- as a bit string literal that is not qualified with a type in VHDL. This makes
+-- it fit generics of type @bit_vector@, such as the @INIT@ generic of Xilinx's
+-- @LUT6@, as well as generics of type @std_logic_vector@. In Verilog and
+-- SystemVerilog it renders like 'Param' does, as a sized literal such as
+-- @4'b1001@.
+--
+-- The 'Clash.Explicit.Prelude.BitVector' must be a constant without undefined
+-- bits.
+data BitVectorParam (name :: Symbol) n = BitVectorParam (BitVector n)
 
 -- | Port with clock (bit) type, where @portName@ is the name of the port that
 -- is mapped in the target HDL.
@@ -144,9 +158,18 @@ data Port (portName :: Symbol) dom a = Port (Signal dom a)
 data PrimParam a = PrimParam
   { paramName :: Text
   , paramAsInteger :: Maybe Integer
+  , paramRender :: ParamRender
   , paramMeta :: a
   }
   deriving (Show, Functor)
+
+-- | How to render a 'PrimParam'
+data ParamRender
+  = DefaultRender
+  -- ^ 'Param': render the argument like Clash would render it anywhere else
+  | BitVectorRender Int Integer
+  -- ^ 'BitVectorParam': width and value
+  deriving (Show)
 
 -- | A term level, post-normalization version of 'ClockPort', 'DiffClockPort',
 -- 'NamedDiffClockPort', 'ResetPort', 'Port', 'BiSignalInPort', or
@@ -216,7 +239,24 @@ instance TermLiteral (PrimPortOrParam ()) where
         { paramName = Text.pack nm
         , paramMeta = ()
         , paramAsInteger = integerParam
+        , paramRender = DefaultRender
         }))
+
+    | constrName == show 'BitVectorParam
+    , [Right (LitTy (SymTy nm)), Right _width, Left (stripAllTicks -> arg)] <- args
+    = let
+        param = "BitVectorParam " <> show nm
+        expected = "a constant BitVector without undefined bits"
+      in case termToBitVector arg of
+        Just (width, 0, val) ->
+          pure (MkPrimParam (PrimParam
+            { paramName = Text.pack nm
+            , paramMeta = ()
+            , paramAsInteger = Nothing
+            , paramRender = BitVectorRender (fromInteger width) val
+            }))
+        Just _ -> paramError param expected "a BitVector with undefined bits" "" arg
+        Nothing -> nonLiteralParamError param expected arg
 
     | constrName == show 'Port
     , (LitTy (SymTy nm) : LitTy (SymTy domNm) : _) <- rights args
@@ -269,6 +309,64 @@ instance TermLiteral (PrimPortOrParam ()) where
         }))
 
   TERM_TO_DATA t = Left t
+
+-- | Report an argument of a parameter that 'inst' can't render
+paramError ::
+  HasCallStack =>
+  -- | Parameter, e.g. @BitVectorParam \"INIT\"@
+  String ->
+  -- | What 'inst' expected
+  String ->
+  -- | What the argument is instead
+  String ->
+  -- | Hint
+  String ->
+  -- | Argument
+  Term ->
+  a
+paramError param expected what hint arg = error [I.i|
+  #{param}: expected #{expected}, but got #{what}:
+
+    #{showPpr arg}
+
+  #{hint}
+|]
+
+-- | Report an argument of a parameter that 'inst' expected to be a literal
+nonLiteralParamError ::
+  HasCallStack =>
+  -- | Parameter, e.g. @BitVectorParam \"INIT\"@
+  String ->
+  -- | What 'inst' expected
+  String ->
+  -- | Argument
+  Term ->
+  a
+nonLiteralParamError param expected arg
+  | (Prim PrimInfo{primName}, _) <- collectArgs arg
+  , primName `P.elem` (undefinedPrims <> undefinedXPrims)
+  = paramError param expected "an undefined value" "" arg
+  | otherwise
+  = paramError param expected "an expression Clash could not reduce to a literal" [I.i|
+      If it is a constant, consider calculating it at compile time using
+      Template Haskell, e.g. $(lift (...)).
+    |] arg
+
+-- | Interpret a term as a 'Clash.Explicit.Prelude.BitVector' literal:
+-- @(width, mask, value)@.
+termToBitVector :: Term -> Maybe (Integer, Integer, Integer)
+termToBitVector t = case collectArgs t of
+  (Prim PrimInfo{primName}, lefts -> [knownNat, mask, val])
+    | primName == "Clash.Sized.Internal.BitVector.fromInteger#"
+    , Right n <- Compat.termToData @Natural knownNat
+    , Right m <- Compat.termToData @Natural mask
+    , Right v <- Compat.termToData @Integer val
+    -> Just (toInteger n, toInteger m, v)
+  -- 'pack' wraps its result in 'xToBV' to catch 'XException's
+  (Prim PrimInfo{primName}, lefts -> args@(_:_))
+    | "xToBV" `Text.isSuffixOf` primName
+    -> termToBitVector (stripAllTicks (P.last args))
+  _ -> Nothing
 
 -- | Get the 'ResetPolarity' from a type. This is used to automatically insert
 -- a @not@ if the reset polarity does not match the reset polarity of the domain.
@@ -345,10 +443,10 @@ instConfig nm = InstConfig
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
 -- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', or 'Param'. The result
--- type, @r@ can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'BiSignalOutPort', a tuple of these, or
--- unit (@()@).
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param', or
+-- 'BitVectorParam'. The result type, @r@ can be a 'Port', 'ClockPort',
+-- 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort', 'BiSignalOutPort', a
+-- tuple of these, or unit (@()@).
 --
 -- See 'inst' for examples.
 class Inst a where
@@ -452,6 +550,9 @@ instance Inst a => Inst (BiSignalInPort s ds dom n -> a) where
 instance Inst a => Inst (Param s const -> a) where
   instX !_i = instX @a
 
+instance Inst a => Inst (BitVectorParam s n -> a) where
+  instX !_i = instX @a
+
 {- Note [inst and strictness]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 'inst' returns its 'Inst' dictionary, so GHC infers that it is strict in it.
@@ -475,11 +576,12 @@ See https://github.com/clash-lang/clash-cores/issues/80.
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
 -- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', or 'Param'. The result
--- type, @r@ can be a 'Port', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort',
--- 'ResetPort', 'BiSignalOutPort', a tuple of these, or unit (@()@). Like
--- arguments, a 'DiffClockPort' or 'NamedDiffClockPort' in the result maps to
--- two HDL ports: one for the positive and one for the negative phase.
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param', or
+-- 'BitVectorParam'. The result type, @r@ can be a 'Port', 'ClockPort',
+-- 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort', 'BiSignalOutPort', a
+-- tuple of these, or unit (@()@). Like arguments, a 'DiffClockPort' or
+-- 'NamedDiffClockPort' in the result maps to two HDL ports: one for the
+-- positive and one for the negative phase.
 --
 -- Ports with a zero-width type, such as a 'BiSignalOutPort' or a 'Port' carrying
 -- @()@, have no HDL representation and are left out of the instantiation. If an
@@ -810,6 +912,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
       ) <- P.drop nExtraArgs $ P.map fst $ DSL.tInputs bbCtx
   , [resultTy] <- DSL.tResults bbCtx
   = do
+      hdl <- gets hdlKind
       DSL.declarationReturn bbCtx "inst_block" $ do
         let
           -- Output ports with a zero-width type (e.g. 'BiSignalOutPort', or a
@@ -860,7 +963,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           -- same type as the field. I.e., @hwTy (Port a) ~ hwTy a@.
           primArgs1 = P.zipWith addPrimPortOrParamMeta primArgs0 userArgs
           (params0, inPorts0) = partitionPortOrPrims primArgs1
-          params1 = P.map mkParam params0
+          params1 = P.map (mkParam hdl) params0
 
         -- Like output ports, input ports with a zero-width type don't exist in
         -- HDL. Leave them out of the port map.
@@ -886,11 +989,19 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
 
         pure (mkResult outExprs)
  where
-  mkParam :: PrimParam DSL.TExpr -> (Text, DSL.TExpr)
-  mkParam (PrimParam{paramName, paramMeta, paramAsInteger}) =
-    case paramAsInteger of
-      Just i -> (paramName, DSL.TExpr Integer (Literal Nothing (NumLit i)))
-      Nothing -> (paramName, paramMeta)
+  mkParam :: HDL -> PrimParam DSL.TExpr -> (Text, DSL.TExpr)
+  mkParam hdl (PrimParam{paramName, paramMeta, paramAsInteger, paramRender}) =
+    case (paramAsInteger, paramRender) of
+      (Just i, _) -> (paramName, DSL.TExpr Integer (Literal Nothing (NumLit i)))
+      (Nothing, DefaultRender) -> (paramName, paramMeta)
+      (Nothing, BitVectorRender n v)
+          -- Clash renders a literal of type @Vec n Bit@ as an unqualified bit
+          -- string literal in VHDL, which fits both @bit_vector@ and
+          -- @std_logic_vector@ generics.
+        | hdl == VHDL ->
+            (paramName, DSL.TExpr (BitVector n) (Literal (Just (Vector n Bit, n)) (NumLit v)))
+        | otherwise ->
+            (paramName, DSL.TExpr (BitVector n) (Literal (Just (BitVector n, n)) (NumLit v)))
 
   mkInPort :: PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
   mkInPort = \case
