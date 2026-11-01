@@ -67,6 +67,7 @@ import Data.Maybe (maybeToList, isJust, catMaybes)
 import Data.String.Interpolate (__i)
 import Data.Text (Text)
 import Data.Text.Prettyprint.Doc.Extra (Doc)
+import GHC.Magic (lazy)
 import GHC.Stack (HasCallStack)
 import GHC.TypeNats (someNatVal)
 import Prettyprinter.Interpolate (__di)
@@ -438,6 +439,22 @@ instance Inst a => Inst (BiSignalInPort s ds dom n -> a) where
 instance Inst a => Inst (Param s const -> a) where
   instX !_i = instX @a
 
+{- Note [inst and strictness]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+'inst' returns its 'Inst' dictionary, so GHC infers that it is strict in it.
+For an 'Inst' instance that terminates the polyvariadic chain, such as
+@Inst (Port s dom a)@, the dictionary is the (newtype-wrapped) default 'instX',
+i.e., 'errorX'. When 'inst' is not applied to any port or param, the
+dictionary passed to it is exactly such a bottoming value. Seeing a strict
+function applied to a definitely diverging argument, GHC's simplifier replaces
+the whole call by that argument, before Clash ever sees the call to the
+primitive. Clash then renders the "result" of 'inst' as an undefined value
+instead of an instantiation. 'lazy' hides the strictness from GHC's demand
+analysis.
+
+See https://github.com/clash-lang/clash-cores/issues/80.
+-}
+
 -- | /Polyvariadic/ function representing the instantiation of a Verilog/VHDL
 -- component. You can interpret this function as:
 --
@@ -476,8 +493,16 @@ instance Inst a => Inst (Param s const -> a) where
 -- This can be used in combination with 'clashSimulation' to pick a simulation
 -- model during Haskell evaluation, and the black box instantiation when Clash
 -- translates the design to Verilog/VHDL.
+--
+-- __NB__: An instantiation without any input ports, or one whose inputs are all
+-- constants, is a constant term as far as Clash is concerned. If its result is
+-- used more than once at the top level of a design (e.g., both elements of a
+-- tuple result are projected out in the top entity itself), Clash might render
+-- one instance per use. Defining the instantiation in a function that is
+-- polymorphic in its domain (i.e., one with a t'KnownDomain' constraint) and
+-- calling that function once avoids this.
 inst :: forall a. Inst a => InstConfig -> a
-inst !_ = instX
+inst !_ = lazy instX -- See Note [inst and strictness]
 {-# OPAQUE inst #-}
 {-# ANN inst (
   let
@@ -509,7 +534,7 @@ instWithXilinxWizard# ::
   XilinxWizard n ->
   InstConfig ->
   a
-instWithXilinxWizard# !_ !_ = instX
+instWithXilinxWizard# !_ !_ = lazy instX -- See Note [inst and strictness]
 {-# OPAQUE instWithXilinxWizard# #-}
 {-# ANN instWithXilinxWizard# (
   let
