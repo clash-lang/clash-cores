@@ -189,6 +189,23 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
+        , runTest "Cordic" def
+          { hdlTargets = [VHDL, Verilog]
+          , hdlLoad = [Vivado]
+          , hdlSim = [Vivado]
+          , buildTargets = BuildSpecific
+              [ "sinCosBasicTB"
+              , "sinCosEnableTB"
+              , "rotateBasicTB"
+              , "rotateScaledTB"
+              , "translateScaledTB"
+              , "arcTanFirstQuadrantTB"
+              , "sinhCoshBasicTB"
+              , "arcTanhExplicitTB"
+              , "sqrtNearestEvenTB"
+              , "sqrtUnsignedBasicTB"
+              ]
+          }
         , runTest "Ibufds" def
           { hdlLoad = [Vivado]
           , hdlSim = [Vivado]
