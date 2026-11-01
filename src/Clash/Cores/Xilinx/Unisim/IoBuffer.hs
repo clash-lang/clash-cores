@@ -14,6 +14,7 @@ module Clash.Cores.Xilinx.Unisim.IoBuffer
   ( -- * Differential input buffers
     ibufds
   , ibufdsClock
+  , ibufdsGte3
   , ibufdsGte4
     -- * Differential output buffers
   , obufds
@@ -113,6 +114,45 @@ ibufdsGte4 divider@SNat clkIn
   go =
     inst
       (unisim "IBUFDS_GTE4")
+      (Param @"REFCLK_EN_TX_PATH" @Bit 0)
+      (Param @"REFCLK_HROW_CK_SEL" @(BitVector 2) (if snatToInteger divider == 1 then 0b00 else 0b01))
+      (Param @"REFCLK_ICNTL_RX" @(BitVector 2) 0b00)
+      (NamedDiffClockPort @"I" @"IB" clkIn)
+      (Port @"CEB" (pure 0 :: Signal dom Bit))
+
+{- | Differential input buffer for the reference clock of a GTH or GTY
+transceiver (@IBUFDS_GTE3@) on UltraScale devices. Like 'ibufdsGte4', which is
+its UltraScale+ counterpart.
+
+For more information see
+[UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/IBUFDS_GTE3)
+and the /UltraScale Architecture GTH\/GTY Transceivers/ user guides (UG576,
+UG578).
+-}
+ibufdsGte3 ::
+  forall div dom domDiv.
+  ( KnownDomain dom
+  , KnownDomain domDiv
+  , 1 <= div
+  , div <= 2
+  , DomainPeriod domDiv ~ div * DomainPeriod dom
+  ) =>
+  -- | Divider of @ODIV2@ (@REFCLK_HROW_CK_SEL@)
+  SNat div ->
+  DiffClock dom ->
+  -- | @O@ and @ODIV2@
+  (Clock dom, Clock domDiv)
+ibufdsGte3 divider@SNat clkIn
+  | clashSimulation
+  , DiffClock clkP _ <- clkIn =
+      (clkP, gatedClockModel (snatToNum divider) clkP (pure False) (pure True))
+  | otherwise = (unPort o, unPort odiv2)
+ where
+  (o, odiv2) = go
+  go :: (ClockPort "O" dom, ClockPort "ODIV2" domDiv)
+  go =
+    inst
+      (unisim "IBUFDS_GTE3")
       (Param @"REFCLK_EN_TX_PATH" @Bit 0)
       (Param @"REFCLK_HROW_CK_SEL" @(BitVector 2) (if snatToInteger divider == 1 then 0b00 else 0b01))
       (Param @"REFCLK_ICNTL_RX" @(BitVector 2) 0b00)

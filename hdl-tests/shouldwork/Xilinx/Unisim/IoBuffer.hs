@@ -28,12 +28,17 @@ tbObufds = tbWith dutObufds expected
   expected = $(listToVecTH (sampleN 100 (dutObufds clockGen)))
 {-# ANN tbObufds (TestBench 'topEntity) #-}
 
-tbIbufdsGte4Div1 = tbWith (dutIbufdsGte4 @1 @A d1) expected
+tbIbufdsGte4Div1 = tbWith (dutIbufdsGte4 @1 @A False d1) expected
  where
-  expected = $(listToVecTH (sampleN 100 (dutIbufdsGte4 @1 @A d1 clockGen)))
+  expected = $(listToVecTH (sampleN 100 (dutIbufdsGte4 @1 @A False d1 clockGen)))
 {-# ANN tbIbufdsGte4Div1 (TestBench 'topEntity) #-}
 
-tbIbufdsGte4Div2 = tbWith (dutIbufdsGte4 @2 @Div2 d2) expected
+tbIbufdsGte4Div2 = tbWith (dutIbufdsGte4 @2 @Div2 False d2) expected
  where
-  expected = $(listToVecTH (sampleN 100 (dutIbufdsGte4 @2 @Div2 d2 clockGen)))
+  expected = $(listToVecTH (sampleN 100 (dutIbufdsGte4 @2 @Div2 False d2 clockGen)))
 {-# ANN tbIbufdsGte4Div2 (TestBench 'topEntity) #-}
+
+tbIbufdsGte3Div2 = tbWith (dutIbufdsGte4 @2 @Div2 True d2) expected
+ where
+  expected = $(listToVecTH (sampleN 100 (dutIbufdsGte4 @2 @Div2 True d2 clockGen)))
+{-# ANN tbIbufdsGte3Div2 (TestBench 'topEntity) #-}

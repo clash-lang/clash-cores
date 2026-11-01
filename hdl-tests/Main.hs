@@ -272,7 +272,9 @@ runClashTest = defaultMain $ clashTestRoot
               , hdlLoad=[Vivado]
               , hdlSim=[Vivado]
               , buildTargets=BuildSpecific
-                  ["tbObufds", "tbIbufdsGte4Div1", "tbIbufdsGte4Div2"]
+                  [ "tbObufds", "tbIbufdsGte4Div1", "tbIbufdsGte4Div2"
+                  , "tbIbufdsGte3Div2"
+                  ]
               }
           , runTest "Ddr" def
               { hdlTargets=[VHDL, Verilog]

@@ -32,7 +32,8 @@ observe clkA clkB =
  where
   cnt = delay clkB enableGen 0 (cnt + 1)
 
--- | Counters clocked by both outputs of an 'ibufdsGte4', observed from 'A'
+-- | Counters clocked by both outputs of an 'ibufdsGte4' or 'ibufdsGte3',
+-- observed from 'A'
 dutIbufdsGte4 ::
   forall div domDiv.
   ( KnownDomain domDiv
@@ -40,9 +41,13 @@ dutIbufdsGte4 ::
   , div <= 2
   , DomainPeriod domDiv ~ div * DomainPeriod A
   ) =>
+  -- | Use 'ibufdsGte3' instead of 'ibufdsGte4'
+  Bool ->
   SNat div ->
   Clock A ->
   Signal A (Unsigned 8, Unsigned 8)
-dutIbufdsGte4 divider clkA = bundle (observe clkA o, observe clkA odiv2)
+dutIbufdsGte4 gte3 divider clkA = bundle (observe clkA o, observe clkA odiv2)
  where
-  (o, odiv2) = ibufdsGte4 @div @A @domDiv divider (clockToDiffClock clkA)
+  (o, odiv2)
+    | gte3 = ibufdsGte3 @div @A @domDiv divider (clockToDiffClock clkA)
+    | otherwise = ibufdsGte4 @div @A @domDiv divider (clockToDiffClock clkA)
