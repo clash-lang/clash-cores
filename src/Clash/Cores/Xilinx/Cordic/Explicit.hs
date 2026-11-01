@@ -27,6 +27,19 @@ module Clash.Cores.Xilinx.Cordic.Explicit
   , arcTanWith
   , arcTan
   , ArcTanDefDelay
+  , sinhCoshWith
+  , sinhCosh
+  , SinhCoshDefDelay
+  , arcTanhWith
+  , arcTanh
+  , ArcTanhDefDelay
+  , sqrtWith
+  , sqrt
+  , SqrtDefDelay
+  , sqrtUnsignedWith
+  , sqrtUnsigned
+  , SqrtUnsignedDefDelay
+  , SqrtUnsignedWidth
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -38,9 +51,13 @@ module Clash.Cores.Xilinx.Cordic.Explicit
   , latencyTranslate
   , latencySinCos
   , latencyArcTan
+  , latencySinhCosh
+  , latencyArcTanh
+  , latencySqrt
+  , latencySqrtUnsigned
   ) where
 
-import Clash.Explicit.Prelude hiding (rotate)
+import Clash.Explicit.Prelude hiding (rotate, sqrt)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -52,6 +69,10 @@ import qualified Clash.Signal.Delayed as D
 -- | Width of a field in TDATA: rounded up to a multiple of 8
 type Pad8 w = 8 * DivRU w 8
 
+-- | Width of the output of 'sqrtUnsigned' for an input of width @w@:
+-- @w \`div\` 2 + 1@
+type SqrtUnsignedWidth w = Div w 2 + 1
+
 ------------------------------------------------------------------------------
 -- Conversions
 ------------------------------------------------------------------------------
@@ -61,6 +82,12 @@ toIntegerSF = toInteger . unSF
 
 fromIntegerSF :: forall int frac. (KnownNat int, KnownNat frac) => Integer -> SFixed int frac
 fromIntegerSF = sf (SNat @frac) . fromInteger
+
+toIntegerUF :: forall int frac. (KnownNat int, KnownNat frac) => UFixed int frac -> Integer
+toIntegerUF = toInteger . unUF
+
+fromIntegerUF :: forall int frac. (KnownNat int, KnownNat frac) => Integer -> UFixed int frac
+fromIntegerUF = uf (SNat @frac) . fromInteger
 
 -- | Pack a field into TDATA
 padField :: (BitPack a, KnownNat (BitSize a), KnownNat m) => a -> BitVector m
@@ -118,7 +145,7 @@ commonOptions function cfg wIn wOut =
   :> ("CONFIG.Output_Width",                IntegerOpt (toInteger wOut))
   :> ("CONFIG.Round_Mode",                  StrOpt (roundModeToTcl (roundMode cfg)))
      -- Zero lets the IP pick the number of iterations and the precision, as
-     -- the simulation model does.
+     -- the simulation model does. They do not apply to the square root.
   :> ("CONFIG.Iterations",                  IntegerOpt (explicitly (iterations cfg)))
   :> ("CONFIG.Precision",                   IntegerOpt (explicitly (precision cfg)))
   :> ("CONFIG.ACLKEN",                      BoolOpt True)
@@ -126,7 +153,8 @@ commonOptions function cfg wIn wOut =
   :> ("CONFIG.out_tready",                  BoolOpt False)
   :> Nil
  where
-  explicitly = maybe 0 toInteger
+  explicitly (Just i) | function /= SquareRoot = toInteger i
+  explicitly _ = 0
 
 -- | Options for functions with a circular phase input or output
 circularOptions :: Config -> Vec 2 (OptionName, XilinxWizardOption)
@@ -204,7 +232,7 @@ cartesianInst nm opts clk en inp packIn = unPort (snd go)
 
 -- | Latency of 'rotateWith' for a configuration, input width and output width
 latencyRotate :: Config -> Int -> Int -> Int
-latencyRotate cfg wIn wOut = latency (mkParams Rotate cfg wIn wOut)
+latencyRotate cfg wIn wOut = latency (mkParams Rotate UnsignedFraction cfg wIn wOut)
 
 -- | Customizable vector rotation: rotate the vector @(x, y)@ by a phase. The
 -- input width of the IP is @fIn + 3@, the output width @fOut + 3@: X and Y
@@ -230,7 +258,7 @@ rotateWith cfg clk en xy phase
   | clashSimulation = sim
   | otherwise = D.unsafeFromSignal synth
  where
-  params = mkParams Rotate cfg (natToNum @(fIn + 3)) (natToNum @(fOut + 3))
+  params = mkParams Rotate UnsignedFraction cfg (natToNum @(fIn + 3)) (natToNum @(fOut + 3))
   model = modelRotate params
   f (x, y) ph =
     let (x', y') = model (toIntegerSF x, toIntegerSF y) (toIntegerSF ph)
@@ -285,7 +313,7 @@ type RotateDefDelay fOut = fOut + 3 + 4
 -- | Latency of 'translateWith' for a configuration, input width and output
 -- width
 latencyTranslate :: Config -> Int -> Int -> Int
-latencyTranslate cfg wIn wOut = latency (mkParams Translate cfg wIn wOut)
+latencyTranslate cfg wIn wOut = latency (mkParams Translate UnsignedFraction cfg wIn wOut)
 
 -- | Customizable vector translation: compute the magnitude and phase of the
 -- vector @(x, y)@. The input width of the IP is @fIn + 2@, the output width
@@ -309,7 +337,7 @@ translateWith cfg clk en xy
   | clashSimulation = sim
   | otherwise = D.unsafeFromSignal synth
  where
-  params = mkParams Translate cfg (natToNum @(fIn + 2)) (natToNum @(fOut + 3))
+  params = mkParams Translate UnsignedFraction cfg (natToNum @(fIn + 2)) (natToNum @(fOut + 3))
   model = modelTranslate params
   f (x, y) =
     let (m, ph) = model (toIntegerSF x, toIntegerSF y)
@@ -350,7 +378,7 @@ type TranslateDefDelay fOut = fOut + 3 + 4
 
 -- | Latency of 'sinCosWith' for a configuration, input width and output width
 latencySinCos :: Config -> Int -> Int -> Int
-latencySinCos cfg wIn wOut = latency (mkParams SinCos cfg wIn wOut)
+latencySinCos cfg wIn wOut = latency (mkParams SinCos UnsignedFraction cfg wIn wOut)
 
 -- | Customizable sine and cosine. Returns @(cos phase, sin phase)@. The input
 -- width of the IP is @fIn + 3@, the output width @fOut + 2@.
@@ -373,7 +401,7 @@ sinCosWith cfg clk en phase
   | clashSimulation = sim
   | otherwise = D.unsafeFromSignal synth
  where
-  params = mkParams SinCos cfg (natToNum @(fIn + 3)) (natToNum @(fOut + 2))
+  params = mkParams SinCos UnsignedFraction cfg (natToNum @(fIn + 3)) (natToNum @(fOut + 2))
   model = modelSinCos params
   f ph =
     let (c, s) = model (toIntegerSF ph)
@@ -411,7 +439,7 @@ type SinCosDefDelay fOut = fOut + 2 + 4
 
 -- | Latency of 'arcTanWith' for a configuration, input width and output width
 latencyArcTan :: Config -> Int -> Int -> Int
-latencyArcTan cfg wIn wOut = latency (mkParams ArcTan cfg wIn wOut)
+latencyArcTan cfg wIn wOut = latency (mkParams ArcTan UnsignedFraction cfg wIn wOut)
 
 -- | Customizable arctangent: the angle of the vector @(x, y)@, @atan2(y, x)@.
 -- The input width of the IP is @fIn + 2@, the output width @fOut + 3@.
@@ -434,7 +462,7 @@ arcTanWith cfg clk en xy
   | clashSimulation = sim
   | otherwise = D.unsafeFromSignal synth
  where
-  params = mkParams ArcTan cfg (natToNum @(fIn + 2)) (natToNum @(fOut + 3))
+  params = mkParams ArcTan UnsignedFraction cfg (natToNum @(fIn + 2)) (natToNum @(fOut + 3))
   model = modelArcTan params
   f (x, y) = fromIntegerSF (model (toIntegerSF x, toIntegerSF y))
   sim = checkedLatency @d params `seq` delayI und en clk (f <$> xy)
@@ -463,3 +491,244 @@ arcTan = withFrozenCallStack $ arcTanWith defConfig
 
 -- | Latency of 'arcTan' for an output of @fOut + 3@ bits
 type ArcTanDefDelay fOut = fOut + 3 + 4
+
+------------------------------------------------------------------------------
+-- Sinh and Cosh
+------------------------------------------------------------------------------
+
+-- | Latency of 'sinhCoshWith' for a configuration, input width and output
+-- width
+latencySinhCosh :: Config -> Int -> Int -> Int
+latencySinhCosh cfg wIn wOut = latency (mkParams SinhCosh UnsignedFraction cfg wIn wOut)
+
+-- | Customizable hyperbolic sine and cosine. Returns @(cosh phase, sinh phase)@.
+-- The input width of the IP is @fIn + 3@, the output width @fOut + 2@.
+sinhCoshWith ::
+  forall d dom n fIn fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  -- | Hyperbolic angle
+  DSignal dom n (SFixed 3 fIn) ->
+  -- | Hyperbolic cosine and sine
+  DSignal dom (n + d) (SFixed 2 fOut, SFixed 2 fOut)
+sinhCoshWith cfg clk en phase
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
+ where
+  params = mkParams SinhCosh UnsignedFraction cfg (natToNum @(fIn + 3)) (natToNum @(fOut + 2))
+  model = modelSinhCosh params
+  f ph =
+    let (c, s) = model (toIntegerSF ph)
+    in (fromIntegerSF c, fromIntegerSF s)
+  sim = checkedLatency @d params `seq` delayI und en clk (f <$> phase)
+  und = withFrozenCallStack $ deepErrorX "Initial values of sinhCosh undefined"
+  opts = commonOptions SinhCosh cfg (natToNum @(fIn + 3)) (natToNum @(fOut + 2))
+  synth =
+    unpackPair @(fOut + 2) <$>
+      phaseInst @(fIn + 3) @(Pad8 (fOut + 2) + Pad8 (fOut + 2))
+        "sinhCosh" opts clk en (D.toSignal phase) padField
+{-# INLINE sinhCoshWith #-}
+
+-- | Hyperbolic sine and cosine with default settings. Returns
+-- @(cosh phase, sinh phase)@.
+sinhCosh ::
+  forall dom n fIn fOut.
+  ( KnownDomain dom
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (SFixed 3 fIn) ->
+  DSignal dom (n + SinhCoshDefDelay fOut) (SFixed 2 fOut, SFixed 2 fOut)
+sinhCosh = withFrozenCallStack $ sinhCoshWith defConfig
+{-# INLINE sinhCosh #-}
+
+-- | Latency of 'sinhCosh' for an output of @fOut + 2@ bits: the number of
+-- iterations plus two. The IP picks one iteration more than the output width,
+-- and another one for outputs of 13 bits or more.
+type SinhCoshDefDelay fOut = fOut + 2 + 3 + Min 1 (Div (fOut + 2) 13)
+
+------------------------------------------------------------------------------
+-- Arc tanh
+------------------------------------------------------------------------------
+
+-- | Latency of 'arcTanhWith' for a configuration, input width and output
+-- width
+latencyArcTanh :: Config -> Int -> Int -> Int
+latencyArcTanh cfg wIn wOut = latency (mkParams ArcTanh UnsignedFraction cfg wIn wOut)
+
+-- | Customizable hyperbolic arctangent: the hyperbolic angle of the vector
+-- @(x, y)@, @atanh(y / x)@. The input width of the IP is @fIn + 2@, the output
+-- width @fOut + 3@.
+arcTanhWith ::
+  forall d dom n fIn fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  -- | Vector @(x, y)@
+  DSignal dom n (SFixed 2 fIn, SFixed 2 fIn) ->
+  -- | Hyperbolic angle
+  DSignal dom (n + d) (SFixed 3 fOut)
+arcTanhWith cfg clk en xy
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
+ where
+  params = mkParams ArcTanh UnsignedFraction cfg (natToNum @(fIn + 2)) (natToNum @(fOut + 3))
+  model = modelArcTanh params
+  f (x, y) = fromIntegerSF (model (toIntegerSF x, toIntegerSF y))
+  sim = checkedLatency @d params `seq` delayI und en clk (f <$> xy)
+  und = withFrozenCallStack $ deepErrorX "Initial values of arcTanh undefined"
+  opts = commonOptions ArcTanh cfg (natToNum @(fIn + 2)) (natToNum @(fOut + 3))
+  synth =
+    unpadField <$>
+      cartesianInst @_ @(Pad8 (fOut + 3))
+        "arcTanh" opts clk en (D.toSignal xy) (packXY @(fIn + 2))
+{-# INLINE arcTanhWith #-}
+
+-- | Hyperbolic arctangent with default settings
+arcTanh ::
+  forall dom n fIn fOut.
+  ( KnownDomain dom
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (SFixed 2 fIn, SFixed 2 fIn) ->
+  DSignal dom (n + ArcTanhDefDelay fOut) (SFixed 3 fOut)
+arcTanh = withFrozenCallStack $ arcTanhWith defConfig
+{-# INLINE arcTanh #-}
+
+-- | Latency of 'arcTanh' for an output of @fOut + 3@ bits, see
+-- 'SinhCoshDefDelay'
+type ArcTanhDefDelay fOut = fOut + 3 + 3 + Min 1 (Div (fOut + 3) 13)
+
+------------------------------------------------------------------------------
+-- Square root
+------------------------------------------------------------------------------
+
+-- | Latency of 'sqrtWith' for a configuration, input width and output width
+latencySqrt :: Config -> Int -> Int -> Int
+latencySqrt cfg wIn wOut = latency (mkParams SquareRoot UnsignedFraction cfg wIn wOut)
+
+-- | Customizable square root of an unsigned fixed point number with one
+-- integer bit. The input width of the IP is @fIn + 1@, the output width
+-- @fOut + 1@.
+sqrtWith ::
+  forall d dom n fIn fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (UFixed 1 fIn) ->
+  DSignal dom (n + d) (UFixed 1 fOut)
+sqrtWith cfg clk en x
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
+ where
+  params = mkParams SquareRoot UnsignedFraction cfg (natToNum @(fIn + 1)) (natToNum @(fOut + 1))
+  model = modelSqrt params
+  f = fromIntegerUF . model . toIntegerUF
+  sim = checkedLatency @d params `seq` delayI und en clk (f <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of sqrt undefined"
+  opts =
+       commonOptions SquareRoot cfg (natToNum @(fIn + 1)) (natToNum @(fOut + 1))
+    ++ (("CONFIG.Data_Format", StrOpt (sqrtFormatToTcl UnsignedFraction)) :> Nil)
+  synth =
+    unpadField <$>
+      cartesianInst @_ @(Pad8 (fOut + 1))
+        "sqrt" opts clk en (D.toSignal x) (padField @_ @(Pad8 (fIn + 1)))
+{-# INLINE sqrtWith #-}
+
+-- | Square root with default settings
+sqrt ::
+  forall dom n fIn fOut.
+  ( KnownDomain dom
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (UFixed 1 fIn) ->
+  DSignal dom (n + SqrtDefDelay fOut) (UFixed 1 fOut)
+sqrt = withFrozenCallStack $ sqrtWith defConfig
+{-# INLINE sqrt #-}
+
+-- | Latency of 'sqrt' for an output of @fOut + 1@ bits
+type SqrtDefDelay fOut = fOut + 1
+
+-- | Latency of 'sqrtUnsignedWith' for a configuration and input width
+latencySqrtUnsigned :: Config -> Int -> Int
+latencySqrtUnsigned cfg wIn =
+  latency (mkParams SquareRoot UnsignedInteger cfg wIn (wIn `div` 2 + 1))
+
+-- | Customizable square root of an unsigned integer. The output width is
+-- determined by the input width, see 'SqrtUnsignedWidth'.
+sqrtUnsignedWith ::
+  forall d dom n w.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat w
+  , HasCallStack
+  ) =>
+  Config ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (Unsigned w) ->
+  DSignal dom (n + d) (Unsigned (SqrtUnsignedWidth w))
+sqrtUnsignedWith cfg clk en x
+  | clashSimulation = sim
+  | otherwise = D.unsafeFromSignal synth
+ where
+  params = mkParams SquareRoot UnsignedInteger cfg (natToNum @w) (natToNum @(SqrtUnsignedWidth w))
+  model = modelSqrt params
+  f = fromInteger . model . toInteger
+  sim = checkedLatency @d params `seq` delayI und en clk (f <$> x)
+  und = withFrozenCallStack $ deepErrorX "Initial values of sqrtUnsigned undefined"
+  opts =
+       commonOptions SquareRoot cfg (natToNum @w) (natToNum @(SqrtUnsignedWidth w))
+    ++ (("CONFIG.Data_Format", StrOpt (sqrtFormatToTcl UnsignedInteger)) :> Nil)
+  synth =
+    unpadField <$>
+      cartesianInst @_ @(Pad8 (SqrtUnsignedWidth w))
+        "sqrtUnsigned" opts clk en (D.toSignal x) (padField @_ @(Pad8 w))
+{-# INLINE sqrtUnsignedWith #-}
+
+-- | Square root of an unsigned integer with default settings
+sqrtUnsigned ::
+  forall dom n w.
+  ( KnownDomain dom
+  , KnownNat w
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Enable dom ->
+  DSignal dom n (Unsigned w) ->
+  DSignal dom (n + SqrtUnsignedDefDelay w) (Unsigned (SqrtUnsignedWidth w))
+sqrtUnsigned = withFrozenCallStack $ sqrtUnsignedWith defConfig
+{-# INLINE sqrtUnsigned #-}
+
+-- | Latency of 'sqrtUnsigned' for an input of @w@ bits
+type SqrtUnsignedDefDelay w = SqrtUnsignedWidth w

@@ -30,6 +30,14 @@ that range are unspecified (PG105: "unpredictable"); the simulation model gives
 
 * 'arcTan': angle of a vector, @atan2(y, x)@. Inputs: X and Y in [-1, 1].
 
+* 'sinhCosh': hyperbolic cosine and sine of a hyperbolic angle in [-pi\/4, pi\/4].
+
+* 'arcTanh': hyperbolic angle of a vector, @atanh(y \/ x)@. Inputs: X in (0, 2)
+  and Y with @|y| <= 4\/5 * x@.
+
+* 'sqrt' and 'sqrtUnsigned': square root of an unsigned fixed point number in
+  [0, 2), or of an unsigned integer.
+
 Without coarse rotation ('E.coarseRotation'), phases are limited to
 [-pi\/4, pi\/4] and vectors to angles in that range.
 
@@ -44,6 +52,9 @@ arguments and results:
 * Phases are signed fixed point numbers with three integer bits: 'SFixed' @3@
   @f@, the IP's "2QN" format. They are in radians, or in units of pi radians
   if the phase format is 'E.ScaledRadians'.
+
+* The square root operates on unsigned fixed point numbers with one integer bit
+  ('UFixed' @1@ @f@, 'sqrt') or unsigned integers ('Unsigned', 'sqrtUnsigned').
 
 The IP's input width applies to all inputs and its output width to all outputs.
 Functions that take or produce both X\/Y values and phases are therefore
@@ -106,6 +117,19 @@ module Clash.Cores.Xilinx.Cordic
   , arcTanWith
   , arcTan
   , E.ArcTanDefDelay
+  , sinhCoshWith
+  , sinhCosh
+  , E.SinhCoshDefDelay
+  , arcTanhWith
+  , arcTanh
+  , E.ArcTanhDefDelay
+  , sqrtWith
+  , sqrt
+  , E.SqrtDefDelay
+  , sqrtUnsignedWith
+  , sqrtUnsigned
+  , E.SqrtUnsignedDefDelay
+  , E.SqrtUnsignedWidth
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -117,9 +141,13 @@ module Clash.Cores.Xilinx.Cordic
   , E.latencyTranslate
   , E.latencySinCos
   , E.latencyArcTan
+  , E.latencySinhCosh
+  , E.latencyArcTanh
+  , E.latencySqrt
+  , E.latencySqrtUnsigned
   ) where
 
-import Clash.Prelude hiding (rotate)
+import Clash.Prelude hiding (rotate, sqrt)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -241,3 +269,114 @@ arcTan ::
   DSignal dom (n + E.ArcTanDefDelay fOut) (SFixed 3 fOut)
 arcTan = withFrozenCallStack $ hideEnable $ hideClock E.arcTan
 {-# INLINE arcTan #-}
+
+-- | Customizable hyperbolic sine and cosine, see 'E.sinhCoshWith'.
+sinhCoshWith ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat d
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  E.Config ->
+  DSignal dom n (SFixed 3 fIn) ->
+  DSignal dom (n + d) (SFixed 2 fOut, SFixed 2 fOut)
+sinhCoshWith cfg = withFrozenCallStack $ hideEnable $ hideClock $ E.sinhCoshWith cfg
+{-# INLINE sinhCoshWith #-}
+
+-- | Hyperbolic sine and cosine with default settings, see 'E.sinhCosh'.
+sinhCosh ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  DSignal dom n (SFixed 3 fIn) ->
+  DSignal dom (n + E.SinhCoshDefDelay fOut) (SFixed 2 fOut, SFixed 2 fOut)
+sinhCosh = withFrozenCallStack $ hideEnable $ hideClock E.sinhCosh
+{-# INLINE sinhCosh #-}
+
+-- | Customizable hyperbolic arctangent, see 'E.arcTanhWith'.
+arcTanhWith ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat d
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  E.Config ->
+  DSignal dom n (SFixed 2 fIn, SFixed 2 fIn) ->
+  DSignal dom (n + d) (SFixed 3 fOut)
+arcTanhWith cfg = withFrozenCallStack $ hideEnable $ hideClock $ E.arcTanhWith cfg
+{-# INLINE arcTanhWith #-}
+
+-- | Hyperbolic arctangent with default settings, see 'E.arcTanh'.
+arcTanh ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  DSignal dom n (SFixed 2 fIn, SFixed 2 fIn) ->
+  DSignal dom (n + E.ArcTanhDefDelay fOut) (SFixed 3 fOut)
+arcTanh = withFrozenCallStack $ hideEnable $ hideClock E.arcTanh
+{-# INLINE arcTanh #-}
+
+-- | Customizable square root, see 'E.sqrtWith'.
+sqrtWith ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat d
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  E.Config ->
+  DSignal dom n (UFixed 1 fIn) ->
+  DSignal dom (n + d) (UFixed 1 fOut)
+sqrtWith cfg = withFrozenCallStack $ hideEnable $ hideClock $ E.sqrtWith cfg
+{-# INLINE sqrtWith #-}
+
+-- | Square root with default settings, see 'E.sqrt'.
+sqrt ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat fIn
+  , KnownNat fOut
+  , HasCallStack
+  ) =>
+  DSignal dom n (UFixed 1 fIn) ->
+  DSignal dom (n + E.SqrtDefDelay fOut) (UFixed 1 fOut)
+sqrt = withFrozenCallStack $ hideEnable $ hideClock E.sqrt
+{-# INLINE sqrt #-}
+
+-- | Customizable square root of an unsigned integer, see 'E.sqrtUnsignedWith'.
+sqrtUnsignedWith ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat d
+  , KnownNat w
+  , HasCallStack
+  ) =>
+  E.Config ->
+  DSignal dom n (Unsigned w) ->
+  DSignal dom (n + d) (Unsigned (E.SqrtUnsignedWidth w))
+sqrtUnsignedWith cfg = withFrozenCallStack $ hideEnable $ hideClock $ E.sqrtUnsignedWith cfg
+{-# INLINE sqrtUnsignedWith #-}
+
+-- | Square root of an unsigned integer with default settings, see
+-- 'E.sqrtUnsigned'.
+sqrtUnsigned ::
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , KnownNat w
+  , HasCallStack
+  ) =>
+  DSignal dom n (Unsigned w) ->
+  DSignal dom (n + E.SqrtUnsignedDefDelay w) (Unsigned (E.SqrtUnsignedWidth w))
+sqrtUnsigned = withFrozenCallStack $ hideEnable $ hideClock E.sqrtUnsigned
+{-# INLINE sqrtUnsigned #-}

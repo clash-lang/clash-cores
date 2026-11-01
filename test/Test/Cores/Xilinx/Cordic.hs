@@ -16,11 +16,10 @@
   bit-accurate C model of the Xilinx CORDIC LogiCORE IP v6.0. The tests run
   the functions from "Clash.Cores.Xilinx.Cordic.Explicit" in Clash simulation,
   on batches of random inputs, and compare their outputs with the outputs of
-  the C model for the same configuration of the IP. They cover vector rotation
-  and translation, sine and cosine, and arctangent, with a range of input and
-  output widths, all rounding modes, phase formats, coarse rotation,
-  compensation scaling, and explicit numbers of iterations and internal
-  precisions.
+  the C model for the same configuration of the IP. They cover all functions
+  of the IP, a range of input and output widths, all rounding modes, phase
+  formats, coarse rotation, compensation scaling, and explicit numbers of
+  iterations and internal precisions.
 
   = Running the tests
 
@@ -75,14 +74,14 @@ import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.Info (arch, os)
 import System.Process (readProcessWithExitCode)
 
-import Clash.Explicit.Prelude (KnownNat, SFixed, System, natToNum)
+import Clash.Explicit.Prelude (KnownNat, SFixed, System, UFixed, Unsigned, natToNum)
 import qualified Clash.Explicit.Prelude as C
 import Clash.Signal.Delayed (DSignal)
 import qualified Clash.Signal.Delayed as D
 
 import Clash.Cores.Xilinx.Cordic.Explicit (Config (..), RoundMode (..), PhaseFormat (..), CompensationScaling (..))
 import qualified Clash.Cores.Xilinx.Cordic.Explicit as X
-import Clash.Cores.Xilinx.Cordic.Internal (CordicFunction (..), Params (..), latency, mkParams)
+import Clash.Cores.Xilinx.Cordic.Internal (CordicFunction (..), SqrtFormat (..), Params (..), latency, mkParams)
 
 import Hedgehog (Gen, Property, (===))
 import qualified Hedgehog as H
@@ -271,6 +270,9 @@ data CordicCModel = CordicCModel
   , translateFun :: Execute3
   , sinCosFun :: Execute2
   , arcTanFun :: Execute2
+  , sinhCoshFun :: Execute2
+  , arcTanhFun :: Execute2
+  , sqrtFun :: Execute2
   }
 
 loadCordic :: IO CordicCModel
@@ -298,6 +300,9 @@ loadCordic = do
     <*> fun mkExecute3 "translate"
     <*> fun mkExecute2 "sin_cos"
     <*> fun mkExecute2 "atan"
+    <*> fun mkExecute2 "sinh_cosh"
+    <*> fun mkExecute2 "atanh"
+    <*> fun mkExecute2 "sqrt"
 
 unloadCordic :: CordicCModel -> IO ()
 unloadCordic = unloadCModel . loaded
@@ -357,13 +362,14 @@ data Outputs = Outputs { outX :: Integer, outY :: Integer, outPhase :: Integer }
 -- | A configuration of the IP under test
 data TestConfig = TestConfig
   { tcFunction :: CordicFunction
+  , tcSqrtFormat :: SqrtFormat
   , tcInputWidth :: Int
   , tcOutputWidth :: Int
   , tcConfig :: Config
   } deriving (Show)
 
 tcParams :: TestConfig -> Params
-tcParams TestConfig{..} = mkParams tcFunction tcConfig tcInputWidth tcOutputWidth
+tcParams TestConfig{..} = mkParams tcFunction tcSqrtFormat tcConfig tcInputWidth tcOutputWidth
 
 -- | Run the C model on a batch of inputs
 runCModel :: CordicCModel -> TestConfig -> [Inputs] -> IO [Outputs]
@@ -390,9 +396,19 @@ runCModel model@CordicCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} inpu
         SinCos -> withPhase $ \ph -> withComplex $ \out -> do
           checkStatus "sin_cos" =<< sinCosFun model h ph out n
           map (\(x, y) -> Outputs x y 0) <$> readPairs out
+        SinhCosh -> withPhase $ \ph -> withComplex $ \out -> do
+          checkStatus "sinh_cosh" =<< sinhCoshFun model h ph out n
+          map (\(x, y) -> Outputs x y 0) <$> readPairs out
         ArcTan -> withCartesian $ \cart -> withReal $ \ph -> do
           checkStatus "atan" =<< arcTanFun model h cart ph n
           map (Outputs 0 0) <$> readArray ph nInt
+        ArcTanh -> withCartesian $ \cart -> withReal $ \ph -> do
+          checkStatus "atanh" =<< arcTanhFun model h cart ph n
+          map (Outputs 0 0) <$> readArray ph nInt
+        SquareRoot -> withReal $ \inp -> withReal $ \out -> do
+          writeArray inp (map inX inputs)
+          checkStatus "sqrt" =<< sqrtFun model h inp out n
+          map (\x -> Outputs x 0 0) <$> readArray out nInt
  where
   nInt = length inputs
   n = fromIntegral nInt
@@ -417,7 +433,10 @@ runCModel model@CordicCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} inpu
         -- The IP disables coarse rotation for functions that do not support
         -- it, but the C model does not
         , if coarse (tcParams tc) then 1 else 0
-        , 0 -- Data format, only for the square root
+        , case (tcFunction, tcSqrtFormat) of
+            (SquareRoot, UnsignedFraction) -> 1
+            (SquareRoot, UnsignedInteger) -> 2
+            _ -> 0
         , case phaseFormat tcConfig of
             Radians -> 0
             ScaledRadians -> 1
@@ -443,6 +462,9 @@ runCModel model@CordicCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} inpu
     Translate -> 1
     SinCos -> 2
     ArcTan -> 3
+    SinhCosh -> 4
+    ArcTanh -> 5
+    SquareRoot -> 6
 
 ------------------------------------------------------------------------------
 -- Running the Clash functions
@@ -509,6 +531,32 @@ runClash tc@TestConfig{..} inputs =
           f = X.arcTanWith @d @System @0 @fIn @fOut tcConfig clk en
           ins = [ (toSF inX, toSF inY) | Inputs{..} <- inputs ]
         in [ Outputs 0 0 (fromSF p) | p <- simulate f ins ]
+    SinhCosh ->
+      withNat (tcInputWidth - 3) $ \(Proxy :: Proxy fIn) ->
+      withNat (tcOutputWidth - 2) $ \(Proxy :: Proxy fOut) ->
+        let f = X.sinhCoshWith @d @System @0 @fIn @fOut tcConfig clk en
+        in [ Outputs (fromSF x) (fromSF y) 0 | (x, y) <- simulate f (map (toSF . inPhase) inputs) ]
+    ArcTanh ->
+      withNat (tcInputWidth - 2) $ \(Proxy :: Proxy fIn) ->
+      withNat (tcOutputWidth - 3) $ \(Proxy :: Proxy fOut) ->
+        let
+          f = X.arcTanhWith @d @System @0 @fIn @fOut tcConfig clk en
+          ins = [ (toSF inX, toSF inY) | Inputs{..} <- inputs ]
+        in [ Outputs 0 0 (fromSF p) | p <- simulate f ins ]
+    SquareRoot -> case tcSqrtFormat of
+      UnsignedFraction ->
+        withNat (tcInputWidth - 1) $ \(Proxy :: Proxy fIn) ->
+        withNat (tcOutputWidth - 1) $ \(Proxy :: Proxy fOut) ->
+          let
+            f = X.sqrtWith @d @System @0 @fIn @fOut tcConfig clk en
+            ins = [ C.uf (C.SNat @fIn) (fromInteger inX) :: UFixed 1 fIn | Inputs{..} <- inputs ]
+          in [ Outputs (toInteger (C.unUF r)) 0 0 | r <- simulate f ins ]
+      UnsignedInteger ->
+        withNat tcInputWidth $ \(Proxy :: Proxy w) ->
+          let
+            f = X.sqrtUnsignedWith @d @System @0 @w tcConfig clk en
+            ins = [ fromInteger inX :: Unsigned w | Inputs{..} <- inputs ]
+          in [ Outputs (toInteger r) 0 0 | r <- simulate f ins ]
 
 ------------------------------------------------------------------------------
 -- Properties
@@ -570,14 +618,15 @@ scaleFloor c k = floor (c * 2 ^^ k)
 
 -- | Phase with @k@ fractional bits, in the range the IP supports
 genPhase :: TestConfig -> Int -> Gen Integer
-genPhase TestConfig{tcConfig} k =
+genPhase TestConfig{tcFunction, tcConfig} k =
   Gen.frequency [(6, genIntegerIn lo hi), (2, genNear lo hi edges)]
  where
+  circular = tcFunction /= SinhCosh
   unit
-    | phaseFormat tcConfig == ScaledRadians = 1
+    | circular && phaseFormat tcConfig == ScaledRadians = 1
     | otherwise = pi
   full
-    | coarseRotation tcConfig = unit
+    | circular && coarseRotation tcConfig = unit
     | otherwise = unit / 4
   hi = scaleFloor full k
   lo = negate hi
@@ -590,8 +639,22 @@ genInputs :: TestConfig -> Gen Inputs
 genInputs tc@TestConfig{..} = case tcFunction of
   Rotate -> Inputs <$> genXY <*> genXY <*> genPhase tc (tcInputWidth - 3)
   SinCos -> Inputs 0 0 <$> genPhase tc (tcInputWidth - 3)
+  SinhCosh -> Inputs 0 0 <$> genPhase tc (tcInputWidth - 3)
   Translate -> genVector
   ArcTan -> genVector
+  ArcTanh -> do
+    x <- genIntegerIn 1 (2 * one - 1)
+    let yMax = (x * 4) `div` 5
+    y <- genIntegerIn (negate yMax) yMax
+    pure (Inputs x y 0)
+  SquareRoot -> do
+    let hi = sqrtMax
+    x <- Gen.frequency
+           [ (6, genIntegerIn 0 hi)
+           , (1, Gen.integral (Range.exponential 0 hi))
+           , (1, (\r -> min hi (r * r)) <$> Gen.integral (Range.constant 0 (isqrtD hi)))
+           ]
+    pure (Inputs x 0 0)
  where
   one = 1 `shiftL` (tcInputWidth - 2)
   genXY = Gen.frequency
@@ -605,6 +668,15 @@ genInputs tc@TestConfig{..} = case tcFunction of
         x <- genIntegerIn 0 one
         y <- genIntegerIn (negate x) x
         pure (Inputs x y 0)
+  sqrtMax = case tcSqrtFormat of
+    -- The C model computes the square roots of 1 and more incorrectly. The IP
+    -- computes them correctly, as the HDL tests show.
+    UnsignedFraction -> (1 `shiftL` (tcInputWidth - 1)) - 1
+    UnsignedInteger
+      | odd tcInputWidth -> (1 `shiftL` (tcInputWidth - 1)) - 1
+      | otherwise -> (1 `shiftL` tcInputWidth) - 1
+  isqrtD :: Integer -> Integer
+  isqrtD = floor . sqrt . (fromIntegral :: Integer -> Double)
 
 ------------------------------------------------------------------------------
 -- Configurations under test
@@ -613,13 +685,13 @@ genInputs tc@TestConfig{..} = case tcFunction of
 testConfigs :: [TestConfig]
 testConfigs =
   -- Default configuration, several widths
-  [ TestConfig f wIn wOut X.defConfig
-  | f <- [Rotate, Translate, SinCos, ArcTan]
+  [ TestConfig f UnsignedFraction wIn wOut X.defConfig
+  | f <- [Rotate, Translate, SinCos, ArcTan, SinhCosh, ArcTanh, SquareRoot]
   , (wIn, wOut) <- widths
   ]
   <>
   -- Rounding, phase formats and coarse rotation
-  [ TestConfig f 16 16
+  [ TestConfig f UnsignedFraction 16 16
       X.defConfig{roundMode = rnd, phaseFormat = pf, coarseRotation = cr}
   | f <- [Rotate, Translate, SinCos, ArcTan]
   , rnd <- roundModes
@@ -627,8 +699,14 @@ testConfigs =
   , cr <- [True, False]
   ]
   <>
+  [ TestConfig f UnsignedFraction wIn wOut X.defConfig{roundMode = rnd}
+  | f <- [SinhCosh, ArcTanh, SquareRoot]
+  , rnd <- roundModes
+  , (wIn, wOut) <- [(16, 16), (12, 20)]
+  ]
+  <>
   -- Compensation scaling
-  [ TestConfig f wIn wOut
+  [ TestConfig f UnsignedFraction wIn wOut
       X.defConfig{compensationScaling = cs, roundMode = rnd}
   | f <- [Rotate, Translate]
   , cs <- [LutBased, BramBased]
@@ -637,10 +715,16 @@ testConfigs =
   ]
   <>
   -- Explicit iterations and precision
-  [ TestConfig f 16 16
+  [ TestConfig f UnsignedFraction 16 16
       X.defConfig{iterations = it, precision = pr, roundMode = RoundPosNegInf}
-  | f <- [Rotate, Translate, SinCos, ArcTan]
+  | f <- [Rotate, Translate, SinCos, ArcTan, SinhCosh, ArcTanh]
   , (it, pr) <- [(Just 8, Nothing), (Just 24, Just 30), (Nothing, Just 40)]
+  ]
+  <>
+  -- Unsigned integer square roots
+  [ TestConfig SquareRoot UnsignedInteger w (w `div` 2 + 1) X.defConfig{roundMode = rnd}
+  | w <- [8, 9, 16, 31, 48]
+  , rnd <- roundModes
   ]
  where
   roundModes = [Truncate, RoundPosInf, RoundPosNegInf, RoundNearestEven]
@@ -649,6 +733,7 @@ testConfigs =
 testName :: TestConfig -> String
 testName TestConfig{..} =
   show tcFunction
+    <> (if tcFunction == SquareRoot then " " <> show tcSqrtFormat else "")
     <> " " <> show tcInputWidth <> "->" <> show tcOutputWidth
     <> " " <> show tcConfig
 
@@ -657,14 +742,21 @@ testName TestConfig{..} =
 prop_defaultDelays :: Property
 prop_defaultDelays = H.withTests 1 $ H.property $
   forM_ [8 .. 48] $ \w -> do
-    let lat f = latency (mkParams f X.defConfig 16 w)
+    let lat f = latency (mkParams f UnsignedFraction X.defConfig 16 w)
     H.annotateShow w
     withNat (w - 3) $ \(Proxy :: Proxy f) -> do
       natToNum @(X.RotateDefDelay f) === lat Rotate
       natToNum @(X.TranslateDefDelay f) === lat Translate
       natToNum @(X.ArcTanDefDelay f) === lat ArcTan
-    withNat (w - 2) $ \(Proxy :: Proxy f) ->
+      natToNum @(X.ArcTanhDefDelay f) === lat ArcTanh
+    withNat (w - 2) $ \(Proxy :: Proxy f) -> do
       natToNum @(X.SinCosDefDelay f) === lat SinCos
+      natToNum @(X.SinhCoshDefDelay f) === lat SinhCosh
+    withNat (w - 1) $ \(Proxy :: Proxy f) ->
+      natToNum @(X.SqrtDefDelay f) === lat SquareRoot
+    withNat w $ \(Proxy :: Proxy f) ->
+      natToNum @(X.SqrtUnsignedDefDelay f)
+        === latency (mkParams SquareRoot UnsignedInteger X.defConfig w (w `div` 2 + 1))
 
 tests :: TestTree
 tests =

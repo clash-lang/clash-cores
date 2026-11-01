@@ -19,9 +19,10 @@ holding fixed-point numbers, reproducing the datapath of the IP:
   fractional bits. The micro-rotation shifts truncate (round towards negative
   infinity), as an arithmetic shift does.
 
-* The arctangent constants are rounded to the nearest representable value. The
-  initial value of the vector for Sin and Cos is the inverse of the CORDIC
-  scale factor, rounded to the nearest representable value.
+* The arctangent and hyperbolic arctangent constants are rounded to the nearest
+  representable value. The initial value of the vector for Sin and Cos, and
+  Sinh and Cosh, is the inverse of the CORDIC scale factor, rounded to the
+  nearest representable value.
 
 * Coarse rotation rotates vector inputs into the first quadrant (-45 to +45
   degrees) and reduces phase inputs to that same range by subtracting a
@@ -40,9 +41,16 @@ holding fixed-point numbers, reproducing the datapath of the IP:
   the magnitude of rotated and translated vectors, which the CORDIC scale
   factor grows beyond 2 unless compensation scaling is enabled.
 
+* The square root is the exact square root, truncated or rounded. For
+  rounding, the IP computes one or two extra bits. Round to nearest even breaks
+  a tie when the two extra bits are @10@, regardless of the bits that follow.
+
 These details were validated against Xilinx's bit-accurate C model of the IP,
 see @test\/Test\/Cores\/Xilinx\/Cordic.hs@, and against the IP itself in
-Vivado's simulator.
+Vivado's simulator. The C model computes the square roots of fixed point
+numbers of 1.0 and more, and of integers of @2^(w-1)@ and more for odd input
+widths @w@, incorrectly; the IP computes those correctly, and so does the
+model.
 
 __NB__: None of the functions in this module are synthesizable.
 -}
@@ -62,6 +70,7 @@ module Clash.Cores.Xilinx.Cordic.Internal
   , PhaseFormat(..)
   , CompensationScaling(..)
   , CordicFunction(..)
+  , SqrtFormat(..)
     -- * Resolved parameters
   , Params(..)
   , mkParams
@@ -73,15 +82,22 @@ module Clash.Cores.Xilinx.Cordic.Internal
   , modelTranslate
   , modelSinCos
   , modelArcTan
+  , modelSinhCosh
+  , modelArcTanh
+  , modelSqrt
     -- * Wizard options
   , functionToTcl
   , roundModeToTcl
   , phaseFormatToTcl
   , compensationScalingToTcl
+  , sqrtFormatToTcl
     -- * Constants (exported for testing)
   , piCeil
   , atanRounded
+  , atanhRounded
   , inverseScaleFactor
+  , inverseHyperbolicScaleFactor
+  , hyperbolicShifts
   , isqrt
   ) where
 
@@ -152,11 +168,14 @@ data Config = Config
   , iterations :: !(Maybe Int)
     -- ^ Number of iterations. 'Nothing' selects the number automatically,
     -- based on the output width (see /Advanced Configuration Parameters/ in
-    -- PG105). Must be between 1 and 48.
+    -- PG105). Must be between 1 and 48. For the hyperbolic functions, it
+    -- includes the iterations the CORDIC algorithm repeats (4 and 13). Does
+    -- not apply to the square root.
   , precision :: !(Maybe Int)
     -- ^ Width of the internal datapath. 'Nothing' selects the width
     -- automatically, based on the output width and the number of iterations.
-    -- Must be at least the output width and at most 48.
+    -- Must be at least the output width and at most 48. Does not apply to the
+    -- square root.
   } deriving (Eq, Show, Generic)
 
 -- | Default customization options, matching the defaults of the IP:
@@ -182,6 +201,17 @@ data CordicFunction
   | Translate
   | SinCos
   | ArcTan
+  | SinhCosh
+  | ArcTanh
+  | SquareRoot
+  deriving (Eq, Show, Generic, Lift)
+
+-- | Data format of the square root
+data SqrtFormat
+  = UnsignedFraction
+    -- ^ Unsigned fixed point numbers with one integer bit
+  | UnsignedInteger
+    -- ^ Unsigned integers
   deriving (Eq, Show, Generic, Lift)
 
 functionToTcl :: CordicFunction -> String
@@ -190,6 +220,9 @@ functionToTcl = \case
   Translate -> "Translate"
   SinCos -> "Sin_and_Cos"
   ArcTan -> "Arc_Tan"
+  SinhCosh -> "Sinh_and_Cosh"
+  ArcTanh -> "Arc_Tanh"
+  SquareRoot -> "Square_Root"
 
 roundModeToTcl :: RoundMode -> String
 roundModeToTcl = \case
@@ -209,6 +242,11 @@ compensationScalingToTcl = \case
   LutBased -> "LUT_based"
   BramBased -> "BRAM"
 
+sqrtFormatToTcl :: SqrtFormat -> String
+sqrtFormatToTcl = \case
+  UnsignedFraction -> "UnsignedFraction"
+  UnsignedInteger -> "UnsignedInteger"
+
 -- | Configuration with all automatic parameters resolved
 data Params = Params
   { function :: !CordicFunction
@@ -224,6 +262,7 @@ data Params = Params
   , compensate :: !Bool
     -- ^ Compensation scaling, only 'True' for functions that support it
   , scaleImplementation :: !CompensationScaling
+  , sqrtFormat :: !SqrtFormat
   } deriving (Eq, Show)
 
 -- | Whether a function supports coarse rotation
@@ -234,12 +273,21 @@ hasCoarseRotation f = f `elem` [Rotate, Translate, SinCos, ArcTan]
 hasCompensation :: CordicFunction -> Bool
 hasCompensation f = f `elem` [Rotate, Translate]
 
+-- | Whether a function is hyperbolic
+isHyperbolic :: CordicFunction -> Bool
+isHyperbolic f = f `elem` [SinhCosh, ArcTanh]
+
 -- | Number of iterations the IP picks when it is set to 0, see /Iterations/ in
--- PG105.
-autoIterations :: CordicFunction -> Bool -> Int -> Int
-autoIterations f coarse_ wOut
-  | coarse_ && hasCoarseRotation f = wOut - 2
-  | otherwise = wOut
+-- PG105. For the hyperbolic functions, it includes the repeated iterations.
+autoIterations :: CordicFunction -> RoundMode -> Bool -> Int -> Int
+autoIterations f rnd coarse_ wOut = case f of
+  SquareRoot -> wOut + case rnd of
+    Truncate -> 0
+    RoundPosInf -> 1
+    _ -> 2
+  _ | isHyperbolic f -> wOut + fromEnum (wOut >= 4) + fromEnum (wOut >= 13)
+    | coarse_ && hasCoarseRotation f -> wOut - 2
+    | otherwise -> wOut
 
 -- | Internal precision the IP picks when it is set to 0, see /Precision/ in
 -- PG105: the output width plus the number of bits needed to count the
@@ -250,13 +298,14 @@ autoPrecision wOut nIter = wOut + ceilLog2 nIter
 -- | Resolve the automatic parameters of a configuration
 mkParams ::
   CordicFunction ->
+  SqrtFormat ->
   Config ->
   -- | Input width
   Int ->
   -- | Output width
   Int ->
   Params
-mkParams f cfg wIn wOut = Params
+mkParams f sqrtFmt cfg wIn wOut = Params
   { function = f
   , inputWidth = wIn
   , outputWidth = wOut
@@ -267,22 +316,36 @@ mkParams f cfg wIn wOut = Params
   , rounding = roundMode cfg
   , compensate = compensationScaling cfg /= NoScaleCompensation && hasCompensation f
   , scaleImplementation = compensationScaling cfg
+  , sqrtFormat = sqrtFmt
   }
  where
   n = case iterations cfg of
     Just i | i > 0 -> i
-    _ -> autoIterations f (coarseRotation cfg) wOut
+    _ -> autoIterations f (roundMode cfg) (coarseRotation cfg) wOut
 
 -- | Latency of the IP in clock cycles, for the parallel architecture with
 -- maximum pipelining and non-blocking AXI4-Stream interfaces. Measured in
 -- Vivado's simulator for a wide range of configurations, on 7 series and
 -- UltraScale+ devices:
 --
--- * The functions take two cycles more than the number of iterations, plus
---   four for coarse rotation, plus the latency of the multiplier for
---   compensation scaling.
+-- * The circular functions take two cycles more than the number of
+--   iterations, plus four for coarse rotation, plus the latency of the
+--   multiplier for compensation scaling.
+--
+-- * The hyperbolic functions take two cycles more than the number of
+--   iterations.
+--
+-- * The square root takes as many cycles as its output width, plus one or two
+--   for rounding.
 latency :: Params -> Int
-latency Params{..} = nIterations + 2 + (if coarse then 4 else 0) + scaling
+latency Params{..} = case function of
+  SquareRoot -> outputWidth + case rounding of
+    Truncate -> 0
+    RoundNearestEven -> 2
+    _ -> 1
+  SinhCosh -> nIterations + 2
+  ArcTanh -> nIterations + 2
+  _ -> nIterations + 2 + (if coarse then 4 else 0) + scaling
  where
   scaling
     | not compensate = 0
@@ -385,6 +448,20 @@ atanRecipBounds m bits = (s - r, s + r)
     (t : _) -> abs t
     [] -> 0
 
+-- | Bounds on @atanh(1/m)@ for integer @m >= 2@, from its Taylor series.
+atanhRecipBounds :: Integer -> Bounds
+atanhRecipBounds m bits = (s, s + 2 * r)
+ where
+  terms = [ 1 % ((2 * k + 1) * m ^ (2 * k + 1)) | k <- [0 :: Integer ..] ]
+  eps = 1 % (2 ^ (bits + 2))
+  (used, rest) = span (>= eps) terms
+  s = sum used
+  -- All terms are positive and decrease by at least a factor of four, so the
+  -- remainder is less than twice the first omitted term.
+  r = case rest of
+    (t : _) -> t
+    [] -> 0
+
 -- | Bounds on pi, using Machin's formula: @pi = 16 atan(1/5) - 4 atan(1/239)@.
 piBounds :: Bounds
 piBounds bits = (16 * lo5 - 4 * hi239, 16 * hi5 - 4 * lo239)
@@ -438,6 +515,10 @@ atanRounded scaledRadians i k = roundBounds ratRound (scaleBounds k val)
   val | scaledRadians = divBounds a piBounds
       | otherwise = a
 
+-- | @round(atanh(2^-i) * 2^k)@
+atanhRounded :: Int -> Int -> Integer
+atanhRounded i k = roundBounds ratRound (scaleBounds k (atanhRecipBounds (2 ^ i)))
+
 -- | Round @sqrt(num / den) * 2^k@ to the nearest integer, ties towards positive
 -- infinity (ties cannot occur for the values we use).
 roundSqrtRatio :: Integer -> Integer -> Int -> Integer
@@ -450,6 +531,23 @@ inverseScaleFactor n k = roundSqrtRatio num den k
  where
   num = product [4 ^ i | i <- [1 .. n]]
   den = product [4 ^ i + 1 | i <- [1 .. n]]
+
+-- | Shifts of the iterations of the hyperbolic CORDIC: 1, 2, 3, 4, 4, 5, ...,
+-- 13, 13, 14, ... The IP repeats iterations 4 and 13, but not 40.
+hyperbolicShifts :: Int -> [Int]
+hyperbolicShifts n = take n (concatMap rep [1 ..])
+ where
+  rep i | i == 4 || i == 13 = [i, i]
+        | otherwise = [i]
+
+-- | Inverse of the hyperbolic CORDIC scale factor for @n@ iterations,
+-- @prod 1 / sqrt(1 - 2^-2i)@, rounded to @k@ fractional bits.
+inverseHyperbolicScaleFactor :: Int -> Int -> Integer
+inverseHyperbolicScaleFactor n k = roundSqrtRatio num den k
+ where
+  is = hyperbolicShifts n
+  num = product [4 ^ i | i <- is]
+  den = product [4 ^ i - 1 | i <- is]
 
 ------------------------------------------------------------------------------
 -- CORDIC
@@ -487,6 +585,11 @@ circularVectoring steps = go steps 0
 circularSteps :: Params -> [(Int, Integer)]
 circularSteps p =
   [ (i, atanRounded (scaled p) i (fracPhase p)) | i <- [1 .. nIterations p] ]
+
+-- | Iterations of the hyperbolic CORDIC: shifts and hyperbolic arctangents
+hyperbolicSteps :: Params -> [(Int, Integer)]
+hyperbolicSteps p =
+  [ (i, atanhRounded i (fracPhase p)) | i <- hyperbolicShifts (nIterations p) ]
 
 -- | Multiple of pi\/4 in the phase unit, rounded up to the phase precision of
 -- the datapath
@@ -615,3 +718,43 @@ modelSinCos p = \phaseIn ->
   steps = circularSteps p
   coarse' = coarsePhase p
   x0 = inverseScaleFactor (nIterations p) (fracXY p)
+
+-- | Model of sinh and cosh, see 'modelRotate'. Returns @(cosh, sinh)@.
+modelSinhCosh :: Params -> Integer -> (Integer, Integer)
+modelSinhCosh p = \phaseIn -> go steps (inPhase p phaseIn) (x0, 0)
+ where
+  steps = hyperbolicSteps p
+  x0 = inverseHyperbolicScaleFactor (nIterations p) (fracXY p)
+  go [] _ (x, y) = (roundXY p x, roundXY p y)
+  go ((i, a) : rest) z (x, y)
+    | z >= 0 = go rest (z - a) (x + (y `shiftR` i), y + (x `shiftR` i))
+    | otherwise = go rest (z + a) (x - (y `shiftR` i), y - (x `shiftR` i))
+
+-- | Model of the hyperbolic arctangent, see 'modelTranslate'
+modelArcTanh :: Params -> (Integer, Integer) -> Integer
+modelArcTanh p = \(xIn, yIn) -> go steps 0 (inXY p xIn, inXY p yIn)
+ where
+  steps = hyperbolicSteps p
+  go [] z _ = roundPhase p z
+  go ((i, a) : rest) z (x, y)
+    | y < 0 = go rest (z - a) (x + (y `shiftR` i), y + (x `shiftR` i))
+    | otherwise = go rest (z + a) (x - (y `shiftR` i), y - (x `shiftR` i))
+
+-- | Model of the square root. The input has @inputWidth - 1@ fractional bits
+-- for 'UnsignedFraction', the output @outputWidth - 1@. For 'UnsignedInteger'
+-- both are integers.
+modelSqrt :: Params -> Integer -> Integer
+modelSqrt p = \xIn ->
+  let
+    -- floor(sqrt(x) * 2^(fOut + e))
+    s = isqrt (shiftTo (2 * (fOut + e) - fIn) xIn)
+  in roundOff (rounding p) e s
+ where
+  (fIn, fOut) = case sqrtFormat p of
+    UnsignedFraction -> (inputWidth p - 1, outputWidth p - 1)
+    UnsignedInteger -> (0, 0)
+  -- Extra bits computed for rounding
+  e = case rounding p of
+    Truncate -> 0
+    RoundPosInf -> 1
+    _ -> 2
