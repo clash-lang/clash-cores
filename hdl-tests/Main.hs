@@ -161,6 +161,11 @@ runClashTest = defaultMain $ clashTestRoot
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
           , outputTest "BiSignalTuple" def{hdlLoad=[], hdlSim=[]}
+          , runTest "BitVectorParam" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
           , outputTest "DiffClockOutputTuple" def{hdlLoad=[], hdlSim=[]}
           , runTest "DiffClockOutput" def
               { hdlTargets=[VHDL, Verilog, SystemVerilog]
