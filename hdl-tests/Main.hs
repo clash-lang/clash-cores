@@ -267,6 +267,13 @@ runClashTest = defaultMain $ clashTestRoot
                   , "tbBufgceDiv1", "tbBufgceDiv2", "tbBufgceDiv3", "tbBufgceDiv8"
                   ]
               }
+          , runTest "IoBuffer" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  ["tbObufds", "tbIbufdsGte4Div1", "tbIbufdsGte4Div2"]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =
