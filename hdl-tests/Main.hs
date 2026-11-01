@@ -257,6 +257,17 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlLoad=[Vivado]
             , hdlSim=[Vivado]
             }
+        , clashTestGroup "Unisim"
+          [ runTest "ClockBuffer" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  [ "tbBufg", "tbBufgce"
+                  , "tbBufgceDiv1", "tbBufgceDiv2", "tbBufgceDiv3", "tbBufgceDiv8"
+                  ]
+              }
+          ]
         , clashTestGroup "DcFifo"
           [ let _opts =
                   def{ hdlTargets=[VHDL, Verilog]

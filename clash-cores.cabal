@@ -164,8 +164,11 @@ library
     Clash.Cores.Xilinx.Ila
     Clash.Cores.Xilinx.Ila.Internal
     Clash.Cores.Xilinx.Internal
+    Clash.Cores.Xilinx.Unisim
+    Clash.Cores.Xilinx.Unisim.ClockBuffer
     Clash.Cores.Xilinx.Unisim.DnaPortE2
     Clash.Cores.Xilinx.Unisim.DnaPortE2.Internal
+    Clash.Cores.Xilinx.Unisim.Internal
     Clash.Cores.Xilinx.Vio
     Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
     Clash.Cores.Xilinx.Xpm
