@@ -284,6 +284,15 @@ runClashTest = defaultMain $ clashTestRoot
                   , "tbLoopbackOppositeEdge", "tbLoopbackSameEdge", "tbLoopbackSameEdgePipelined"
                   ]
               }
+          , runTest "Serdes" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  [ "tbIserdes4", "tbIserdes8", "tbOserdes4", "tbOserdes8"
+                  , "tbLoopback4", "tbLoopback8"
+                  ]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =

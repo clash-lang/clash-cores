@@ -171,6 +171,7 @@ library
     Clash.Cores.Xilinx.Unisim.DnaPortE2.Internal
     Clash.Cores.Xilinx.Unisim.Internal
     Clash.Cores.Xilinx.Unisim.IoBuffer
+    Clash.Cores.Xilinx.Unisim.Serdes
     Clash.Cores.Xilinx.Vio
     Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
     Clash.Cores.Xilinx.Xpm

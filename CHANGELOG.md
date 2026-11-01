@@ -11,3 +11,4 @@
 * Add `bufg`, `bufgce` and `bufgceDiv`, wrappers for Xilinx's `BUFG`, `BUFGCE` and `BUFGCE_DIV` clock buffers. Gated and divided clocks are simulated cycle-accurately.
 * Add `ibufds`, `obufds` and `ibufdsGte4`, wrappers for Xilinx's `IBUFDS` (for data signals), `OBUFDS` and `IBUFDS_GTE4` buffers
 * Add `iddre1` and `oddre1`, wrappers for Xilinx's `IDDRE1` and `ODDRE1` DDR registers, following the conventions of `Clash.Xilinx.DDR`
+* Add `iserdese3` and `oserdese3`, wrappers for Xilinx's `ISERDESE3` and `OSERDESE3` serializers/deserializers

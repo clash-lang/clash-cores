@@ -16,9 +16,11 @@ module Clash.Cores.Xilinx.Unisim
   , module Clash.Cores.Xilinx.Unisim.Ddr
   , module Clash.Cores.Xilinx.Unisim.DnaPortE2
   , module Clash.Cores.Xilinx.Unisim.IoBuffer
+  , module Clash.Cores.Xilinx.Unisim.Serdes
   ) where
 
 import Clash.Cores.Xilinx.Unisim.ClockBuffer
 import Clash.Cores.Xilinx.Unisim.Ddr
 import Clash.Cores.Xilinx.Unisim.DnaPortE2
 import Clash.Cores.Xilinx.Unisim.IoBuffer
+import Clash.Cores.Xilinx.Unisim.Serdes
