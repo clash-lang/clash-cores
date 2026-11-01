@@ -850,7 +850,21 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
               Nothing ->
                 error ("Internal error: could not find domain " <> Text.unpack dom)
       pure [(name, rst)]
+    PrimBiSignalInPort{name, meta=DSL.TExpr ty e} ->
+      -- 'DSL.instDecl' assigns any expression that is not an identifier to an
+      -- intermediate signal first. That would turn the inout port into an
+      -- input, so make sure we pass the identifier of the bidirectional signal.
+      pure [(name, DSL.TExpr ty (stripNewtypeDataCon e))]
     p -> pure [(name p, meta p)]
+
+  -- The ports passed to 'inst' are wrapped in data types with a single
+  -- constructor with a single field, such as 'BiSignalInPort'. Clash
+  -- represents the application of such a constructor as a 'DataCon' with a
+  -- special 'DC', which the backends render as just its field.
+  stripNewtypeDataCon :: Expr -> Expr
+  stripNewtypeDataCon = \case
+    DataCon _ (DC (Void Nothing, -1)) [e] -> stripNewtypeDataCon e
+    e -> e
 
   mkOutPort :: PrimPort HWType -> State (DSL.BlockState s) (Maybe (Text, DSL.TExpr))
   mkOutPort = \case

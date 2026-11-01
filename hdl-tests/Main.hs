@@ -160,6 +160,13 @@ runClashTest = defaultMain $ clashTestRoot
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
+          , runTest "Iobuf" def
+              { -- UNISIM's IOBUF has a @std_ulogic@ IO port, while Clash
+                -- renders a 1-bit BiSignal as a @std_logic_vector@
+                hdlTargets=[Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
           , runTest "NoInput" def
               { hdlTargets=[VHDL, Verilog, SystemVerilog]
               , hdlLoad=[Vivado]
