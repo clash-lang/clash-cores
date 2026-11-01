@@ -274,6 +274,16 @@ runClashTest = defaultMain $ clashTestRoot
               , buildTargets=BuildSpecific
                   ["tbObufds", "tbIbufdsGte4Div1", "tbIbufdsGte4Div2"]
               }
+          , runTest "Ddr" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  [ "tbOddre1", "tbOddre1Plus"
+                  , "tbIddre1OppositeEdge", "tbIddre1SameEdge", "tbIddre1SameEdgePipelined"
+                  , "tbLoopbackOppositeEdge", "tbLoopbackSameEdge", "tbLoopbackSameEdgePipelined"
+                  ]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =

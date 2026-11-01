@@ -51,7 +51,8 @@ ibufds p n
 {- | Differential output buffer (@OBUFDS@) for a data signal. Returns the
 positive and negative output. Simulation: the input and its complement.
 
-To forward a clock off-chip, drive the buffer with an @ODDRE1@
+To forward a clock off-chip, drive the buffer with an
+'Clash.Cores.Xilinx.Unisim.Ddr.oddre1'
 that outputs @(1, 0)@ every cycle instead of connecting the clock to it.
 
 For more information see

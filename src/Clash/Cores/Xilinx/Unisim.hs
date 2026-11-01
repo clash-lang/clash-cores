@@ -13,10 +13,12 @@ they do and do not model.
 -}
 module Clash.Cores.Xilinx.Unisim
   ( module Clash.Cores.Xilinx.Unisim.ClockBuffer
+  , module Clash.Cores.Xilinx.Unisim.Ddr
   , module Clash.Cores.Xilinx.Unisim.DnaPortE2
   , module Clash.Cores.Xilinx.Unisim.IoBuffer
   ) where
 
 import Clash.Cores.Xilinx.Unisim.ClockBuffer
+import Clash.Cores.Xilinx.Unisim.Ddr
 import Clash.Cores.Xilinx.Unisim.DnaPortE2
 import Clash.Cores.Xilinx.Unisim.IoBuffer
