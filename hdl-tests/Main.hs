@@ -160,6 +160,11 @@ runClashTest = defaultMain $ clashTestRoot
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
+          , runTest "NoInput" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
           ]
         , runTest "TdpBlockRam" def
           { -- Compiling with VHDL gives:
