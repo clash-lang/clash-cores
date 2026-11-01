@@ -63,7 +63,7 @@ import Control.Monad (when)
 import Control.Monad.State (State)
 import Data.Proxy (Proxy)
 import Data.Either (lefts, partitionEithers, rights)
-import Data.Maybe (maybeToList, isJust, catMaybes)
+import Data.Maybe (maybeToList, isJust)
 import Data.String.Interpolate (__i)
 import Data.Text (Text)
 import Data.Text.Prettyprint.Doc.Extra (Doc)
@@ -92,6 +92,7 @@ import Clash.Netlist.BlackBox.Types
   ( BlackBoxFunction, BlackBoxMeta(bbKind, bbRenderVoid), TemplateKind(TDecl), emptyBlackBoxMeta
   , bbLibrary, bbImports, bbIncludes, RenderVoid (..) )
 import Clash.Netlist.Types
+import Clash.Netlist.Util (isVoid, unsafeCoreTypeToHWTypeM')
 
 import qualified Clash.Netlist.BlackBox.Types as BlackBox
 import qualified Clash.Netlist.Id as Id
@@ -160,7 +161,7 @@ data PrimPort a
   deriving (Show, Functor)
 
 -- | Add meta information to a 'PrimPort'
-addPrimPortMeta :: PrimPort () -> a -> PrimPort a
+addPrimPortMeta :: PrimPort b -> a -> PrimPort a
 addPrimPortMeta p a = const a <$> p
 
 -- | Either 'PrimParam' or 'PrimPort'
@@ -465,6 +466,11 @@ See https://github.com/clash-lang/clash-cores/issues/80.
 -- 'NamedDiffClockPort', 'ResetPort', or 'Param'. The result type, @r@ can be a
 -- 'Port', 'ClockPort', 'ResetPort', a tuple of these, or unit (@()@).
 --
+-- Ports with a zero-width type, such as a 'BiSignalOutPort' or a 'Port' carrying
+-- @()@, have no HDL representation and are left out of the instantiation. If an
+-- instantiation has no other output ports, it is only rendered if 'renderVoid'
+-- is set.
+--
 -- Example usage:
 --
 -- > go :: Port "dest_out_bin" dst (BitVector n)
@@ -556,51 +562,49 @@ argsToPrimPortOrParams (t:ts) = do
   args <- argsToPrimPortOrParams ts
   pure (arg:args)
 
--- | Interpret result type as 'PrimPort's
-tyToPrimPort :: Type -> Either String [PrimPort ()]
-tyToPrimPort (splitTyConAppM -> Just (tyConName'@(Name{nameOcc=Text.unpack -> tyConName}), args))
+-- | Interpret result type as 'PrimPort's. Each port is paired with its type,
+-- e.g. @Port "foo" dom Bool@.
+tyToPrimPort :: Type -> Either String [(PrimPort (), Type)]
+tyToPrimPort ty@(splitTyConAppM -> Just (tyConName'@(Name{nameOcc=Text.unpack -> tyConName}), args))
     | tyConName == show 'Param
     , LitTy (SymTy nm) : _ <- args
     = Left ("Can't translate Param " <> nm <> " to PrimPort. Did you define a Param in a result type?")
 
     | tyConName == show 'Port
     , LitTy (SymTy nm) : LitTy (SymTy domNm) : _ <- args
-    = Right [PrimSignalPort{name=Text.pack nm, dom=Text.pack domNm, meta=()}]
+    = Right [(PrimSignalPort{name=Text.pack nm, dom=Text.pack domNm, meta=()}, ty)]
 
     | tyConName == show 'ClockPort
     , LitTy (SymTy nm) : LitTy (SymTy domNm) : _ <- args
-    = Right [PrimClockPort{name=Text.pack nm, dom=Text.pack domNm, meta=()}]
+    = Right [(PrimClockPort{name=Text.pack nm, dom=Text.pack domNm, meta=()}, ty)]
 
     | tyConName == show 'ResetPort
     , LitTy (SymTy nm) : pol : LitTy (SymTy domNm) : _ <- args
-    = Right [PrimResetPort
+    = Right [(PrimResetPort
         { name=Text.pack nm
         , dom=Text.pack domNm
         , meta=()
         , polarity = getPolarity nm pol
-        }]
+        }, ty)]
 
     | tyConName == show 'BiSignalOutPort
     , LitTy (SymTy nm) : _ds : LitTy (SymTy domNm) : LitTy (NumTy width) : _ <- args
-    = Right [PrimBiSignalOutPort
+    = Right [(PrimBiSignalOutPort
         { name=Text.pack nm
         , dom=Text.pack domNm
         , meta=()
         , n = width
-        }]
+        }, ty)]
 
     | isTupleTyConLike tyConName' = do
       xs <- mapM tyToPrimPort args
       pure $ P.concat xs
 tyToPrimPort ty = error (ppShow ty)
 
-hwtyToPortTypes :: HWType -> [HWType]
-hwtyToPortTypes (Annotated _ ty) = hwtyToPortTypes ty
-hwtyToPortTypes (Product _ _ tys) =
-  -- Note that we don't have to check _what_ kind of product we're splitting here:
-  -- the type classes enforce this can only be a tuple.
-  tys
-hwtyToPortTypes hwty = [hwty]
+-- | Strip any 'Annotated' constructors from a 'HWType'
+stripAnnotated :: HWType -> HWType
+stripAnnotated (Annotated _ ty) = stripAnnotated ty
+stripAnnotated ty = ty
 
 -- | 'BlackBoxFunction' for @inst@
 instBBF :: HasCallStack => BlackBoxFunction
@@ -644,10 +648,15 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
       hdl <- Lens.use (backend . fromSomeBackend hdlKind)
       case go config userArgs of
         Left s -> error ("instBBF, bad context:\n\n" <> s)
-        Right (c, a, r) -> do
-          pure $ Right (bbMeta hdl c, bb doms c a r)
+        Right (c, a, r0) -> do
+          -- Determine which output ports have a zero-width type, see
+          -- 'instBBTF'.
+          r1 <- mapM
+            (\(p, ty) -> addPrimPortMeta p . isVoid <$> unsafeCoreTypeToHWTypeM' "instBBF" ty)
+            r0
+          pure $ Right (bbMeta hdl c, bb doms c a r1)
  where
-  go :: Term -> [Term] -> Either String (InstConfig, [PrimPortOrParam ()], [PrimPort ()])
+  go :: Term -> [Term] -> Either String (InstConfig, [PrimPortOrParam ()], [(PrimPort (), Type)])
   go config0 userArgs = do
     config1 <- Compat.termToDataError config0
     argPorts <- argsToPrimPortOrParams userArgs
@@ -677,7 +686,7 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
     | hdl == VHDL = P.map (pure . BlackBox.Text . LazyText.pack) . maybeToList
     | otherwise = const []
 
-  bb :: DomainMap -> InstConfig -> [PrimPortOrParam ()] -> [PrimPort ()] -> BlackBox
+  bb :: DomainMap -> InstConfig -> [PrimPortOrParam ()] -> [PrimPort Bool] -> BlackBox
   bb doms config primArgs primRes =
     BBFunction (show 'instTF) 0 (instTF nExtraArgs doms config maybeXilinxWizard primArgs primRes)
 
@@ -695,7 +704,8 @@ instTF ::
   InstConfig ->
   Maybe (XilinxWizard n) ->
   [PrimPortOrParam ()] ->
-  [PrimPort ()] ->
+  -- | Output ports, annotated with whether they have a zero-width type
+  [PrimPort Bool] ->
   TemplateFunction
 instTF nExtraArgs doms config maybeXilinxWizard primArgs primRes =
   TemplateFunction
@@ -756,7 +766,8 @@ instBBTF ::
   InstConfig ->
   Maybe (XilinxWizard n) ->
   [PrimPortOrParam ()] ->
-  [PrimPort ()] ->
+  -- | Output ports, annotated with whether they have a zero-width type
+  [PrimPort Bool] ->
   BlackBoxContext ->
   State s Doc
 instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
@@ -765,10 +776,28 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
       : userArgs
       ) <- P.drop nExtraArgs $ P.map fst $ DSL.tInputs bbCtx
   , [resultTy] <- DSL.tResults bbCtx
-  , outPortTys <- hwtyToPortTypes (DSL.ety resultTy)
   = do
       DSL.declarationReturn bbCtx "inst_block" $ do
-        when (P.length primResults0 /= P.length outPortTys) $
+        let
+          -- Output ports with a zero-width type (e.g. 'BiSignalOutPort', or a
+          -- 'Port' carrying '()') don't exist in HDL: Clash removes them from
+          -- the result type. Leave them out of the port map too.
+          primResults1 = P.filter (not . meta) primResults0
+          resultHwTy = DSL.ety resultTy
+
+          (outPortTys, mkResult) = case primResults1 of
+            [] -> ([], const [])
+            -- If a single non-zero-width output is left, Clash represents the
+            -- result by the type of that output, even if it is part of a tuple.
+            [_] -> ([resultHwTy], P.id)
+            _ | Product _ _ tys <- stripAnnotated resultHwTy ->
+              -- Note that we don't have to check _what_ kind of product we're
+              -- splitting here: the type classes enforce this can only be a
+              -- tuple.
+              (tys, \es -> [DSL.constructProduct (stripAnnotated resultHwTy) es])
+            _ -> ([resultHwTy], P.id) -- Reported by the length check below
+
+        when (P.length primResults1 /= P.length outPortTys) $
           error [I.i|
             Internal error, mismatching result lengths:
 
@@ -790,7 +819,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
               #{ppShow userArgs}
           |]
 
-        outPorts <- catMaybes <$> mapM mkOutPort (P.zipWith addPrimPortMeta primResults0 outPortTys)
+        outPorts <- mapM mkOutPort (P.zipWith addPrimPortMeta primResults1 outPortTys)
         let
           -- Note that this critically depends on the Clash Netlist backed treating
           -- a data type with a single constructor with a single field as the
@@ -799,7 +828,10 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           (params0, inPorts0) = partitionPortOrPrims primArgs1
           params1 = P.map mkParam params0
 
-        inPorts1 <- P.concat <$> mapM mkInPort inPorts0
+        -- Like output ports, input ports with a zero-width type don't exist in
+        -- HDL. Leave them out of the port map.
+        inPorts1 <-
+          P.filter (not . isVoid . DSL.ety . snd) . P.concat <$> mapM mkInPort inPorts0
         instLabel <- Id.make (Text.pack (compName config) <> "_inst")
 
         let compName1 = case maybeXilinxWizard of
@@ -818,10 +850,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           inPorts1
           outPorts
 
-        case outPorts of
-          []  -> pure []
-          [p] -> pure [snd p]
-          ps  -> pure [DSL.tuple (snd <$> ps)]
+        pure (mkResult (snd <$> outPorts))
  where
   mkParam :: PrimParam DSL.TExpr -> (Text, DSL.TExpr)
   mkParam (PrimParam{paramName, paramMeta, paramAsInteger}) =
@@ -866,12 +895,13 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
     DataCon _ (DC (Void Nothing, -1)) [e] -> stripNewtypeDataCon e
     e -> e
 
-  mkOutPort :: PrimPort HWType -> State (DSL.BlockState s) (Maybe (Text, DSL.TExpr))
+  mkOutPort :: PrimPort HWType -> State (DSL.BlockState s) (Text, DSL.TExpr)
   mkOutPort = \case
     PrimDiffClockPort{} -> do
       error "Internal error: unreachable code: PrimDiffClockPort in mkOutPort"
 
-    PrimBiSignalOutPort{} -> pure Nothing
+    PrimBiSignalOutPort{} ->
+      error "Internal error: unreachable code: zero-width PrimBiSignalOutPort in mkOutPort"
 
     PrimResetPort{name, polarity, dom, meta=ty} -> do
       var <- DSL.declare name ty
@@ -882,12 +912,12 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
             | otherwise -> DSL.notExpr name var
           Nothing ->
             error ("Internal error: could not find domain " <> Text.unpack dom)
-      pure (Just (name, rst))
+      pure (name, rst)
 
     port -> do
       let ty = meta port
       var <- DSL.declare (name port) ty
-      pure (Just (name port, var))
+      pure (name port, var)
 
 instBBTF _nExtraArgs _doms _config _maybeXilinxWizard _primArgs _primResults bbCtx =
   error (show 'instBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
