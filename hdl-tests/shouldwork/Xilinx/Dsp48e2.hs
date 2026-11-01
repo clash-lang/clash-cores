@@ -7,6 +7,7 @@ import Clash.Explicit.Prelude
 
 import Clash.Cores.Xilinx.Unisim.Dsp48e2
 import Dsp48e2Types
+import Dsp48TestCommon
 
 -- | This 'topEntity' exists to make @clash-testsuite@ happy. Without it cannot
 -- find the test benches.

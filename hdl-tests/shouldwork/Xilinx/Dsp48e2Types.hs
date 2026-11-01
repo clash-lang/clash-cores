@@ -1,20 +1,13 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
 
--- | Configurations, stimuli and test bench for "Dsp48e2". The stimuli are
--- random, generated from a fixed seed per test bench. The expected outputs are
--- computed with the Haskell simulation model; the test bench compares them to
--- the outputs of the UNISIM model.
+-- | Configurations and stimuli for "Dsp48e2" and "Dsp48e2MaccExtend". See
+-- "Dsp48TestCommon" for the test bench.
 module Dsp48e2Types where
 
 import Clash.Explicit.Prelude
-import Clash.Explicit.BlockRam.Blob (MemBlob, memBlobTH)
-import Clash.Prelude.ROM.Blob (asyncRomBlob)
-import Clash.Explicit.Testbench
-import Clash.Sized.Internal.BitVector (BitVector(BV))
 
-import Language.Haskell.TH (ExpQ, tupE)
-import System.Random (StdGen, mkStdGen, randomR)
+import Language.Haskell.TH (ExpQ)
 
 import qualified Clash.Signal.Delayed as D
 import qualified Prelude as P
@@ -23,67 +16,7 @@ import Clash.Cores.Xilinx.Unisim.Dsp48e2
 import Clash.Cores.Xilinx.Unisim.Dsp48e2.Internal
   (Inputs(..), Outputs, bundleOutputs, unbundleInputs)
 
--- | Number of cycles in each test bench
-type Cycles = 1000
-
--- | During the first cycles, all resets are asserted, and the outputs are not
--- checked. This covers the global set/reset (GSR) pulse of the Verilog UNISIM
--- models (100 ns), which the VHDL models don't have.
-warmup :: Int
-warmup = 16
-
--- * Random generation
-
--- | Minimal state monad threading a random generator
-newtype G a = G { runG :: StdGen -> (a, StdGen) }
-
-instance Functor G where
-  fmap f (G g) = G (\s -> let (a, s1) = g s in (f a, s1))
-
-instance Applicative G where
-  pure a = G (\s -> (a, s))
-  G f <*> G a = G (\s -> let (f1, s1) = f s; (a1, s2) = a s1 in (f1 a1, s2))
-
-instance Monad G where
-  G a >>= f = G (\s -> let (a1, s1) = a s in runG (f a1) s1)
-
-evalG :: G a -> Int -> a
-evalG g seed = fst (runG g (mkStdGen seed))
-
-uniformInteger :: Integer -> Integer -> G Integer
-uniformInteger lo hi = G (randomR (lo, hi))
-
-genBV :: forall n. KnownNat n => G (BitVector n)
-genBV = fromInteger <$> uniformInteger 0 (2 P.^ natToNum @n @Integer - 1)
-
-genBit :: G Bit
-genBit = unpack <$> genBV
-
--- | 'True' with the given probability (in percent)
-chance :: Integer -> G Bool
-chance p = (< p) <$> uniformInteger 0 99
-
-elements :: [a] -> G a
-elements xs = (xs P.!!) . fromInteger <$> uniformInteger 0 (toInteger (P.length xs) - 1)
-
--- | How to generate the C input. The pattern detector rarely matches random
--- data, so the pattern detector tests use C values that make matches likely.
-data CGen
-  = CRandom
-  -- ^ Uniformly random
-  | CSmall
-  -- ^ Mostly values below 8. When used as pattern with a rounding mask, only a
-  -- few bits are compared.
-  | CMostlyOnes
-  -- ^ Mostly values with all but the three least significant bits set. When
-  -- used as mask, only a few bits are compared.
-
-genC :: CGen -> G (BitVector 48)
-genC CRandom = genBV
-genC CSmall = do
-  small <- chance 80
-  if small then zeroExtend <$> genBV @3 else genBV
-genC CMostlyOnes = complement <$> genC CSmall
+import Dsp48TestCommon
 
 -- | Options for the generation of stimuli
 data GenOpts = GenOpts
@@ -207,8 +140,6 @@ stimuli cfg opts =
 
 -- * Circuits under test
 
-type Dom = XilinxSystem
-
 single :: Dsp48e2Config -> Clock Dom -> Signal Dom Inputs -> Signal Dom Outputs
 single cfg clk i = bundleOutputs (dsp48e2 cfg clk (unbundleInputs i))
 
@@ -257,54 +188,6 @@ wrapperStimuli = evalG (mapM gen [0 .. natToNum @Cycles - 1])
 wrapperBlobs :: Int -> ExpQ
 wrapperBlobs seed = blobs wrappers (wrapperStimuli seed)
 
--- * Expected outputs
-
--- | Simulate a circuit with the Haskell model, and return the expected values
--- along with a mask of the bits to check. Undefined bits, and all bits during
--- the warmup, are not checked.
-expected ::
-  (BitPack i, BitPack o, NFDataX i) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
-  [i] ->
-  [(BitVector (BitSize o), BitVector (BitSize o))]
-expected circuit is = P.zipWith check [0 ..] outs
- where
-  outs = sampleN_lazy (P.length is) (circuit clockGen (fromList is))
-  check n o
-    | n < warmup = (0, 0)
-    | otherwise = case isX (pack o) of
-        Left _ -> (0, 0)
-        Right (BV m v) ->
-          let care = complement (fromIntegral m) in (fromIntegral v .&. care, care)
-
-expectedValues ::
-  (BitPack i, BitPack o, NFDataX i) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
-  [i] ->
-  [BitVector (BitSize o)]
-expectedValues circuit = P.map fst . expected circuit
-
-expectedMasks ::
-  (BitPack i, BitPack o, NFDataX i) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
-  [i] ->
-  [BitVector (BitSize o)]
-expectedMasks circuit = P.map snd . expected circuit
-
--- | Memory blobs with the stimuli, expected values, and masks of the bits to
--- check, for 'tb'
-blobs ::
-  (BitPack i, BitPack o, NFDataX i) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
-  [i] ->
-  ExpQ
-blobs circuit is =
-  tupE
-    [ memBlobTH Nothing is
-    , memBlobTH Nothing (expectedValues circuit is)
-    , memBlobTH Nothing (expectedMasks circuit is)
-    ]
-
 -- | 'blobs' for a single @DSP48E2@
 singleBlobs :: Dsp48e2Config -> GenOpts -> Int -> ExpQ
 singleBlobs cfg opts seed = blobs (single cfg) (stimuli cfg opts seed)
@@ -314,35 +197,6 @@ cascadedBlobs :: Dsp48e2Config -> Dsp48e2Config -> GenOpts -> Int -> ExpQ
 cascadedBlobs cfg1 cfg2 opts seed =
   blobs (cascaded cfg1 cfg2)
     (P.zip (stimuli cfg1 opts seed) (stimuli cfg2 opts (seed + 1)))
-
--- * Test bench
-
-tb ::
-  forall i o.
-  (BitPack i, BitPack o) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
-  ( MemBlob Cycles (BitSize i)
-  , MemBlob Cycles (BitSize o)
-  , MemBlob Cycles (BitSize o) ) ->
-  Signal Dom Bool
-tb circuit (stimBlob, expectedBlob, maskBlob) = done
- where
-  clk = tbClockGen (not <$> done)
-
-  cnt :: Signal Dom (Index Cycles)
-  cnt = register clk noReset enableGen 0 (satSucc SatBound <$> cnt)
-
-  stim = unpack . asyncRomBlob stimBlob <$> cnt
-  actual = pack <$> circuit clk stim
-  expectedVal = asyncRomBlob expectedBlob <$> cnt
-  mask = asyncRomBlob maskBlob <$> cnt
-
-  done =
-    assert clk noReset "DSP48E2 outputs"
-      ((.&.) <$> actual <*> mask)
-      ((.&.) <$> expectedVal <*> mask)
-      ((== maxBound) <$> cnt)
-{-# INLINE tb #-}
 
 -- * Configurations
 

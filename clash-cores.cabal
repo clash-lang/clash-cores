@@ -166,6 +166,9 @@ library
     Clash.Cores.Xilinx.Internal
     Clash.Cores.Xilinx.Unisim.DnaPortE2
     Clash.Cores.Xilinx.Unisim.DnaPortE2.Internal
+    Clash.Cores.Xilinx.Unisim.Dsp48.Internal
+    Clash.Cores.Xilinx.Unisim.Dsp48e1
+    Clash.Cores.Xilinx.Unisim.Dsp48e1.Internal
     Clash.Cores.Xilinx.Unisim.Dsp48e2
     Clash.Cores.Xilinx.Unisim.Dsp48e2.Internal
     Clash.Cores.Xilinx.Vio
@@ -248,6 +251,7 @@ test-suite unit-tests
     Test.Cores.Xilinx.BlockRam
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
+    Test.Cores.Xilinx.Dsp48e1
     Test.Cores.Xilinx.Dsp48e2
     Test.Cores.Xilinx.Ethernet.Gmii
 

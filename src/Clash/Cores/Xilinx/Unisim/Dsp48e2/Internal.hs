@@ -16,23 +16,14 @@ module Clash.Cores.Xilinx.Unisim.Dsp48e2.Internal where
 
 import Clash.Explicit.Prelude
 import Clash.Signal.Internal (Signal((:-)))
-import Clash.Sized.Internal.BitVector (BitVector(BV))
 
-import Data.Maybe (fromMaybe)
 import GHC.Stack (HasCallStack)
 
 import qualified Clash.Signal.Delayed as D
 
 
+import Clash.Cores.Xilinx.Unisim.Dsp48.Internal
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
-
--- | Source of the A or B input registers (attributes @A_INPUT@ and @B_INPUT@)
-data InputSource
-  = Direct
-  -- ^ @DIRECT@: use the @A@ ('dataA') or @B@ ('dataB') input
-  | Cascade
-  -- ^ @CASCADE@: use the @ACIN@ ('acIn') or @BCIN@ ('bcIn') cascade input
-  deriving (Show, Eq, Generic, NFDataX)
 
 -- | Selects the input to the 27-bit side of the multiplier (attribute @AMULTSEL@)
 data AMultSel
@@ -59,28 +50,6 @@ data PreAddInSel
   -- ^ @B@: the sign-extended B input
   deriving (Show, Eq, Generic, NFDataX)
 
--- | Multiplier usage (attribute @USE_MULT@)
-data UseMult
-  = MultMultiply
-  -- ^ @MULTIPLY@: the multiplier is used
-  | MultDynamic
-  -- ^ @DYNAMIC@: the ALU dynamically switches between the multiplier and the
-  -- A:B concatenation
-  | MultNone
-  -- ^ @NONE@: the multiplier is not used, which saves power. Requires
-  -- @'mReg' = 0@.
-  deriving (Show, Eq, Generic, NFDataX)
-
--- | Single instruction, multiple data mode of the ALU (attribute @USE_SIMD@)
-data UseSimd
-  = One48
-  -- ^ @ONE48@: one 48-bit ALU
-  | Two24
-  -- ^ @TWO24@: two independent 24-bit ALUs
-  | Four12
-  -- ^ @FOUR12@: four independent 12-bit ALUs
-  deriving (Show, Eq, Generic, NFDataX)
-
 -- | Wide XOR mode (attribute @XORSIMD@). The wide XOR operates on the bitwise
 -- XOR of the X, Y and Z multiplexer outputs (with Z inverted when
 -- @ALUMODE[0]@ is set); see UG579 for the bit ranges.
@@ -91,38 +60,6 @@ data XorSimd
   -- 42 to 47.
   | Xor12
   -- ^ @XOR12@: each 'xorOut' bit /i/ is the XOR over bits /6i/ to /6i + 5/
-  deriving (Show, Eq, Generic, NFDataX)
-
--- | Selects the pattern of the pattern detector (attribute @SEL_PATTERN@)
-data SelPattern
-  = PatternAttr
-  -- ^ @PATTERN@: use 'patDetPattern'
-  | PatternC
-  -- ^ @C@: use the (registered or direct) C input
-  deriving (Show, Eq, Generic, NFDataX)
-
--- | Selects the mask of the pattern detector (attribute @SEL_MASK@)
-data SelMask
-  = MaskAttr
-  -- ^ @MASK@: use 'patDetMask'
-  | MaskC
-  -- ^ @C@: use the (registered or direct) C input
-  | MaskRoundingMode1
-  -- ^ @ROUNDING_MODE1@: use the inverted C input, shifted left by one
-  | MaskRoundingMode2
-  -- ^ @ROUNDING_MODE2@: use the inverted C input, shifted left by two
-  deriving (Show, Eq, Generic, NFDataX)
-
--- | Automatically reset the P register based on the pattern detector
--- (attribute @AUTORESET_PATDET@)
-data AutoResetPatDet
-  = NoAutoReset
-  -- ^ @NO_RESET@
-  | AutoResetMatch
-  -- ^ @RESET_MATCH@: reset the P register in the cycle after a pattern match
-  | AutoResetNotMatch
-  -- ^ @RESET_NOT_MATCH@: reset the P register in the cycle after a pattern
-  -- match was followed by a mismatch
   deriving (Show, Eq, Generic, NFDataX)
 
 -- | Condition under which 'autoResetPatDet' resets the P register (attribute
@@ -696,15 +633,6 @@ initState = State
   , sAluOut = 0
   , sXor = 0
   }
-
--- | Build a 'BitVector' from bits that are either defined ('Just') or
--- undefined ('Nothing'). The first element is the most significant bit.
-partiallyDefined :: KnownNat n => Vec n (Maybe Bit) -> BitVector n
-partiallyDefined bits =
-  BV (fromInteger (toInteger mask)) (fromInteger (toInteger val))
- where
-  mask = pack (map (maybe high (const low)) bits)
-  val = pack (map (fromMaybe low) bits)
 
 -- | One clock cycle of the @DSP48E2@: computes the outputs during the cycle,
 -- and the register contents after the next active clock edge. This is a

@@ -133,6 +133,7 @@ import Clash.Explicit.Prelude
 
 import GHC.Stack (HasCallStack)
 
+import Clash.Cores.Xilinx.Unisim.Dsp48.Internal
 import Clash.Cores.Xilinx.Unisim.Dsp48e2.Internal
   hiding (dsp48e2, multiplyAdd, multiplyAccumulate)
 import qualified Clash.Cores.Xilinx.Unisim.Dsp48e2.Internal as Internal

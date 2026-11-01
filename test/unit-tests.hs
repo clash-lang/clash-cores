@@ -31,6 +31,7 @@ import qualified Test.Cores.Uart
 import qualified Test.Cores.Xilinx.BlockRam
 import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
+import qualified Test.Cores.Xilinx.Dsp48e1
 import qualified Test.Cores.Xilinx.Dsp48e2
 import qualified Test.Cores.Xilinx.Ethernet.Gmii
 
@@ -47,6 +48,7 @@ tests = testGroup "Unittests" $
   , Test.Cores.Xilinx.BlockRam.tests
   , Test.Cores.Xilinx.DcFifo.tests
   , Test.Cores.Xilinx.DnaPortE2.tests
+  , Test.Cores.Xilinx.Dsp48e1.tests
   , Test.Cores.Xilinx.Dsp48e2.tests
   , Test.Cores.Xilinx.Ethernet.Gmii.tests
   ] ++ tests_modern
