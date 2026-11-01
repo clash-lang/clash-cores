@@ -40,6 +40,8 @@ module Clash.Cores.Xilinx.Xpm.Cdc.Internal
 
   -- * Params and ports
   , Param(..)
+  , BoolParam(..)
+  , BitVectorParam(..)
   , ClockPort(..)
   , DiffClockPort (..)
   , NamedDiffClockPort (..)
@@ -60,7 +62,7 @@ import Clash.Explicit.Prelude hiding (someNatVal)
 import qualified Prelude as P
 
 import Control.Monad (when)
-import Control.Monad.State (State)
+import Control.Monad.State (State, gets)
 import Data.Proxy (Proxy)
 import Data.Either (lefts, partitionEithers, rights)
 import Data.Maybe (maybeToList, isJust, catMaybes)
@@ -81,7 +83,7 @@ import Clash.Annotations.Primitive
 import Clash.Backend (Backend, hdlKind)
 import Clash.Core.DataCon ( DataCon(MkData, dcName) )
 import Clash.Core.Name ( Name(Name, nameOcc) )
-import Clash.Core.Term ( Term(Data), collectArgs )
+import Clash.Core.Term ( Term(Data, Prim), PrimInfo(..), collectArgs, stripAllTicks )
 import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.TyCon(isTupleTyConLike)
@@ -102,6 +104,17 @@ import qualified Clash.Core.TermLiteral.Compat as Compat
 -- | VHDL generic or Verilog parameter. Contents should be able to render to an
 -- HDL constant.
 data Param (name :: Symbol) a = Param a
+
+-- | Boolean VHDL generic or Verilog parameter, following the convention of
+-- Xilinx primitives: a @boolean@ in VHDL, and a string (@\"TRUE\"@ or
+-- @\"FALSE\"@) in Verilog. The t'Bool' must be a constant.
+data BoolParam (name :: Symbol) = BoolParam Bool
+
+-- | Like @'Param' name ('Clash.Sized.BitVector.BitVector' n)@, but rendered as
+-- an unqualified bit string literal in VHDL, so it can be used for generics of
+-- type @bit_vector@ as well as @std_logic_vector@. The t'BitVector' must be a
+-- constant without undefined bits.
+data BitVectorParam (name :: Symbol) n = BitVectorParam (BitVector n)
 
 -- | Port with clock (bit) type, where @portName@ is the name of the port that
 -- is mapped in the target HDL.
@@ -142,9 +155,20 @@ data Port (portName :: Symbol) dom a = Port (Signal dom a)
 data PrimParam a = PrimParam
   { paramName :: Text
   , paramAsInteger :: Maybe Integer
+  , paramRender :: ParamRender
   , paramMeta :: a
   }
   deriving (Show, Functor)
+
+-- | How to render a 'PrimParam'
+data ParamRender
+  = DefaultRender
+  -- ^ 'Param': render the argument as is
+  | BoolRender Bool
+  -- ^ 'BoolParam'
+  | BitStringRender Int Integer
+  -- ^ 'BitVectorParam': width and value
+  deriving (Show)
 
 -- | A term level, post-normalization version of 'ClockPort', 'DiffClockPort',
 -- 'NamedDiffClockPort', 'ResetPort', 'Port', 'BiSignalInPort', or
@@ -214,7 +238,33 @@ instance TermLiteral (PrimPortOrParam ()) where
         { paramName = Text.pack nm
         , paramMeta = ()
         , paramAsInteger = integerParam
+        , paramRender = DefaultRender
         }))
+
+    | constrName == show 'BoolParam
+    , [Right (LitTy (SymTy nm)), Left arg] <- args
+    = do
+      b <- Compat.termToData arg
+      pure (MkPrimParam (PrimParam
+        { paramName = Text.pack nm
+        , paramMeta = ()
+        , paramAsInteger = Nothing
+        , paramRender = BoolRender b
+        }))
+
+    | constrName == show 'BitVectorParam
+    , [Right (LitTy (SymTy nm)), Right _width, Left arg] <- args
+    = case termToBitVector (stripAllTicks arg) of
+        Just (width, 0, val) ->
+          pure (MkPrimParam (PrimParam
+            { paramName = Text.pack nm
+            , paramMeta = ()
+            , paramAsInteger = Nothing
+            , paramRender = BitStringRender (fromInteger width) val
+            }))
+        _ -> error $
+             "BitVectorParam " <> nm <> ": expected a fully defined, constant "
+          <> "BitVector, but got:\n\n" <> ppShow arg
 
     | constrName == show 'Port
     , (LitTy (SymTy nm) : LitTy (SymTy domNm) : _) <- rights args
@@ -267,6 +317,21 @@ instance TermLiteral (PrimPortOrParam ()) where
         }))
 
   TERM_TO_DATA t = Left t
+
+-- | Interpret a term as a t'BitVector' literal: @(width, mask, value)@.
+termToBitVector :: Term -> Maybe (Integer, Integer, Integer)
+termToBitVector t = case collectArgs t of
+  (Prim PrimInfo{primName}, lefts -> [knownNat, mask, val])
+    | primName == "Clash.Sized.Internal.BitVector.fromInteger#"
+    , Right n <- Compat.termToData @Natural knownNat
+    , Right m <- Compat.termToData @Natural mask
+    , Right v <- Compat.termToData @Integer val
+    -> Just (toInteger n, toInteger m, v)
+  -- 'pack' wraps its result in 'xToBV' to catch 'XException's
+  (Prim PrimInfo{primName}, lefts -> args@(_:_))
+    | "xToBV" `Text.isSuffixOf` primName
+    -> termToBitVector (stripAllTicks (P.last args))
+  _ -> Nothing
 
 -- | Get the 'ResetPolarity' from a type. This is used to automatically insert
 -- a @not@ if the reset polarity does not match the reset polarity of the domain.
@@ -436,6 +501,12 @@ instance Inst a => Inst (BiSignalInPort s ds dom n -> a) where
   instX !_i = instX @a
 
 instance Inst a => Inst (Param s const -> a) where
+  instX !_i = instX @a
+
+instance Inst a => Inst (BoolParam s -> a) where
+  instX !_i = instX @a
+
+instance Inst a => Inst (BitVectorParam s n -> a) where
   instX !_i = instX @a
 
 -- | /Polyvariadic/ function representing the instantiation of a Verilog/VHDL
@@ -742,6 +813,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
   , [resultTy] <- DSL.tResults bbCtx
   , outPortTys <- hwtyToPortTypes (DSL.ety resultTy)
   = do
+      hdl <- gets hdlKind
       DSL.declarationReturn bbCtx "inst_block" $ do
         when (P.length primResults0 /= P.length outPortTys) $
           error [I.i|
@@ -772,7 +844,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           -- same type as the field. I.e., @hwTy (Port a) ~ hwTy a@.
           primArgs1 = P.zipWith addPrimPortOrParamMeta primArgs0 userArgs
           (params0, inPorts0) = partitionPortOrPrims primArgs1
-          params1 = P.map mkParam params0
+          params1 = P.map (mkParam hdl) params0
 
         inPorts1 <- P.concat <$> mapM mkInPort inPorts0
         instLabel <- Id.make (Text.pack (compName config) <> "_inst")
@@ -798,11 +870,21 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           [p] -> pure [snd p]
           ps  -> pure [DSL.tuple (snd <$> ps)]
  where
-  mkParam :: PrimParam DSL.TExpr -> (Text, DSL.TExpr)
-  mkParam (PrimParam{paramName, paramMeta, paramAsInteger}) =
-    case paramAsInteger of
-      Just i -> (paramName, DSL.TExpr Integer (Literal Nothing (NumLit i)))
-      Nothing -> (paramName, paramMeta)
+  mkParam :: HDL -> PrimParam DSL.TExpr -> (Text, DSL.TExpr)
+  mkParam hdl (PrimParam{paramName, paramMeta, paramAsInteger, paramRender}) =
+    case (paramAsInteger, paramRender) of
+      (Just i, _) -> (paramName, DSL.TExpr Integer (Literal Nothing (NumLit i)))
+      (Nothing, DefaultRender) -> (paramName, paramMeta)
+      (Nothing, BoolRender b)
+        | hdl == VHDL -> (paramName, DSL.TExpr Bool (Literal Nothing (BoolLit b)))
+        | otherwise ->
+            (paramName, DSL.TExpr String (Literal Nothing (StringLit (if b then "TRUE" else "FALSE"))))
+      (Nothing, BitStringRender n v)
+          -- Render as a vector of bits: an unqualified bit string literal
+        | hdl == VHDL ->
+            (paramName, DSL.TExpr (BitVector n) (Literal (Just (Vector n Bit, n)) (NumLit v)))
+        | otherwise ->
+            (paramName, DSL.TExpr (BitVector n) (Literal (Just (BitVector n, n)) (NumLit v)))
 
   mkInPort :: PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
   mkInPort = \case
