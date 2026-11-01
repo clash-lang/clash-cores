@@ -304,6 +304,15 @@ runClashTest = defaultMain $ clashTestRoot
                   , "tbOdelay0", "tbOdelay3", "tbIdelayctrl"
                   ]
               }
+          -- The UNISIM models of STARTUPE3 and ICAPE3 contain free-running
+          -- oscillators, so their VHDL simulations never end: the test benches
+          -- Clash generates only stop in Verilog when they're done.
+          , runTest "Config" def
+              { hdlTargets=[Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific ["tbStartupE3", "tbIcapE3"]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =

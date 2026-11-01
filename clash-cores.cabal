@@ -170,9 +170,12 @@ library
     Clash.Cores.Xilinx.Unisim.Delay
     Clash.Cores.Xilinx.Unisim.DnaPortE2
     Clash.Cores.Xilinx.Unisim.DnaPortE2.Internal
+    Clash.Cores.Xilinx.Unisim.IcapE3
     Clash.Cores.Xilinx.Unisim.Internal
     Clash.Cores.Xilinx.Unisim.IoBuffer
     Clash.Cores.Xilinx.Unisim.Serdes
+    Clash.Cores.Xilinx.Unisim.StartupE3
+    Clash.Cores.Xilinx.Unisim.UsrAccessE2
     Clash.Cores.Xilinx.Vio
     Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
     Clash.Cores.Xilinx.Xpm

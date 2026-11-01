@@ -16,13 +16,19 @@ module Clash.Cores.Xilinx.Unisim
   , module Clash.Cores.Xilinx.Unisim.Ddr
   , module Clash.Cores.Xilinx.Unisim.Delay
   , module Clash.Cores.Xilinx.Unisim.DnaPortE2
+  , module Clash.Cores.Xilinx.Unisim.IcapE3
   , module Clash.Cores.Xilinx.Unisim.IoBuffer
   , module Clash.Cores.Xilinx.Unisim.Serdes
+  , module Clash.Cores.Xilinx.Unisim.StartupE3
+  , module Clash.Cores.Xilinx.Unisim.UsrAccessE2
   ) where
 
 import Clash.Cores.Xilinx.Unisim.ClockBuffer
 import Clash.Cores.Xilinx.Unisim.Ddr
 import Clash.Cores.Xilinx.Unisim.Delay
 import Clash.Cores.Xilinx.Unisim.DnaPortE2
+import Clash.Cores.Xilinx.Unisim.IcapE3
 import Clash.Cores.Xilinx.Unisim.IoBuffer
 import Clash.Cores.Xilinx.Unisim.Serdes
+import Clash.Cores.Xilinx.Unisim.StartupE3
+import Clash.Cores.Xilinx.Unisim.UsrAccessE2
