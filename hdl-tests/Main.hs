@@ -257,6 +257,37 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlLoad=[Vivado]
             , hdlSim=[Vivado]
             }
+        , runTest "Dsp48e2" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "tbDefault"
+                , "tbCombinational"
+                , "tbPipelined"
+                , "tbPreAddB"
+                , "tbSimdFour12"
+                , "tbSimdTwo24"
+                , "tbPatDetAttr"
+                , "tbPatDetRounding"
+                , "tbPatDetRounding2"
+                , "tbPatDetMaskC"
+                , "tbCascade"
+                , "tbCascadeCombinational"
+                , "tbWrappers"
+                ]
+            }
+          -- The VHDL UNISIM model of the DSP48E2 adds MULTSIGNIN to the wrong
+          -- bit of the X multiplexer, see the test bench.
+        , runTest "Dsp48e2MaccExtend" def
+            { hdlTargets=[Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "tbMaccExtend"
+                , "tbMaccExtendPRegOnly"
+                ]
+            }
         , clashTestGroup "DcFifo"
           [ let _opts =
                   def{ hdlTargets=[VHDL, Verilog]

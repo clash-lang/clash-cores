@@ -166,6 +166,8 @@ library
     Clash.Cores.Xilinx.Internal
     Clash.Cores.Xilinx.Unisim.DnaPortE2
     Clash.Cores.Xilinx.Unisim.DnaPortE2.Internal
+    Clash.Cores.Xilinx.Unisim.Dsp48e2
+    Clash.Cores.Xilinx.Unisim.Dsp48e2.Internal
     Clash.Cores.Xilinx.Vio
     Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
     Clash.Cores.Xilinx.Xpm
@@ -246,6 +248,7 @@ test-suite unit-tests
     Test.Cores.Xilinx.BlockRam
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
+    Test.Cores.Xilinx.Dsp48e2
     Test.Cores.Xilinx.Ethernet.Gmii
 
   build-depends:
