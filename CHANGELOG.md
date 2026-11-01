@@ -12,3 +12,4 @@
 * Add `ibufds`, `obufds` and `ibufdsGte4`, wrappers for Xilinx's `IBUFDS` (for data signals), `OBUFDS` and `IBUFDS_GTE4` buffers
 * Add `iddre1` and `oddre1`, wrappers for Xilinx's `IDDRE1` and `ODDRE1` DDR registers, following the conventions of `Clash.Xilinx.DDR`
 * Add `iserdese3` and `oserdese3`, wrappers for Xilinx's `ISERDESE3` and `OSERDESE3` serializers/deserializers
+* Add `idelaye3`, `odelaye3` and `idelayctrl`, wrappers for Xilinx's `IDELAYE3`, `ODELAYE3` and `IDELAYCTRL` primitives. The delay lines' data paths are simulated without delay; their tap counters are simulated cycle-accurately.

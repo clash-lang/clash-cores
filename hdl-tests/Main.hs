@@ -293,6 +293,15 @@ runClashTest = defaultMain $ clashTestRoot
                   , "tbLoopback4", "tbLoopback8"
                   ]
               }
+          , runTest "Delay" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  [ "tbIdelay0", "tbIdelay1", "tbIdelay2", "tbIdelay3"
+                  , "tbOdelay0", "tbOdelay3", "tbIdelayctrl"
+                  ]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =
