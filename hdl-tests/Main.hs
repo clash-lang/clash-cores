@@ -189,6 +189,20 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
+        , runTest "Divider" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "quotRemS8TB"
+                , "quotRemU16U9TB"
+                , "quotRemS33S17TB"
+                , "quotRemLutS9S6TB"
+                , "quotRemLutU12U11TB"
+                , "quotFracS12S5TB"
+                , "quotFracU10U6TB"
+                ]
+            }
         , runTest "Ibufds" def
           { hdlLoad = [Vivado]
           , hdlSim = [Vivado]

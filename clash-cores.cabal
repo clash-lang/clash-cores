@@ -163,6 +163,9 @@ library
     Clash.Cores.Xilinx.DcFifo.Internal.BlackBoxes
     Clash.Cores.Xilinx.DcFifo.Internal.Instances
     Clash.Cores.Xilinx.DcFifo.Internal.Types
+    Clash.Cores.Xilinx.Divider
+    Clash.Cores.Xilinx.Divider.Explicit
+    Clash.Cores.Xilinx.Divider.Internal
     Clash.Cores.Xilinx.Ethernet.Gmii
     Clash.Cores.Xilinx.Ethernet.Gmii.Internal
     Clash.Cores.Xilinx.Floating

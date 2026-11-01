@@ -7,3 +7,4 @@
 * Add UART core
 * Add CRC core
 * Add I2C controller core, ported from the `clash-compiler` examples
+* Add `Clash.Cores.Xilinx.Divider`, a wrapper for Xilinx's Divider Generator LogiCORE IP
