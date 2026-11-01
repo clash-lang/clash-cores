@@ -32,6 +32,9 @@ import qualified Test.Cores.Xilinx.BlockRam
 import qualified Test.Cores.Xilinx.DcFifo
 import qualified Test.Cores.Xilinx.DnaPortE2
 import qualified Test.Cores.Xilinx.Ethernet.Gmii
+#ifdef XILINX_DIV_GEN_CMODEL
+import qualified Test.Cores.Xilinx.Divider
+#endif
 #ifdef XILINX_FLOATING_CMODEL
 import qualified Test.Cores.Xilinx.Floating
 #endif
@@ -50,6 +53,9 @@ tests = testGroup "Unittests" $
   , Test.Cores.Xilinx.DcFifo.tests
   , Test.Cores.Xilinx.DnaPortE2.tests
   , Test.Cores.Xilinx.Ethernet.Gmii.tests
+#ifdef XILINX_DIV_GEN_CMODEL
+  , Test.Cores.Xilinx.Divider.tests
+#endif
 #ifdef XILINX_FLOATING_CMODEL
   , Test.Cores.Xilinx.Floating.tests
 #endif
