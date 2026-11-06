@@ -189,6 +189,23 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
+        , runTest "Fft" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "scaledN8TB"
+                , "scaledN32ConvTB"
+                , "scaledN64NaturalTB"
+                , "scaledN256TB"
+                , "scaledN16NaturalTB"
+                , "scaledN16DspsTB"
+                , "unscaledN128TB"
+                , "unscaledN512TB"
+                , "bfpN64TB"
+                , "bfpN32ConvNaturalTB"
+                ]
+            }
         , runTest "Ibufds" def
           { hdlLoad = [Vivado]
           , hdlSim = [Vivado]
