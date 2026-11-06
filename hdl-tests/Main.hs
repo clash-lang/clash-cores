@@ -360,6 +360,15 @@ runClashTest = defaultMain $ clashTestRoot
               , hdlSim=[Vivado]
               , buildTargets=BuildSpecific ["tbStartupE3", "tbIcapE3"]
               }
+          , runTest "ClockMux" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  [ "tbBufgctrl", "tbBufgctrlInitOut1", "tbBufgctrlIgnore"
+                  , "tbBufgctrlSync", "tbBufgmuxCtrl", "tbBufgmux"
+                  ]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =

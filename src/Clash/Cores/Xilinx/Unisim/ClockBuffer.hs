@@ -37,18 +37,95 @@ Clash simulation has two limitations:
 The UNISIM simulation models of 'bufgce' and 'bufgceDiv' produce no clock edges
 while the global set/reset (GSR) is asserted, which is the first 100 ns of an
 HDL simulation.
+
+= Clock multiplexers in Clash simulation
+
+'bufgctrl' switches its output between two clocks, which need not be related.
+'bufgmuxCtrl' and 'bufgmux' are 'bufgctrl' with fixed settings. The output is
+again a clock with a varying period. Clash simulation computes the time of
+every output edge from the edges of both input clocks and of the clocks of the
+control signals, by simulating the four latches of the primitive the way the
+UNISIM simulation model does. This is exact, for unrelated clocks too, as long as
+the following holds:
+
+  * Input clocks have a duty cycle of 50%. Clash clocks have no duty cycle, but
+    the multiplexer switches at falling edges (or rising edges, see
+    'bufgctrlInitOut'), so the model puts the falling edges halfway the
+    periods. The clocks that Clash generates in HDL test benches have this
+    duty cycle.
+
+  * Control signals change right after an active edge of their clock, like
+    the output of a register. The model, like the UNISIM model, has no setup
+    and hold times. In hardware, a select that changes close to an edge of the
+    input clock it controls may take effect one cycle of that input later than
+    it does in simulation.
+
+  * No edge of an input clock coincides with an edge of the other input
+    clock, or with a change of a control signal of the other input. The model
+    handles these deterministically: changes of control signals come after
+    clock edges at the same time, and a latch that closes at the same time the
+    other input gets deselected does not see the deselection yet. In hardware
+    such coincidences violate setup and hold times. A control signal driven
+    from the domain of the input it controls does change at the same time as
+    an edge of that input, which is fine: it changes right after that edge, in
+    hardware as well as in simulation.
+
+Some things the model cannot do:
+
+  * Glitches. When switching with 'bufgctrlIgnore' asserted, or when a select
+    and an enable of the same input change at the same time, the output can
+    produce pulses of a few picoseconds. The model produces their rising edges
+    at the times the UNISIM model does (its latches have a delay of 1 ps), but
+    Clash clocks only consist of rising edges, so the width of a pulse is
+    lost. Whether hardware produces such a pulse depends on its timing.
+
+  * Feedback from the output domain. Clash needs the time of the next output
+    edge to move a signal from the output domain to another domain, so if the
+    control signals depend on the output domain, simulation hangs.
+
+  * The output domain's period. Its period ('DomainPeriod') is not related to
+    the periods of the input clocks. In simulation only the dynamic periods
+    matter, but functions that use the period of a domain, such as
+    'Clash.Explicit.Prelude.periodToHz', give meaningless results for the
+    output domain. Using the period of the fastest input is a sensible choice.
+
+Signals in the output domain have one sample per output edge. Use
+'unsafeSynchronizer' (or a proper clock domain crossing) to move signals from
+and to the output domain.
 -}
 module Clash.Cores.Xilinx.Unisim.ClockBuffer
-  ( bufg
+  ( -- * Global clock buffers
+    bufg
   , bufgce
   , bufgceDiv
+    -- * Clock multiplexers
+  , bufgctrl
+  , BufgctrlConfig (..)
+  , bufgctrlDefaultConfig
+  , BufgctrlInput (..)
+  , BufgctrlControl (..)
+  , bufgmuxCtrl
+  , bufgmux
   ) where
 
 import Clash.Explicit.Prelude
 
+import Clash.Cores.Xilinx.Unisim.ClockBuffer.Internal
+  ( BufgctrlConfig (..)
+  , BufgctrlControl (..)
+  , BufgctrlInput (..)
+  , bufgctrlModel
+  )
 import Clash.Cores.Xilinx.Unisim.Internal (gatedClockModel, unisim)
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
-  (ClockPort (..), Param (..), Port (..), ResetPort (..), inst, unPort)
+  ( BoolStringParam (..)
+  , ClockPort (..)
+  , Param (..)
+  , Port (..)
+  , ResetPort (..)
+  , inst
+  , unPort
+  )
 
 {- | General clock buffer (@BUFG@). Drives a clock onto the global clock network.
 Simulation: the input clock.
@@ -162,3 +239,194 @@ bufgceDiv divider@SNat clk clr ena
       (ClockPort @"I" clk)
       (Port @"CE" (boolToBit <$> fromEnable ena))
       (ResetPort @"CLR" @'ActiveHigh clr)
+
+{- | Default configuration of 'bufgctrl', with the defaults of the primitive: no
+input preselected, and a low output while no input is selected
+-}
+bufgctrlDefaultConfig :: BufgctrlConfig
+bufgctrlDefaultConfig =
+  BufgctrlConfig
+    { bufgctrlPreselect = Nothing
+    , bufgctrlInitOut = 0
+    }
+
+{- | General clock control buffer (@BUFGCTRL@): a glitch-free multiplexer of
+two clocks, with a clock enable for each.
+
+Every input has three control signals (t'BufgctrlControl'): a select (@S@), a
+clock enable (@CE@) and @IGNORE@. An input gets selected when both its select
+and its enable are asserted, and the other input is not selected; it gets
+deselected when its select or its enable is deasserted. These changes take
+effect at the next falling edge of the input concerned (the next rising edge if
+'bufgctrlInitOut' is 1), at which the output is at its idle level ('bufgctrlInitOut')
+anyway, so the output never glitches. To switch from @I0@ to @I1@:
+
+  1. Deassert @S0@ and assert @S1@ (or @CE0@ and @CE1@).
+
+  2. At the next falling edge of @I0@, @I0@ gets deselected. The output stays
+     low.
+
+  3. At the next falling edge of @I1@ after that, @I1@ gets selected. The output
+     follows @I1@ from then on: its first rising edge is the first rising edge
+     of @I1@ after that falling edge.
+
+If both inputs are selected and enabled, the one that got selected first stays
+selected. If neither is, the output stays at its idle level. An input clock
+that stopped never reaches its next falling edge, so switching away from it
+requires its @IGNORE@ to be asserted: the input then gets deselected as soon as
+its select or enable is deasserted, which makes the output glitch.
+
+UG974 requires the enables to meet setup and hold times with respect to their
+input clocks, or the output may glitch. The selects have setup and hold times
+too, but violating them does not make the output glitch; the switch may just
+happen a cycle later. So the selects may be asynchronous. Each input's control
+signals come from a domain of their own, which can be the domain of that input.
+
+If both inputs get selected at the same moment, the hardware's behaviour is
+undefined. The UNISIM model then either keeps the output low, or (when ignoring
+the input clocks) oscillates; Clash simulation does the former, or raises an
+error for the latter. This cannot happen while the selects are complementary,
+as in 'bufgmuxCtrl', or while the falling edges of the inputs do not
+coincide. See the module documentation for how Clash simulates the
+multiplexer, and its limitations.
+
+For more information see
+[UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/BUFGCTRL)
+and UG572. The attributes t'BufgctrlConfig' does not cover are left at their
+defaults: no inversions, @CE_TYPE_CE0 = CE_TYPE_CE1 = \"SYNC\"@ and
+@STARTUP_SYNC = \"FALSE\"@ (@HARDSYNC@ and @STARTUP_SYNC@ are only supported on
+Versal devices).
+-}
+bufgctrl ::
+  forall dom0 domCtrl0 dom1 domCtrl1 domOut.
+  ( KnownDomain dom0
+  , KnownDomain domCtrl0
+  , KnownDomain dom1
+  , KnownDomain domCtrl1
+  , KnownDomain domOut
+  ) =>
+  BufgctrlConfig ->
+  -- | Clock input @I0@
+  Clock dom0 ->
+  -- | Clock of the control signals of @I0@
+  Clock domCtrl0 ->
+  -- | Control signals of @I0@: @S0@, @CE0@ and @IGNORE0@
+  Signal domCtrl0 BufgctrlControl ->
+  -- | Clock input @I1@
+  Clock dom1 ->
+  -- | Clock of the control signals of @I1@
+  Clock domCtrl1 ->
+  -- | Control signals of @I1@: @S1@, @CE1@ and @IGNORE1@
+  Signal domCtrl1 BufgctrlControl ->
+  Clock domOut
+bufgctrl cfg clk0 clkCtrl0 ctrl0 clk1 clkCtrl1 ctrl1
+  | clashSimulation = bufgctrlModel cfg clk0 clkCtrl0 ctrl0 clk1 clkCtrl1 ctrl1
+  | otherwise = unPort go
+ where
+  pin :: forall dom. (BufgctrlControl -> Bool) -> Signal dom BufgctrlControl -> Signal dom Bit
+  pin f = fmap (boolToBit . f)
+
+  go :: ClockPort "O" domOut
+  go =
+    inst
+      (unisim "BUFGCTRL")
+      (Param @"INIT_OUT" @Integer (if bufgctrlInitOut cfg == 1 then 1 else 0))
+      (BoolStringParam @"PRESELECT_I0" (bufgctrlPreselect cfg == Just BufgctrlI0))
+      (BoolStringParam @"PRESELECT_I1" (bufgctrlPreselect cfg == Just BufgctrlI1))
+      (ClockPort @"I0" clk0)
+      (ClockPort @"I1" clk1)
+      (Port @"S0" (pin bufgctrlS ctrl0))
+      (Port @"S1" (pin bufgctrlS ctrl1))
+      (Port @"CE0" (pin bufgctrlCe ctrl0))
+      (Port @"CE1" (pin bufgctrlCe ctrl1))
+      (Port @"IGNORE0" (pin bufgctrlIgnore ctrl0))
+      (Port @"IGNORE1" (pin bufgctrlIgnore ctrl1))
+
+{- | Glitch-free clock multiplexer (@BUFGMUX_CTRL@). Outputs @I0@ while the
+select is deasserted, and @I1@ while it is asserted. @I0@ is selected right
+after configuration.
+
+When the select changes, the output switches at the next falling edge of the
+currently selected input, stays low until the next falling edge of the newly
+selected input, and follows that input from then on; see 'bufgctrl'. The select
+may be asynchronous to both inputs. Vivado implements @BUFGMUX_CTRL@ as a
+'bufgctrl' with @S0@ driven by the inverted select, @S1@ by the select, both
+enables asserted, and 'bufgctrlPreselect' set to 'BufgctrlI0'; that is what
+this function instantiates. The input that is not selected must keep running
+until the switch completes: to switch away from a stopped clock, use 'bufgctrl'
+with 'bufgctrlIgnore'.
+
+See the module documentation for how Clash simulates the multiplexer, and its
+limitations. For more information see
+[UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/BUFGMUX_CTRL).
+-}
+bufgmuxCtrl ::
+  forall dom0 dom1 domSel domOut.
+  ( KnownDomain dom0
+  , KnownDomain dom1
+  , KnownDomain domSel
+  , KnownDomain domOut
+  ) =>
+  -- | Clock input @I0@
+  Clock dom0 ->
+  -- | Clock input @I1@
+  Clock dom1 ->
+  -- | Clock of the select
+  Clock domSel ->
+  -- | Select (@S@): 'False' selects @I0@, 'True' selects @I1@
+  Signal domSel Bool ->
+  Clock domOut
+bufgmuxCtrl clk0 clk1 clkSel sel =
+  bufgctrl
+    bufgctrlDefaultConfig{bufgctrlPreselect = Just BufgctrlI0}
+    clk0
+    clkSel
+    ((\s -> BufgctrlControl{bufgctrlS = not s, bufgctrlCe = True, bufgctrlIgnore = False}) <$> sel)
+    clk1
+    clkSel
+    ((\s -> BufgctrlControl{bufgctrlS = s, bufgctrlCe = True, bufgctrlIgnore = False}) <$> sel)
+
+{- | Clock multiplexer (@BUFGMUX@) that switches with the clock enables of a
+'bufgctrl' instead of its selects. Outputs @I0@ while the select is deasserted,
+and @I1@ while it is asserted. @I0@ is selected right after configuration.
+
+Vivado implements @BUFGMUX@ as a 'bufgctrl' with @CE0@ driven by the inverted
+select, @CE1@ by the select, both selects asserted, and 'bufgctrlPreselect' set
+to 'BufgctrlI0'; that is what this function instantiates. Its switching
+behaviour is the same as that of 'bufgmuxCtrl', except that a deasserted enable
+takes effect right away while the input is low, while a deasserted select
+only takes effect at the next falling edge. Because the enables are used, the
+select must meet the setup and hold times of @CE0@ and @CE1@ with respect to
+both input clocks; use 'bufgmuxCtrl' if it does not. The @CLK_SEL_TYPE =
+\"ASYNC\"@ variant is not provided: use 'bufgctrl' with 'bufgctrlIgnore' for
+that.
+
+See the module documentation for how Clash simulates the multiplexer, and its
+limitations. For more information see
+[UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/BUFGMUX).
+-}
+bufgmux ::
+  forall dom0 dom1 domSel domOut.
+  ( KnownDomain dom0
+  , KnownDomain dom1
+  , KnownDomain domSel
+  , KnownDomain domOut
+  ) =>
+  -- | Clock input @I0@
+  Clock dom0 ->
+  -- | Clock input @I1@
+  Clock dom1 ->
+  -- | Clock of the select
+  Clock domSel ->
+  -- | Select (@S@): 'False' selects @I0@, 'True' selects @I1@
+  Signal domSel Bool ->
+  Clock domOut
+bufgmux clk0 clk1 clkSel sel =
+  bufgctrl
+    bufgctrlDefaultConfig{bufgctrlPreselect = Just BufgctrlI0}
+    clk0
+    clkSel
+    ((\s -> BufgctrlControl{bufgctrlS = True, bufgctrlCe = not s, bufgctrlIgnore = False}) <$> sel)
+    clk1
+    clkSel
+    ((\s -> BufgctrlControl{bufgctrlS = True, bufgctrlCe = s, bufgctrlIgnore = False}) <$> sel)

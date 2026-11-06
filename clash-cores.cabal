@@ -187,6 +187,7 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+    Clash.Cores.Xilinx.Unisim.ClockBuffer.Internal
 
   other-modules:
     Clash.Core.TermLiteral.Compat
@@ -257,6 +258,7 @@ test-suite unit-tests
     Test.Cores.Xilinx.DcFifo
     Test.Cores.Xilinx.DnaPortE2
     Test.Cores.Xilinx.Ethernet.Gmii
+    Test.Cores.Xilinx.Unisim.ClockBuffer
 
   build-depends:
     clash-cores,
