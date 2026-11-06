@@ -200,9 +200,23 @@ tb ::
   , MemBlob n (BitSize o)
   , MemBlob n (BitSize o) ) ->
   Signal Dom Bool
-tb circuit (stimBlob, expectedBlob, maskBlob) = withCellsSim done
+tb = tbWithClock (\done -> tbClockGen (not <$> done))
+{-# INLINE tb #-}
+
+-- | Like 'tb', but with a custom clock. The clock should stop once the given
+-- signal is 'True'.
+tbWithClock ::
+  forall n i o.
+  (KnownNat n, 1 <= n, BitPack i, BitPack o) =>
+  (Signal Dom Bool -> Clock Dom) ->
+  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
+  ( MemBlob n (BitSize i)
+  , MemBlob n (BitSize o)
+  , MemBlob n (BitSize o) ) ->
+  Signal Dom Bool
+tbWithClock mkClock circuit (stimBlob, expectedBlob, maskBlob) = withCellsSim done
  where
-  clk = tbClockGen (not <$> done)
+  clk = mkClock done
 
   cnt :: Signal Dom (Index n)
   cnt = register clk noReset enableGen 0 (satSucc SatBound <$> cnt)
@@ -217,7 +231,7 @@ tb circuit (stimBlob, expectedBlob, maskBlob) = withCellsSim done
       ((.&.) <$> actual <*> mask)
       ((.&.) <$> expectedVal <*> mask)
       ((== maxBound) <$> cnt)
-{-# INLINE tb #-}
+{-# INLINE tbWithClock #-}
 
 -- | A circuit with inputs and outputs in both 'Dom' and 'Fast'
 type DdrCircuit iSlow iFast oSlow oFast =

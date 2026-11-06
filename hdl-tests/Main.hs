@@ -164,6 +164,8 @@ runClashTest = defaultMain $ clashTestRoot
           -- Vivado's mixed-language simulator for VHDL.
           [ runTest "SbIo" ice40VerilogOpts{buildTargets=sbIoTargets}
           , runTest "SbIo" ice40VhdlOpts{buildTargets=sbIoTargets}
+          , runTest "SbGb" ice40VerilogOpts{buildTargets=sbGbTargets}
+          , runTest "SbGb" ice40VhdlOpts{buildTargets=sbGbTargets}
           ]
         ]
       , clashTestGroup "Xilinx"
@@ -432,6 +434,10 @@ sbIoTargets = BuildSpecific
   , "tbDdrInput", "tbDdrInputUnregistered", "tbDdrOutput", "tbDdrOutputEnable"
   , "tbDdrOutputEnableRegistered", "tbDdrOutputRegistered"
   ]
+
+sbGbTargets :: BuildTargets
+sbGbTargets = BuildSpecific
+  ["tbSbGb", "tbSbGbIoClock", "tbSbGbIoInput", "tbSbGbIoOutput"]
 
 main :: IO ()
 main = do

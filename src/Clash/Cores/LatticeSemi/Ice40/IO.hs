@@ -37,6 +37,11 @@ module Clash.Cores.LatticeSemi.Ice40.IO
   , spiConfig
   , PinOutputConfig(..)
   , PinInputConfig(..)
+    -- * Global buffers
+  , sbGb
+  , sbGbSignal
+  , sbGbIo
+  , sbGbIoClock
   ) where
 
 import           GHC.Stack                    (HasCallStack())
@@ -50,7 +55,8 @@ import qualified Clash.Signal as Hidden
 
 import           Clash.Cores.Xilinx.Xpm.Cdc.Internal
   ( BitBiSignalInPort(..), BiSignalOutPort(..), BitVectorParam(..)
-  , ClockPort(..), InstConfig(..), Param(..), Port(..), inst, instConfig, unPort )
+  , ClockPort(..), Inst, Param(..), Port(..), inst, unPort )
+import           Clash.Cores.LatticeSemi.Ice40.Internal (ice40Prim)
 
 -- | Input pinType  mnemonics as documented in the first table of LITL p88. Note
 -- that @PIN_INPUT_DDR@ is missing. Use 'PIN_INPUT_REGISTERED' instead.
@@ -378,13 +384,35 @@ sbioInst clk en pinConf pkgPin latchInput dOut0 dOut1 outputEnable =
     ( BiSignalOutPort "PACKAGE_PIN" 'Floating domPin 1
     , Port "D_IN_0" dom Bit
     , Port "D_IN_1" dom Bit )
-  go = case activeEdge @dom of
-    SRising -> ports (inst sbioConfig pinTypeParam)
-    -- The registers of the cell trigger on the falling edge of the clock
-    SFalling -> ports (inst sbioConfig pinTypeParam (Param @"NEG_TRIGGER" @Bit 1))
+  go = sbioInstWith "SB_IO" clk en pinConf pkgPin latchInput dOut0 dOut1 outputEnable
 
+{- | Instantiate SB_IO or SB_GB_IO, with the given output ports. Sets
+@NEG_TRIGGER@ if the active edge of the clock is the falling edge. Only sets
+@PIN_TYPE@ and @NEG_TRIGGER@: @PULLUP@ (pull-up resistor disabled) and
+@IO_STANDARD@ (@SB_LVCMOS@) keep their defaults.
+-}
+sbioInstWith ::
+  forall dom domPin r.
+  (KnownDomain dom, Inst r) =>
+  -- | Component name
+  String ->
+  Clock dom ->
+  Enable dom ->
+  BitVector 6 ->
+  BitBiSignalInPort "PACKAGE_PIN" 'Floating domPin ->
+  Signal dom Bit ->
+  Signal dom Bit ->
+  Signal dom Bit ->
+  Signal dom Bool ->
+  r
+sbioInstWith compNm clk en pinConf pkgPin latchInput dOut0 dOut1 outputEnable =
+  case activeEdge @dom of
+    SRising -> ports (inst config pinTypeParam)
+    -- The registers of the cell trigger on the falling edge of the clock
+    SFalling -> ports (inst config pinTypeParam (Param @"NEG_TRIGGER" @Bit 1))
+ where
+  config = ice40Prim compNm
   pinTypeParam = BitVectorParam @"PIN_TYPE" pinConf
-  sbioConfig = (instConfig "SB_IO"){componentDeclaration = True}
 
   ports ::
     ( BitBiSignalInPort "PACKAGE_PIN" 'Floating domPin ->
@@ -407,3 +435,131 @@ sbioInst clk en pinConf pkgPin latchInput dOut0 dOut1 outputEnable =
       (Port @"OUTPUT_ENABLE" (boolToBit <$> outputEnable))
       (Port @"D_OUT_0" dOut0)
       (Port @"D_OUT_1" dOut1)
+
+-- * Global buffers
+
+{- | Global buffer @SB_GB@ (see LITL), driving a clock from the fabric onto one
+of the eight global networks, e.g. the output of a PLL or a divided clock.
+
+Simulation: the identity function.
+-}
+sbGb :: forall dom. KnownDomain dom => Clock dom -> Clock dom
+sbGb clk
+  | clashSimulation = clk
+  | otherwise = unPort go
+ where
+  go :: ClockPort "GLOBAL_BUFFER_OUTPUT" dom
+  go =
+    inst
+      (ice40Prim "SB_GB")
+      (ClockPort @"USER_SIGNAL_TO_GLOBAL_BUFFER" clk)
+
+{- | Global buffer @SB_GB@ (see LITL), driving a signal from the fabric onto
+one of the eight global networks. The global networks are meant for clocks and
+for signals with a high fanout, such as resets and clock enables.
+
+Simulation: the identity function.
+-}
+sbGbSignal :: forall dom. KnownDomain dom => Signal dom Bit -> Signal dom Bit
+sbGbSignal s
+  | clashSimulation = s
+  | otherwise = unPort go
+ where
+  go :: Port "GLOBAL_BUFFER_OUTPUT" dom Bit
+  go =
+    inst
+      (ice40Prim "SB_GB")
+      (Port @"USER_SIGNAL_TO_GLOBAL_BUFFER" s)
+
+{- | I/O cell with a global buffer, @SB_GB_IO@ (see LITL): an 'sbio' whose pad
+also drives one of the eight global networks, @GLOBAL_BUFFER_OUTPUT@. Only the
+pins named @GBIN@ in the data sheet have one. Use 'sbGbIoClock' if all you want
+is a clock input.
+
+Simulation: the 'sbio' part is simulated like 'sbio'. The global buffer output
+is an ideal clock of domain @domGb@, regardless of the level of the pad: Clash
+can't turn a signal into a clock.
+-}
+sbGbIo
+  :: forall domGb dom
+   . ( HasCallStack
+     , KnownDomain domGb
+     , Hidden.HiddenClock dom  -- INPUT_CLK
+     , Hidden.HiddenEnable dom -- CLOCK_ENABLE
+     )
+  => BitVector 6
+  -- ^ Config, see 'spiConfig'
+  -> BiSignalIn 'Floating dom 1
+  -- ^ PACKAGE_PIN
+  -> Signal dom Bit
+  -- ^ LATCH_INPUT_VALUE
+  -> Signal dom Bit
+  -- ^ D_OUT_0
+  -> Signal dom Bit
+  -- ^ D_OUT_1. Only used by the @PIN_OUTPUT_DDR*@ modes.
+  -> Signal dom Bool
+  -- ^ OUTPUT_ENABLE
+  -> ( BiSignalOut 'Floating dom 1  -- PACKAGE_PIN
+     , Signal dom Bit               -- D_IN_0
+     , Signal dom Bit               -- D_IN_1
+     , Clock domGb                  -- GLOBAL_BUFFER_OUTPUT
+     )
+sbGbIo pinConf pkgPin latchInput dOut0 dOut1 outputEnable
+  | clashSimulation = (pkgPinSim, dIn0Sim, dIn1Sim, clockGen)
+  | otherwise = (pkgPinOut, unPort dIn0, unPort dIn1, unPort gbOut)
+ where
+  (pkgPinSim, dIn0Sim, dIn1Sim) = sbio pinConf pkgPin latchInput dOut0 dOut1 outputEnable
+
+  (BiSignalOutPort pkgPinOut, gbOut, dIn0, dIn1) = go
+
+  go ::
+    ( BiSignalOutPort "PACKAGE_PIN" 'Floating dom 1
+    , ClockPort "GLOBAL_BUFFER_OUTPUT" domGb
+    , Port "D_IN_0" dom Bit
+    , Port "D_IN_1" dom Bit )
+  go =
+    sbioInstWith
+      "SB_GB_IO" Hidden.hasClock Hidden.hasEnable pinConf
+      (BitBiSignalInPort pkgPin) latchInput dOut0 dOut1 outputEnable
+
+{- | A clock input pin driving one of the eight global networks: @SB_GB_IO@
+(see LITL) configured as a simple input (@PIN_INPUT@, @PIN_NO_OUTPUT@). Only the
+pins named @GBIN@ in the data sheet have a global buffer.
+
+The domain of the pad, @domPin@, is irrelevant: the pad is never read or
+written by the fabric.
+
+Simulation: an ideal clock of domain @dom@, regardless of the level of the
+pad. Clash can't turn a signal into a clock.
+-}
+sbGbIoClock ::
+  forall dom domPin.
+  (KnownDomain dom, KnownDomain domPin) =>
+  -- | PACKAGE_PIN
+  BiSignalIn 'Floating domPin 1 ->
+  -- | GLOBAL_BUFFER_OUTPUT
+  Clock dom
+sbGbIoClock pkgPin
+  | clashSimulation = clockGen
+  | otherwise = unPort gbOut
+ where
+  (_ :: BiSignalOutPort "PACKAGE_PIN" 'Floating domPin 1, gbOut) = go
+
+  go ::
+    ( BiSignalOutPort "PACKAGE_PIN" 'Floating domPin 1
+    , ClockPort "GLOBAL_BUFFER_OUTPUT" dom )
+  go =
+    inst
+      (ice40Prim "SB_GB_IO")
+      (BitVectorParam @"PIN_TYPE" (spiConfig PIN_INPUT PIN_NO_OUTPUT))
+      (BitBiSignalInPort @"PACKAGE_PIN" pkgPin)
+      (Port @"LATCH_INPUT_VALUE" zero)
+      (Port @"CLOCK_ENABLE" zero)
+      (Port @"INPUT_CLK" zero)
+      (Port @"OUTPUT_CLK" zero)
+      (Port @"OUTPUT_ENABLE" zero)
+      (Port @"D_OUT_0" zero)
+      (Port @"D_OUT_1" zero)
+
+  zero :: Signal domPin Bit
+  zero = pure 0
