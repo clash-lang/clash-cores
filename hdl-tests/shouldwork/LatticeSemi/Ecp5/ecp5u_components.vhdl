@@ -29,4 +29,22 @@ package components is
          ; O : out   std_logic );
   end component;
 
+  component ILVDS is
+    port ( A  : in  std_logic
+         ; AN : in  std_logic
+         ; Z  : out std_logic );
+  end component;
+
+  component OLVDS is
+    port ( A  : in  std_logic
+         ; Z  : out std_logic
+         ; ZN : out std_logic );
+  end component;
+
+  component OBCO is
+    port ( I  : in  std_logic
+         ; OT : out std_logic
+         ; OC : out std_logic );
+  end component;
+
 end package;

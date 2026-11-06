@@ -174,6 +174,7 @@ runClashTest = defaultMain $ clashTestRoot
           [ runTest "BidirectionalBuffer" ecp5Opts
               { buildTargets=BuildSpecific ["tbFloating", "tbPullUp", "tbPullDown"]
               }
+          , runTest "DifferentialBuffers" ecp5Opts
           ]
         ]
       , clashTestGroup "Xilinx"

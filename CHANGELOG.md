@@ -17,3 +17,4 @@
 * Add `BitBiSignalInPort` to `inst`, for single-bit bidirectional ports that are a `std_logic` in VHDL, such as the `IO` port of `IOBUF`. A 1-bit `BiSignalInPort` renders as a `std_logic_vector(0 downto 0)`, which VHDL does not allow to be connected to such ports.
 * Fix the VHDL of the ECP5 `bidirectionalBuffer`, which declared the pad of `BB`/`BBPU`/`BBPD` as an input. It is now instantiated with `inst` and takes its component declarations from `ecp5u.components`, like Lattice Diamond designs do. This removes `Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO`.
 * Test the ECP5 `bidirectionalBuffer` against the simulation models of Yosys
+* Add `ilvds`, `olvds` and `obco`, wrappers for the ECP5 differential I/O buffers `ILVDS`, `OLVDS` and `OBCO`
