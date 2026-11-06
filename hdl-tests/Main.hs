@@ -170,6 +170,8 @@ runClashTest = defaultMain $ clashTestRoot
           , runTest "SbIoOd" ice40VhdlOpts{buildTargets=sbIoOdTargets}
           , runTest "SbRam40" ice40VerilogOpts{buildTargets=sbRam40Targets}
           , runTest "SbRam40" ice40VhdlOpts{buildTargets=sbRam40Targets}
+          , runTest "SbSpram" ice40VerilogOpts{buildTargets=BuildSpecific ["tbReadWrite", "tbLowPower"]}
+          , runTest "SbSpram" ice40VhdlOpts{buildTargets=BuildSpecific ["tbReadWrite", "tbLowPower"]}
           ]
         ]
       , clashTestGroup "Xilinx"

@@ -4,9 +4,12 @@
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
   Memory primitives of the iCE40 FPGAs: the 4 kbit block RAM @SB_RAM40_4K@
-  (and its variants with inverted clocks), see the
+  (and its variants with inverted clocks) and the 256 kbit single-port RAM
+  @SB_SPRAM256KA@ of the iCE40 UltraPlus devices, see the
   <https://www.latticesemi.com/-/media/LatticeSemi/Documents/ApplicationNotes/MO/MemoryUsageGuideforiCE40Devices.ashx iCE40 Memory Usage Guide>
-  (TN1250) and the
+  (TN1250), the
+  <https://www.latticesemi.com/-/media/LatticeSemi/Documents/ApplicationNotes/IK/FPGA-TN-02022-1-2-iCE40-SPRAM-Usage-Guide.ashx iCE40 SPRAM Usage Guide>
+  (FPGA-TN-02022) and the
   <http://www.latticesemi.com/~/media/LatticeSemi/Documents/TechnicalBriefs/SBTICETechnologyLibrary201504.pdf iCE Technology Library>.
 
   Synthesis tools infer block RAMs from 'Clash.Explicit.Prelude.blockRam' and
@@ -35,10 +38,13 @@ module Clash.Cores.LatticeSemi.Ice40.Memory
   , ramInit
   , ramInitWords
   , ramInitZero
+    -- * SB_SPRAM256KA
+  , sbSpram256ka
   ) where
 
 import Clash.Explicit.Prelude
 import Clash.Signal.Internal (ClockAB (..), Signal ((:-)), clockTicks)
+import Clash.Sized.Internal.BitVector (undefined#)
 
 import Data.Maybe (isJust)
 import GHC.Stack (HasCallStack)
@@ -385,3 +391,129 @@ ramModel wClk rClk initial writes readAddrs =
       Nothing -> fmap (const (errorX "sbRam40_4k: write address undefined")) ram
       Just a ->
         Seq.adjust (\old -> (old .&. complement bits) .|. (d .&. bits)) (fromIntegral a) ram
+
+{- | 256 kbit single-port RAM @SB_SPRAM256KA@ of the iCE40 UltraPlus devices:
+16384 words of 16 bits, with a write mask per nibble and three low-power
+modes.
+
+Every active clock edge with @CHIPSELECT@ asserted either reads or writes a
+word. A read returns the word in the next clock cycle; a write makes the
+output undefined. Without @CHIPSELECT@ the output holds its value.
+
+The low-power modes:
+
+* @STANDBY@: the memory ignores reads and writes, and its output becomes
+  undefined at the next active clock edge.
+* @SLEEP@: the output is 0, immediately (asynchronously). The memory keeps its
+  contents.
+* @POWEROFF@ (active low): the output is 0, immediately, and the contents of
+  the memory are lost.
+
+Leaving @SLEEP@ or @POWEROFF@ takes time in hardware (see the SPRAM usage
+guide); neither the Haskell model nor Yosys' model simulate that.
+
+The memory starts out undefined: it has no initial contents.
+-}
+sbSpram256ka ::
+  forall dom.
+  ( HasCallStack
+  , KnownDomain dom
+  , DomainActiveEdge dom ~ 'Rising
+  ) =>
+  -- | @CLOCK@
+  Clock dom ->
+  -- | @CHIPSELECT@
+  Signal dom Bool ->
+  -- | @ADDRESS@
+  Signal dom (Index 16384) ->
+  -- | Write (@WREN@): the nibbles to write (@MASKWREN@, bit /i/ enables
+  -- writing bits @4*i+3@ to @4*i@) and the word (@DATAIN@), or 'Nothing' to
+  -- read
+  Signal dom (Maybe (BitVector 4, BitVector 16)) ->
+  -- | @STANDBY@
+  Signal dom Bool ->
+  -- | @SLEEP@
+  Signal dom Bool ->
+  -- | Powered on (@POWEROFF@, active low)
+  Signal dom Bool ->
+  -- | @DATAOUT@
+  Signal dom (BitVector 16)
+sbSpram256ka clk cs addr write standby sleep powerOn
+  | clashSimulation = dataOutSim
+  | otherwise = unPort dataOutPort
+ where
+  -- Simulation
+  off = (||) <$> sleep <*> (not <$> powerOn)
+  dataOutSim = mux off 0 dataOutReg
+  dataOutReg =
+    delay clk enableGen (errorX "sbSpram256ka: DATAOUT undefined") $
+      nextOut <$> off <*> standby <*> cs <*> write <*> memRead <*> dataOutSim
+  nextOut off0 standby0 cs0 write0 memRead0 out0
+    | off0 = 0
+    | standby0 = undefined#
+    | cs0 = case write0 of
+        Nothing -> memRead0
+        Just _ -> undefined#
+    | otherwise = out0
+
+  memRead = spramModel clk memOp addr
+  memOp = memOp0 <$> powerOn <*> off <*> standby <*> cs <*> write
+  memOp0 powerOn0 off0 standby0 cs0 write0
+    | not powerOn0 = SpramClear
+    | off0 || standby0 || not cs0 = SpramIdle
+    | Just (m, d) <- write0 = SpramWrite m d
+    | otherwise = SpramIdle
+
+  -- HDL
+  dataOutPort :: Port "DATAOUT" dom (BitVector 16)
+  dataOutPort =
+    inst
+      (ice40Prim "SB_SPRAM256KA")
+      (Port @"ADDRESS" (pack <$> addr))
+      (Port @"DATAIN" (snd . fromJustX <$> write))
+      (Port @"MASKWREN" (fst . fromJustX <$> write))
+      (Port @"WREN" (boolToBit . isJust <$> write))
+      (Port @"CHIPSELECT" (boolToBit <$> cs))
+      (ClockPort @"CLOCK" clk)
+      (Port @"STANDBY" (boolToBit <$> standby))
+      (Port @"SLEEP" (boolToBit <$> sleep))
+      (Port @"POWEROFF" (boolToBit <$> powerOn))
+
+-- | What happens to the memory of an 'sbSpram256ka' at a clock edge
+data SpramOp
+  = SpramIdle
+  | SpramWrite (BitVector 4) (BitVector 16)
+  -- ^ Write the nibbles in the mask
+  | SpramClear
+  -- ^ Powered off: the contents are lost
+  deriving (Generic, NFDataX)
+
+-- | Model of the memory array of an 'sbSpram256ka'. Returns the word at the
+-- address, before the operation of the same clock cycle.
+spramModel ::
+  forall dom.
+  KnownDomain dom =>
+  Clock dom ->
+  Signal dom SpramOp ->
+  Signal dom (Index 16384) ->
+  Signal dom (BitVector 16)
+spramModel _clk = go (Seq.replicate 16384 undefined#)
+ where
+  go :: Seq.Seq (BitVector 16) -> Signal dom SpramOp -> Signal dom (Index 16384) -> Signal dom (BitVector 16)
+  go !mem ~(op :- ops) ~(a :- as) = out :- go mem1 ops as
+   where
+    out = case maybeIsX a of
+      Just a1 -> Seq.index mem (fromIntegral a1)
+      Nothing -> undefined#
+    mem1 = case maybeIsX op of
+      Nothing -> undefined# <$ mem
+      Just SpramIdle -> mem
+      Just SpramClear -> undefined# <$ mem
+      Just (SpramWrite m d) -> case maybeIsX a of
+        Nothing -> undefined# <$ mem
+        Just a1 -> Seq.adjust (writeNibbles m d) (fromIntegral a1) mem
+
+  writeNibbles :: BitVector 4 -> BitVector 16 -> BitVector 16 -> BitVector 16
+  writeNibbles m d old = (old .&. complement bits) .|. (d .&. bits)
+   where
+    bits = pack (map (\(i :: Index 4) -> if testBit m (fromIntegral i) then 0xF else 0 :: BitVector 4) (reverse indicesI))

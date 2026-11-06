@@ -21,3 +21,4 @@
 * Add `sbGb`, `sbGbSignal`, `sbGbIo` and `sbGbIoClock`, wrappers for the iCE40 global buffers `SB_GB` and `SB_GB_IO`
 * Add `sbioOd`, a wrapper for the open-drain I/O cell `SB_IO_OD` of the iCE40 UltraPlus devices
 * Add `Clash.Cores.LatticeSemi.Ice40.Memory` with `sbRam40_4k`, a wrapper for the iCE40 block RAM `SB_RAM40_4K` and its variants with inverted clocks, with typed read and write modes and initial contents
+* Add `sbSpram256ka`, a wrapper for the 256 kbit single-port RAM `SB_SPRAM256KA` of the iCE40 UltraPlus devices, including its low-power modes
