@@ -53,6 +53,19 @@ unitCircleConfig :: Config
 unitCircleConfig =
   defConfig{amplitudeMode = UnitCircle, memoryType = DistributedRom, negativeCosine = True}
 
+-- | First order Taylor series correction, negated sine
+taylor1Config :: Config
+taylor1Config = defConfig{noiseShaping = TaylorSeriesCorrected, negativeSine = True}
+
+-- | Second order Taylor series correction, negated cosine, unit circle
+taylor2Config :: Config
+taylor2Config =
+  defConfig{noiseShaping = TaylorSeriesCorrected, negativeCosine = True, amplitudeMode = UnitCircle}
+
+-- | Taylor series correction in distributed memory
+taylorDistConfig :: Config
+taylorDistConfig = defConfig{noiseShaping = TaylorSeriesCorrected, memoryType = DistributedRom}
+
 ------------------------------------------------------------------------------
 -- Inputs
 ------------------------------------------------------------------------------
@@ -178,6 +191,18 @@ ddsWideDut = dut $ \clk en _ _ -> dds @3 clk en (-0.37 :: Phase 10)
 phaseGenDut :: KnownDomain dom => Dut dom ((), Phase 48) (Phase 48, ()) (Phase 48)
 phaseGenDut = dut $ phaseGeneratorWith @3 StreamingIncrement (ProgrammableOffset 0.5)
 
+-- | Taylor series correction, first order: streaming increment, fixed offset,
+-- 32 bit phase, 18 bit outputs
+ddsTaylor1Dut :: KnownDomain dom => Dut dom NoChannels (Phase 32, ()) (Sample 17, Sample 17)
+ddsTaylor1Dut =
+  dut $ ddsWith @8 taylor1Config StreamingIncrement (FixedOffset 0.123) SineCosineOutput
+
+-- | Taylor series correction, second order: programmable increment, 40 bit
+-- phase, 26 bit outputs, at the minimum latency
+ddsTaylor2Dut :: KnownDomain dom => Dut dom (Phase 40, ()) NoChannels (Sample 25, Sample 25)
+ddsTaylor2Dut =
+  dut $ ddsWith @3 taylor2Config (ProgrammableIncrement 0.0101) NoOffset SineCosineOutput
+
 -- | Phase generator with a fixed increment, 24 bit phase, at the minimum
 -- latency
 phaseGenFixedDut :: KnownDomain dom => Dut dom NoChannels NoChannels (Phase 24)
@@ -191,6 +216,17 @@ lutWideDut = dut $ \clk en _ -> sinCos @6 clk en
 -- the minimum latency
 lutSmallDut :: KnownDomain dom => Dut dom NoChannels (Phase 8) (Sample 7, Sample 7)
 lutSmallDut = dut $ \clk en _ -> sinCosLutWith @1 unitCircleConfig SineCosineOutput clk en
+
+-- | SIN/COS lookup table with first order Taylor series correction, 12 bit
+-- phase, 12 bit outputs (narrower than the multiplier operands)
+lutTaylor1Dut :: KnownDomain dom => Dut dom NoChannels (Phase 12) (Sample 11, Sample 11)
+lutTaylor1Dut =
+  dut $ \clk en _ -> sinCosLutWith @7 defConfig{noiseShaping = TaylorSeriesCorrected} SineCosineOutput clk en
+
+-- | SIN/COS lookup table with second order Taylor series correction in
+-- distributed memory, 16 bit phase, 22 bit outputs, at the minimum latency
+lutTaylor2Dut :: KnownDomain dom => Dut dom NoChannels (Phase 16) (Sample 21, Sample 21)
+lutTaylor2Dut = dut $ \clk en _ -> sinCosLutWith @1 taylorDistConfig SineCosineOutput clk en
 
 ------------------------------------------------------------------------------
 -- Samples
@@ -254,3 +290,23 @@ lutSmallSamples :: Samples NoChannels (Phase 8) (Sample 7, Sample 7)
 lutSmallSamples =
   simulate lutSmallDut $
     withChannels (enables 19 nSamples) noConfig (map toPhase [0 .. 255] <> randomPhases 20)
+
+ddsTaylor1Samples :: Samples NoChannels (Phase 32, ()) (Sample 17, Sample 17)
+ddsTaylor1Samples =
+  simulate ddsTaylor1Dut $
+    withChannels (enables 22 nSamples) noConfig (zip (randomPhases 23) (repeat ()))
+
+ddsTaylor2Samples :: Samples (Phase 40, ()) NoChannels (Sample 25, Sample 25)
+ddsTaylor2Samples =
+  simulate ddsTaylor2Dut $
+    withChannels (enables 24 nSamples) (configs 25 (zip (randomPhases 26) (repeat ()))) noPhase
+
+lutTaylor1Samples :: Samples NoChannels (Phase 12) (Sample 11, Sample 11)
+lutTaylor1Samples =
+  simulate lutTaylor1Dut $
+    withChannels (alwaysEnabled nSamples) noConfig (map toPhase [0 .. 63] <> randomPhases 27)
+
+lutTaylor2Samples :: Samples NoChannels (Phase 16) (Sample 21, Sample 21)
+lutTaylor2Samples =
+  simulate lutTaylor2Dut $
+    withChannels (enables 28 nSamples) noConfig (map toPhase [16300 .. 16447] <> randomPhases 29)

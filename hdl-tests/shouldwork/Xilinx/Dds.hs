@@ -157,3 +157,43 @@ lutSmall = lutSmallDut
 lutSmallTB :: Signal XilinxSystem Bool
 lutSmallTB = romTB lutSmall $(memBlobTH Nothing lutSmallSamples)
 {-# ANN lutSmallTB (TestBench 'lutSmall) #-}
+
+------------------------------------------------------------------------------
+-- Taylor series correction
+------------------------------------------------------------------------------
+
+ddsTaylor1 :: Dut XilinxSystem NoChannels (Phase 32, ()) (Sample 17, Sample 17)
+ddsTaylor1 = ddsTaylor1Dut
+{-# OPAQUE ddsTaylor1 #-}
+{-# ANN ddsTaylor1 (dutAnn "ddsTaylor1") #-}
+
+ddsTaylor1TB :: Signal XilinxSystem Bool
+ddsTaylor1TB = romTB ddsTaylor1 $(memBlobTH Nothing ddsTaylor1Samples)
+{-# ANN ddsTaylor1TB (TestBench 'ddsTaylor1) #-}
+
+ddsTaylor2 :: Dut XilinxSystem (Phase 40, ()) NoChannels (Sample 25, Sample 25)
+ddsTaylor2 = ddsTaylor2Dut
+{-# OPAQUE ddsTaylor2 #-}
+{-# ANN ddsTaylor2 (dutAnn "ddsTaylor2") #-}
+
+ddsTaylor2TB :: Signal XilinxSystem Bool
+ddsTaylor2TB = romTB ddsTaylor2 $(memBlobTH Nothing ddsTaylor2Samples)
+{-# ANN ddsTaylor2TB (TestBench 'ddsTaylor2) #-}
+
+lutTaylor1 :: Dut XilinxSystem NoChannels (Phase 12) (Sample 11, Sample 11)
+lutTaylor1 = lutTaylor1Dut
+{-# OPAQUE lutTaylor1 #-}
+{-# ANN lutTaylor1 (dutAnn "lutTaylor1") #-}
+
+lutTaylor1TB :: Signal XilinxSystem Bool
+lutTaylor1TB = romTB lutTaylor1 $(memBlobTH Nothing lutTaylor1Samples)
+{-# ANN lutTaylor1TB (TestBench 'lutTaylor1) #-}
+
+lutTaylor2 :: Dut XilinxSystem NoChannels (Phase 16) (Sample 21, Sample 21)
+lutTaylor2 = lutTaylor2Dut
+{-# OPAQUE lutTaylor2 #-}
+{-# ANN lutTaylor2 (dutAnn "lutTaylor2") #-}
+
+lutTaylor2TB :: Signal XilinxSystem Bool
+lutTaylor2TB = romTB lutTaylor2 $(memBlobTH Nothing lutTaylor2Samples)
+{-# ANN lutTaylor2TB (TestBench 'lutTaylor2) #-}

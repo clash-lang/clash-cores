@@ -351,6 +351,10 @@ runClashTest = defaultMain $ clashTestRoot
               , "phaseGenFixedTB"
               , "lutWideTB"
               , "lutSmallTB"
+              , "ddsTaylor1TB"
+              , "ddsTaylor2TB"
+              , "lutTaylor1TB"
+              , "lutTaylor2TB"
               ]
           }
         ]
