@@ -160,6 +160,53 @@ runClashTest = defaultMain $ clashTestRoot
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
+          , outputTest "BiSignalTuple" def{hdlLoad=[], hdlSim=[]}
+          , runTest "BitVectorParam" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
+          , runTest "BoolStringParam" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
+            -- The Verilog simulation model of IBUF ends the simulation on an
+            -- illegal parameter value, which the test harness doesn't notice.
+            -- Check the rendered parameters too.
+          , outputTest "BoolStringParam" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[]
+              , hdlSim=[]
+              }
+          , outputTest "DiffClockOutputTuple" def{hdlLoad=[], hdlSim=[]}
+          , runTest "DiffClockOutput" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
+          , runTest "Iobuf" def
+              { -- UNISIM's IOBUF has a @std_ulogic@ IO port, while Clash
+                -- renders a 1-bit BiSignal as a @std_logic_vector@
+                hdlTargets=[Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
+          , runTest "NoInput" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
+          , runTest "ResetOutputs" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
+          , runTest "ZeroWidthPorts" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
           ]
         , runTest "TdpBlockRam" def
           { -- Compiling with VHDL gives:
