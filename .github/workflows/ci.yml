@@ -95,9 +95,11 @@ jobs:
 
       - name: Unit tests
         env:
-          # The tests of the Xilinx floating point models need Xilinx's C model,
-          # see test/Test/Cores/Xilinx/Floating.hs
+          # The tests of the Xilinx floating point and FIR Compiler models need
+          # Xilinx's C models, see test/Test/Cores/Xilinx/Floating.hs and
+          # test/Test/Cores/Xilinx/Fir.hs
           CLASH_CORES_XILINX_FLOATING_CMODEL: /opt/tools/Xilinx/Vivado/2022.1/data/ip/xilinx/floating_point_v7_1/cmodel/floating_point_v7_1_bitacc_cmodel_lin64.zip
+          CLASH_CORES_XILINX_FIR_CMODEL: /opt/tools/Xilinx/Vivado/2022.1/data/ip/xilinx/fir_compiler_v7_2/cmodel/fir_compiler_v7_2_bitacc_cmodel_lin64.zip
         run: bin/clash-cores:unit-tests -j$(.ci/effective_cpus.sh) --hide-successes
 
   haddock:
