@@ -112,8 +112,11 @@ clashTestGroup testName testTrees =
     testGroup testName $
       zipWith ($) testTrees (repeat (testName : parentNames))
 
-runClashTest :: IO ()
-runClashTest = defaultMain $ clashTestRoot
+runClashTest ::
+  -- | Whether Quartus is available, see 'setIntelEnvs'
+  Bool ->
+  IO ()
+runClashTest quartusAvailable = defaultMain $ clashTestRoot
   [ clashTestGroup "hdl-tests"
     [ clashTestGroup "shouldfail"
       [ clashTestGroup "Xilinx"
@@ -385,7 +388,7 @@ runClashTest = defaultMain $ clashTestRoot
         , runTest "T2549" def{hdlTargets=[Verilog],hdlSim=[]}
         , runTest "T2781" def{hdlLoad=[],hdlSim=[],hdlTargets=[VHDL]}
         ]
-      , clashTestGroup "Intel"
+      , clashTestGroup "Intel" $ if not quartusAvailable then [] else
         [ -- Needs Quartus to generate the IP's simulation models, see
           -- 'setIntelEnvs'. The models are VHDL only, so Verilog is tested
           -- with Vivado's mixed language simulator. GHDL doesn't bind the
@@ -418,8 +421,9 @@ runClashTest = defaultMain $ clashTestRoot
 -- Quartus installation in @QUARTUS_ROOTDIR@ or, if it isn't set, the default
 -- Quartus Prime Lite 21.1 installation on our machines. The device family is
 -- taken from @CLASH_INTEL_SIM_FAMILY@, and defaults to MAX 10. See
--- shouldwork/Intel/IntelIpSim.hs for why not Cyclone V.
-setIntelEnvs :: IO ()
+-- shouldwork/Intel/IntelIpSim.hs for why not Cyclone V. Returns whether
+-- Quartus is available: the tests are skipped if it isn't.
+setIntelEnvs :: IO Bool
 setIntelEnvs = do
   let defaultRoot = "/opt/tools/Intel/intelFPGA_lite/21.1/quartus"
   root <- lookupEnv "QUARTUS_ROOTDIR"
@@ -432,6 +436,10 @@ setIntelEnvs = do
   case family of
     Just (_:_) -> pure ()
     _ -> setEnv "CLASH_INTEL_SIM_FAMILY" "MAX 10 FPGA"
+  root1 <- lookupEnv "QUARTUS_ROOTDIR"
+  case root1 of
+    Just r@(_:_) -> doesDirectoryExist r
+    _ -> pure False
 
 main :: IO ()
 main = do
@@ -439,5 +447,5 @@ main = do
   setCurrentDirectory projectRoot
   setEnv "TASTY_NUM_THREADS" (show numCapabilities)
   setClashEnvs compiledWith
-  setIntelEnvs
-  runClashTest
+  quartusAvailable <- setIntelEnvs
+  runClashTest quartusAvailable
