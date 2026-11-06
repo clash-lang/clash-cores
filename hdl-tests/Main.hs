@@ -157,6 +157,15 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlSim=[GHDL, IVerilog, Verilator]
             }
         ]
+      , clashTestGroup "LatticeSemi"
+        [ clashTestGroup "Ice40"
+          -- The test benches compare the simulation models to Yosys' simulation
+          -- models, see Ice40TestCommon.hs. GHDL can't load Verilog, so we use
+          -- Vivado's mixed-language simulator for VHDL.
+          [ runTest "SbIo" ice40VerilogOpts{buildTargets=sbIoTargets}
+          , runTest "SbIo" ice40VhdlOpts{buildTargets=sbIoTargets}
+          ]
+        ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}
@@ -393,6 +402,36 @@ runClashTest = defaultMain $ clashTestRoot
       ] -- end shouldwork
     ]
   ] -- end .
+
+-- | Options for tests against Yosys' iCE40 simulation models in Verilog
+ice40VerilogOpts :: TestOptions
+ice40VerilogOpts =
+  def
+    { hdlTargets=[Verilog]
+    , hdlLoad=[IVerilog]
+    , hdlSim=[IVerilog]
+    }
+
+-- | Options for tests against Yosys' iCE40 simulation models in VHDL
+ice40VhdlOpts :: TestOptions
+ice40VhdlOpts =
+  def
+    { hdlTargets=[VHDL]
+    , hdlLoad=[Vivado]
+    , hdlSim=[Vivado]
+    }
+
+sbIoTargets :: BuildTargets
+sbIoTargets = BuildSpecific
+  [ "tbInput", "tbInputRegistered", "tbInputLatch", "tbInputRegisteredLatch"
+  , "tbOutput", "tbOutputTristate", "tbOutputEnableRegistered"
+  , "tbOutputRegistered", "tbOutputRegisteredEnable"
+  , "tbOutputRegisteredEnableRegistered", "tbOutputRegisteredInverted"
+  , "tbOutputRegisteredEnableInverted"
+  , "tbOutputRegisteredEnableRegisteredInverted", "tbOutputDdr"
+  , "tbDdrInput", "tbDdrInputUnregistered", "tbDdrOutput", "tbDdrOutputEnable"
+  , "tbDdrOutputEnableRegistered", "tbDdrOutputRegistered"
+  ]
 
 main :: IO ()
 main = do
