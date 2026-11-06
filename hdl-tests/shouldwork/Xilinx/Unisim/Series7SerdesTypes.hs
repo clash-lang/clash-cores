@@ -7,6 +7,7 @@ import Clash.Explicit.Prelude
 import Clash.Annotations.Primitive (HDL (..), Primitive (InlineYamlPrimitive))
 import Data.String.Interpolate (__i)
 
+import Clash.Cores.Xilinx.Unisim.Series7.Delay
 import Clash.Cores.Xilinx.Unisim.Series7.Serdes
 import Clash.Xilinx.DDR (oddr)
 import UnisimTestCommon
@@ -179,3 +180,32 @@ dutLoopback _clkLine clk clkDiv =
   line =
     oserdese2 @rate @width oserdese2DefaultConfig clk clkDiv (randomReset (randomSeed + 1) clkDiv) $
       afterEdge (unpack <$> genTestData randomSeed clkDiv)
+
+-- | 'dutIserdes', with the serial data going through an 'idelaye2' with a fixed
+-- delay of 5 taps (about 1 ns, including the model's intrinsic delay of 600 ps)
+dutIserdesDelayed ::
+  Clock Line -> Clock Clk2 -> Clock Clk2 -> Clock Div8 ->
+  Signal Div8 (BitVector 8)
+dutIserdesDelayed _clkLine clkOddr clk clkDiv =
+  maskInitial 0 clkDiv $ pack <$>
+    iserdese2 @DDR @8 (Iserdese2Config InputDdly) clk clkDiv
+      (randomReset (randomSeed + 1) clkDiv)
+      (randomBitslip (randomSeed + 2) clkDiv)
+      serialDelayed
+ where
+  line :: Signal Line Bit
+  line = oddr clkOddr noReset enableGen (genTestData randomSeed clkOddr)
+  (serialDelayed, _taps) =
+    idelaye2 FromInputBuffer (DelayConfig DelayFixed 5 True PatternData) clkDiv (pure DelayHold) line
+
+-- | 'dutOserdes', with the serial data going through an 'odelaye2' with a fixed
+-- delay of 5 taps
+dutOserdesDelayed :: Clock Line -> Clock Clk1 -> Clock Div4 -> Signal Line Bit
+dutOserdesDelayed clkLine clk clkDiv =
+  maskInitial 0 clkLine $ delay clkLine enableGen 0 serialDelayed
+ where
+  serial =
+    oserdese2 @SDR @4 (Oserdese2Config 0 OutputOfb) clk clkDiv (randomReset (randomSeed + 1) clkDiv) $
+      afterEdge (unpack <$> genTestData randomSeed clkDiv)
+  (serialDelayed, _taps) =
+    odelaye2 (DelayConfig DelayFixed 5 True PatternData) clkDiv (pure DelayHold) serial

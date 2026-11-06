@@ -135,3 +135,15 @@ tbLoopbackDdr8 = tbDiv (dutLoopback @DDR @8 @Div8) expected
  where
   expected = $(listToVecTH (sampleN 300 (dutLoopback @DDR @8 @Div8 clockGen clockGen clockGen)))
 {-# ANN tbLoopbackDdr8 (TestBench 'topEntity) #-}
+
+-- Through delay lines
+
+tbIserdesDelayed = tbIserdes dutIserdesDelayed expected
+ where
+  expected = $(listToVecTH (sampleN 300 (dutIserdesDelayed clockGen clockGen clockGen clockGen)))
+{-# ANN tbIserdesDelayed (TestBench 'topEntity) #-}
+
+tbOserdesDelayed = tbLine dutOserdesDelayed expected
+ where
+  expected = $(listToVecTH (sampleN 1200 (dutOserdesDelayed clockGen clockGen clockGen)))
+{-# ANN tbOserdesDelayed (TestBench 'topEntity) #-}

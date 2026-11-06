@@ -370,7 +370,15 @@ runClashTest = defaultMain $ clashTestRoot
                   , "tbOserdesSdr2", "tbOserdesSdr5", "tbOserdesSdr8"
                   , "tbOserdesDdr4", "tbOserdesDdr6", "tbOserdesDdr8"
                   , "tbLoopbackSdr4", "tbLoopbackDdr8"
+                  , "tbIserdesDelayed", "tbOserdesDelayed"
                   ]
+              }
+          , runTest "Series7Delay" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  ["tbIdelay0", "tbIdelay1", "tbIdelay2", "tbOdelay0", "tbOdelay1"]
               }
           ]
         , clashTestGroup "DcFifo"
