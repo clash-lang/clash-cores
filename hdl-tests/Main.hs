@@ -313,6 +313,7 @@ runClashTest = defaultMain $ clashTestRoot
                   [ "tbBufg", "tbBufgce"
                   , "tbBufgceDiv1", "tbBufgceDiv2", "tbBufgceDiv3", "tbBufgceDiv8"
                   , "tbBufgGt1", "tbBufgGt2", "tbBufgGt3", "tbBufgGt8"
+                  , "tbObufdsGte4", "tbObufdsGte3"
                   ]
               }
           , runTest "IoBuffer" def

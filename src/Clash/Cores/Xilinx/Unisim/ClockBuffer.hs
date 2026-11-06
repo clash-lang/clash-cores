@@ -108,10 +108,12 @@ module Clash.Cores.Xilinx.Unisim.ClockBuffer
   , bufgmux
     -- * Transceiver clocks
   , bufgGt
+  , obufdsGte3
+  , obufdsGte4
   ) where
 
 import Clash.Explicit.Prelude
-import Clash.Signal.Internal (Signal ((:-)))
+import Clash.Signal.Internal (ClockN (..), DiffClock (..), Signal ((:-)))
 
 import Clash.Cores.Xilinx.Unisim.ClockBuffer.Internal
   ( BufgctrlConfig (..)
@@ -123,6 +125,7 @@ import Clash.Cores.Xilinx.Unisim.Internal (gatedClockModel, unisim)
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal
   ( BoolStringParam (..)
   , ClockPort (..)
+  , NamedDiffClockPort (..)
   , Param (..)
   , Port (..)
   , ResetPort (..)
@@ -522,3 +525,47 @@ bufgGt divider@SNat clk clr clrMask ena ceMask
       (ResetPort @"CLR" @'ActiveHigh clr)
       (Port @"CLRMASK" (boolToBit <$> clrMask))
       (Port @"DIV" (pure (fromInteger (snatToInteger divider - 1)) :: Signal domIn (BitVector 3)))
+
+{- | Differential output buffer for a transceiver clock (@OBUFDS_GTE4@) on
+UltraScale+ devices: drives a clock of a GTH or GTY transceiver, such as the
+recovered clock @RXRECCLKOUT@, out of the device through a dedicated
+reference clock pin pair. Returns the positive (@O@) and negative (@OB@)
+output. Simulation: the input clock.
+
+The output enable (@CEB@) is tied to always enabled, and @REFCLK_EN_TX_PATH@ is
+set, which the output path needs. @REFCLK_ICNTL_TX@ (reserved) is left at its
+default. The @OBUFDS_GTE4_ADV@ variant, which selects one of four recovered
+clocks, is not supported.
+
+For more information see
+[UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/OBUFDS_GTE4)
+and the /UltraScale Architecture GTH\/GTY Transceivers/ user guides (UG576,
+UG578).
+-}
+obufdsGte4 :: forall dom. (KnownDomain dom) => Clock dom -> DiffClock dom
+obufdsGte4 = obufdsGte "OBUFDS_GTE4"
+
+{- | Differential output buffer for a transceiver clock (@OBUFDS_GTE3@) on
+UltraScale devices. Like 'obufdsGte4', which is its UltraScale+ counterpart.
+
+For more information see
+[UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/OBUFDS_GTE3)
+and the /UltraScale Architecture GTH\/GTY Transceivers/ user guides (UG576,
+UG578).
+-}
+obufdsGte3 :: forall dom. (KnownDomain dom) => Clock dom -> DiffClock dom
+obufdsGte3 = obufdsGte "OBUFDS_GTE3"
+
+-- | 'obufdsGte4' or 'obufdsGte3', depending on the primitive name
+obufdsGte :: forall dom. (KnownDomain dom) => String -> Clock dom -> DiffClock dom
+obufdsGte name clk
+  | clashSimulation = DiffClock clk (ClockN SSymbol)
+  | otherwise = unPort go
+ where
+  go :: NamedDiffClockPort "O" "OB" dom
+  go =
+    inst
+      (unisim name)
+      (Param @"REFCLK_EN_TX_PATH" @Bit 1)
+      (ClockPort @"I" clk)
+      (Port @"CEB" (pure 0 :: Signal dom Bit))

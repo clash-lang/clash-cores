@@ -4,6 +4,7 @@ module ClockBufferTypes where
 import Clash.Explicit.Prelude
 
 import Clash.Cores.Xilinx.Unisim.ClockBuffer
+import Clash.Cores.Xilinx.Ibufds (ibufdsClock)
 import UnisimTestCommon
 
 -- | Input domain of the clock buffers
@@ -132,3 +133,11 @@ dutBufgGt n threshold clkA =
   clr = randomClear (randomSeed + 1) clkA
   clrMask = randomMask (randomSeed + 2) clkA
   ceMask = randomMask (randomSeed + 3) clkA
+
+-- | A clock through an 'obufdsGte4' or 'obufdsGte3', and back through an
+-- 'ibufdsClock'. The latter only produces a clock if the outputs of the former
+-- are complementary.
+dutObufdsGte :: Bool -> Clock A -> Signal A (Unsigned 8)
+dutObufdsGte gte3 clkA = observe clkA (ibufdsClock (obuf clkA))
+ where
+  obuf = if gte3 then obufdsGte3 else obufdsGte4

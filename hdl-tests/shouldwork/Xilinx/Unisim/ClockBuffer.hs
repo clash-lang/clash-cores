@@ -73,3 +73,13 @@ tbBufgGt8 = tbWith (dutBufgGt @8 @G8 d8 16) expected
  where
   expected = $(listToVecTH (sampleN 300 (dutBufgGt @8 @G8 d8 16 clockGen)))
 {-# ANN tbBufgGt8 (TestBench 'topEntity) #-}
+
+tbObufdsGte4 = tbWith (dutObufdsGte False) expected
+ where
+  expected = $(listToVecTH (sampleN 100 (dutObufdsGte False clockGen)))
+{-# ANN tbObufdsGte4 (TestBench 'topEntity) #-}
+
+tbObufdsGte3 = tbWith (dutObufdsGte True) expected
+ where
+  expected = $(listToVecTH (sampleN 100 (dutObufdsGte True clockGen)))
+{-# ANN tbObufdsGte3 (TestBench 'topEntity) #-}
