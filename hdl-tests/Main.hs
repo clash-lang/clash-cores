@@ -189,6 +189,21 @@ runClashTest = defaultMain $ clashTestRoot
                                                       ]
                           }
           in runTest "Floating" _opts
+        , runTest "ComplexMultiplier" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "mulS16S16TB"
+                , "mulResS18S25TB"
+                , "mulLutS35S27TB"
+                , "mulS63S63TB"
+                , "roundS16S16TB"
+                , "roundLutS8S8TB"
+                , "roundResS40S30TB"
+                , "roundS26S45TB"
+                ]
+            }
         , runTest "Ibufds" def
           { hdlLoad = [Vivado]
           , hdlSim = [Vivado]
