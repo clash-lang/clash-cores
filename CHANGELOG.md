@@ -23,3 +23,4 @@
 * Add `dcfifo` to `Clash.Cores.Intel.Fifo`, a wrapper for Intel's dual-clock FIFO `dcfifo`
 * Add `Clash.Cores.Intel.Memory` with `altsyncramSinglePort`, `altsyncramSimpleDualPort` and `altsyncramTrueDualPort`, wrappers for Intel's block RAM `altsyncram`, and functions to write and read Memory Initialization Files
 * Add `altshiftTaps` to `Clash.Cores.Intel.Memory`, a wrapper for Intel's RAM-based shift register `altshift_taps`
+* Add `Clash.Cores.Intel.Clock` with `altclkctrl`, a global clock buffer with an enable (`ALTCLKCTRL`) for Cyclone IV E, Cyclone 10 LP and MAX 10

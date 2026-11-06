@@ -210,6 +210,9 @@ runClashTest = defaultMain $ clashTestRoot
         , runTest "ShiftTaps" intelOpts
             { buildTargets=BuildSpecific ["tbThreeTaps", "tbTwoTaps", "tbSingleTap"]
             }
+        , runTest "ClockControl" intelOpts
+            { buildTargets=BuildSpecific ["tbCycloneIVE", "tbCycloneIVE2", "tbMax10"]
+            }
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"

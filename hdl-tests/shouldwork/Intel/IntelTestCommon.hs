@@ -189,7 +189,10 @@ expected ::
   [i] ->
   [(BitVector (BitSize o), BitVector (BitSize o))]
 expected circuit is =
-  P.map withMask (sampleN_lazy (P.length is) (circuit clockGen (fromList is)))
+  P.map withMask (sampleN_lazy (P.length is) (circuit clockGen (fromList padded)))
+ where
+  -- The test bench repeats the last stimulus. Some models need to look ahead.
+  padded = is <> P.repeat (P.last is)
 
 -- | Memory blobs with the stimuli, expected values, and masks of the bits to
 -- check, for 'tb'

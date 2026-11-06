@@ -37,7 +37,7 @@ variable @INTEL_SIM_LIB@ or, if it isn't set, from
 21.1 installation on our machines. The Quartus version is recorded in a comment
 in the generated HDL.
 -}
-module IntelSimLib (intelSimLibraries, simLibDir) where
+module IntelSimLib (intelSimLibraries, intelSimLibrary, simLibDir) where
 
 import Prelude
 
@@ -119,6 +119,26 @@ intelSimLibraries mfName primName = do
     library dir primName "altera" "altera_primitives.v"
       ["altera_primitives_components.vhd", "altera_primitives.vhd"]
   pure (mf <> prim)
+
+{- | Declare a top entity for a VHDL library with the given name, as a function
+with the given name and type @'Bit' -> 'Bit'@, like 'intelSimLibraries' does
+for @altera_mf@ and @altera@. Used for the atoms of a device family, e.g.
+@intelSimLibrary \"cycloneiveLib\" \"cycloneive\" \"cycloneive_atoms.v\"
+[\"cycloneive_atoms.vhd\", \"cycloneive_components.vhd\"]@.
+-}
+intelSimLibrary ::
+  -- | Name of the function
+  String ->
+  -- | Name of the VHDL library
+  String ->
+  -- | Verilog model, relative to the simulation library directory
+  FilePath ->
+  -- | VHDL models, relative to the simulation library directory
+  [FilePath] ->
+  Q [Dec]
+intelSimLibrary nm lib verilogFile vhdlFiles = do
+  dir <- runIO simLibDir
+  library dir nm lib verilogFile vhdlFiles
 
 library :: FilePath -> String -> String -> FilePath -> [FilePath] -> Q [Dec]
 library dir nm lib verilogFile vhdlFiles = do

@@ -130,6 +130,8 @@ library
     Clash.Cores.I2c.ByteController.ShiftRegister
     Clash.Cores.I2c.Types
     Clash.Cores.Intel.Cdc
+    Clash.Cores.Intel.Clock
+    Clash.Cores.Intel.Clock.Internal
     Clash.Cores.Intel.DDR
     Clash.Cores.Intel.Fifo
     Clash.Cores.Intel.IO
