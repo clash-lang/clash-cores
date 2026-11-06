@@ -400,6 +400,14 @@ runClashTest = defaultMain $ clashTestRoot
                 , "predicateTB", "fromS32TB", "fromU32TB", "toS32TB", "toU32TB"
                 , "toDoubleTB", "fromDoubleTB" ]
             }
+          -- Megafunctions that Clash instantiates directly. Their simulation
+          -- models exist in Verilog too, so Icarus can simulate Verilog.
+        , runTest "Integer" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado, IVerilog]
+            , hdlSim=[Vivado, IVerilog]
+            , buildTargets=BuildSpecific ["divideUnsignedTB", "divideSignedTB", "sqrtTB"]
+            }
         ]
       ] -- end shouldwork
     ]
