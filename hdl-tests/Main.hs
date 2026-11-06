@@ -385,9 +385,45 @@ runClashTest = defaultMain $ clashTestRoot
         , runTest "T2549" def{hdlTargets=[Verilog],hdlSim=[]}
         , runTest "T2781" def{hdlLoad=[],hdlSim=[],hdlTargets=[VHDL]}
         ]
+      , clashTestGroup "Intel"
+        [ -- Needs Quartus to generate the IP's simulation models, see
+          -- 'setIntelEnvs'. The models are VHDL only, so Verilog is tested
+          -- with Vivado's mixed language simulator. GHDL doesn't bind the
+          -- components in the models in strict VHDL-93 mode, see
+          -- shouldwork/Intel/IntelIpSim.hs.
+          runTest "Floating" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "addTB", "subTB", "mulTB", "divTB", "mulAddTB", "compareTB"
+                , "predicateTB", "fromS32TB", "fromU32TB", "toS32TB", "toU32TB"
+                , "toDoubleTB", "fromDoubleTB" ]
+            }
+        ]
       ] -- end shouldwork
     ]
   ] -- end .
+
+-- | Make Clash generate simulation models of Intel IP (see
+-- "Clash.Cores.Intel.Internal"), for the tests in @shouldwork/Intel@. Uses the
+-- Quartus installation in @QUARTUS_ROOTDIR@ or, if it isn't set, the default
+-- Quartus Prime Lite 21.1 installation on our machines. The device family is
+-- taken from @CLASH_INTEL_SIM_FAMILY@, and defaults to MAX 10. See
+-- shouldwork/Intel/IntelIpSim.hs for why not Cyclone V.
+setIntelEnvs :: IO ()
+setIntelEnvs = do
+  let defaultRoot = "/opt/tools/Intel/intelFPGA_lite/21.1/quartus"
+  root <- lookupEnv "QUARTUS_ROOTDIR"
+  defaultRootExists <- doesDirectoryExist defaultRoot
+  case root of
+    Just (_:_) -> pure ()
+    _ | defaultRootExists -> setEnv "QUARTUS_ROOTDIR" defaultRoot
+      | otherwise -> pure ()
+  family <- lookupEnv "CLASH_INTEL_SIM_FAMILY"
+  case family of
+    Just (_:_) -> pure ()
+    _ -> setEnv "CLASH_INTEL_SIM_FAMILY" "MAX 10 FPGA"
 
 main :: IO ()
 main = do
@@ -395,4 +431,5 @@ main = do
   setCurrentDirectory projectRoot
   setEnv "TASTY_NUM_THREADS" (show numCapabilities)
   setClashEnvs compiledWith
+  setIntelEnvs
   runClashTest

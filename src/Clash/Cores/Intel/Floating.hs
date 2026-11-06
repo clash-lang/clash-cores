@@ -1,0 +1,389 @@
+{-|
+Copyright  :  (C) 2026, QBayLogic B.V.
+License    :  BSD2 (see the file LICENSE)
+Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
+
+Support for Intel's Floating Point Functions IP (@altera_fp_functions@), as
+described in the
+[Floating-Point IP Cores User Guide (UG-01058)](https://www.intel.com/content/www/us/en/docs/programmable/683750/).
+This module uses a hidden clock, reset and enable. See
+"Clash.Cores.Intel.Floating.Explicit" for the documentation of the IP's
+behavior and how Clash instantiates it.
+-}
+
+{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
+
+module Clash.Cores.Intel.Floating
+  ( -- * Arithmetic
+    addWith
+  , add
+  , E.AddDefDelay
+  , subWith
+  , sub
+  , E.SubDefDelay
+  , mulWith
+  , mul
+  , E.MulDefDelay
+  , divWith
+  , div
+  , E.DivDefDelay
+  , mulAddWith
+  , mulAdd
+  , E.MulAddDefDelay
+    -- * Comparison
+  , E.Ordering(..)
+  , E.toMaybeOrdering
+  , compareWith
+  , compare
+  , E.CompareDefDelay
+  , E.Predicate(..)
+  , predicateWith
+  , predicate
+    -- * Conversion
+  , fromS32With
+  , fromS32
+  , E.FromS32DefDelay
+  , fromU32With
+  , fromU32
+  , E.FromU32DefDelay
+  , toS32With
+  , toS32
+  , E.ToS32DefDelay
+  , toU32With
+  , toU32
+  , E.ToU32DefDelay
+  , toDoubleWith
+  , toDouble
+  , E.ToDoubleDefDelay
+  , fromDoubleWith
+  , fromDouble
+  , E.FromDoubleDefDelay
+    -- * Customizing IP
+  , E.Config(..)
+  , E.defConfig
+    -- * Simulation models
+  , E.intelNaN
+  ) where
+
+import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+
+import GHC.Stack (HasCallStack, withFrozenCallStack)
+
+import qualified Clash.Cores.Intel.Floating.Explicit as E
+
+-- | Customizable floating point addition. See 'E.addWith'.
+addWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+addWith cfg = withFrozenCallStack $ hideClockResetEnable (E.addWith cfg)
+{-# INLINE addWith #-}
+
+-- | Floating point addition, with the default configuration and delay. See
+-- 'E.add'.
+add
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.AddDefDelay) Float
+add = withFrozenCallStack $ hideClockResetEnable E.add
+{-# INLINE add #-}
+
+-- | Customizable floating point subtraction. See 'E.subWith'.
+subWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+subWith cfg = withFrozenCallStack $ hideClockResetEnable (E.subWith cfg)
+{-# INLINE subWith #-}
+
+-- | Floating point subtraction, with the default configuration and delay. See
+-- 'E.sub'.
+sub
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.SubDefDelay) Float
+sub = withFrozenCallStack $ hideClockResetEnable E.sub
+{-# INLINE sub #-}
+
+-- | Customizable floating point multiplication. See 'E.mulWith'.
+mulWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+mulWith cfg = withFrozenCallStack $ hideClockResetEnable (E.mulWith cfg)
+{-# INLINE mulWith #-}
+
+-- | Floating point multiplication, with the default configuration and delay. See
+-- 'E.mul'.
+mul
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.MulDefDelay) Float
+mul = withFrozenCallStack $ hideClockResetEnable E.mul
+{-# INLINE mul #-}
+
+-- | Customizable floating point division. See 'E.divWith'.
+divWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+divWith cfg = withFrozenCallStack $ hideClockResetEnable (E.divWith cfg)
+{-# INLINE divWith #-}
+
+-- | Floating point division, with the default configuration and delay. See
+-- 'E.div'.
+div
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.DivDefDelay) Float
+div = withFrozenCallStack $ hideClockResetEnable E.div
+{-# INLINE div #-}
+
+-- | Customizable floating point multiply-add, @a * b + c@. See 'E.mulAddWith'.
+mulAddWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+mulAddWith cfg = withFrozenCallStack $ hideClockResetEnable (E.mulAddWith cfg)
+{-# INLINE mulAddWith #-}
+
+-- | Floating point multiply-add, @a * b + c@, with the default configuration and delay. See
+-- 'E.mulAdd'.
+mulAdd
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.MulAddDefDelay) Float
+mulAdd = withFrozenCallStack $ hideClockResetEnable E.mulAdd
+{-# INLINE mulAdd #-}
+
+-- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
+fromS32With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n (Signed 32)
+  -> DSignal dom (n + d) Float
+fromS32With cfg = withFrozenCallStack $ hideClockResetEnable (E.fromS32With cfg)
+{-# INLINE fromS32With #-}
+
+-- | Floating point conversion of @Signed 32@ to @Float@, with the default configuration and delay. See
+-- 'E.fromS32'.
+fromS32
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Signed 32)
+  -> DSignal dom (n + E.FromS32DefDelay) Float
+fromS32 = withFrozenCallStack $ hideClockResetEnable E.fromS32
+{-# INLINE fromS32 #-}
+
+-- | Customizable floating point conversion of @Unsigned 32@ to @Float@. See 'E.fromU32With'.
+fromU32With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n (Unsigned 32)
+  -> DSignal dom (n + d) Float
+fromU32With cfg = withFrozenCallStack $ hideClockResetEnable (E.fromU32With cfg)
+{-# INLINE fromU32With #-}
+
+-- | Floating point conversion of @Unsigned 32@ to @Float@, with the default configuration and delay. See
+-- 'E.fromU32'.
+fromU32
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n (Unsigned 32)
+  -> DSignal dom (n + E.FromU32DefDelay) Float
+fromU32 = withFrozenCallStack $ hideClockResetEnable E.fromU32
+{-# INLINE fromU32 #-}
+
+-- | Customizable floating point conversion of @Float@ to @Signed 32@. See 'E.toS32With'.
+toS32With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Signed 32)
+toS32With cfg = withFrozenCallStack $ hideClockResetEnable (E.toS32With cfg)
+{-# INLINE toS32With #-}
+
+-- | Floating point conversion of @Float@ to @Signed 32@, with the default configuration and delay. See
+-- 'E.toS32'.
+toS32
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToS32DefDelay) (Signed 32)
+toS32 = withFrozenCallStack $ hideClockResetEnable E.toS32
+{-# INLINE toS32 #-}
+
+-- | Customizable floating point conversion of @Float@ to @Unsigned 32@. See 'E.toU32With'.
+toU32With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) (Unsigned 32)
+toU32With cfg = withFrozenCallStack $ hideClockResetEnable (E.toU32With cfg)
+{-# INLINE toU32With #-}
+
+-- | Floating point conversion of @Float@ to @Unsigned 32@, with the default configuration and delay. See
+-- 'E.toU32'.
+toU32
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToU32DefDelay) (Unsigned 32)
+toU32 = withFrozenCallStack $ hideClockResetEnable E.toU32
+{-# INLINE toU32 #-}
+
+-- | Customizable comparison of floating point numbers. See 'E.predicateWith'.
+predicateWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.Predicate
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Bool
+predicateWith cfg p = withFrozenCallStack $ hideClockResetEnable (E.predicateWith cfg p)
+{-# INLINE predicateWith #-}
+
+-- | Comparison of floating point numbers with the default configuration and
+-- delay. See 'E.predicate'.
+predicate
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.Predicate
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.CompareDefDelay) Bool
+predicate p = withFrozenCallStack $ hideClockResetEnable (E.predicate p)
+{-# INLINE predicate #-}
+
+-- | Customizable comparison of floating point numbers. See 'E.compareWith'.
+compareWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) E.Ordering
+compareWith cfg = withFrozenCallStack $ hideClockResetEnable (E.compareWith cfg)
+{-# INLINE compareWith #-}
+
+-- | Comparison of floating point numbers with the default configuration and
+-- delay. See 'E.compare'.
+compare
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.CompareDefDelay) E.Ordering
+compare = withFrozenCallStack $ hideClockResetEnable E.compare
+{-# INLINE compare #-}
+
+-- | Customizable conversion of 'Float' to 'Double'. See 'E.toDoubleWith'.
+toDoubleWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Double
+toDoubleWith cfg = withFrozenCallStack $ hideClockResetEnable (E.toDoubleWith cfg)
+{-# INLINE toDoubleWith #-}
+
+-- | Conversion of 'Float' to 'Double', with the default configuration and delay. See
+-- 'E.toDouble'.
+toDouble
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.ToDoubleDefDelay) Double
+toDouble = withFrozenCallStack $ hideClockResetEnable E.toDouble
+{-# INLINE toDouble #-}
+
+-- | Customizable conversion of 'Double' to 'Float'. See 'E.fromDoubleWith'.
+fromDoubleWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Float
+fromDoubleWith cfg = withFrozenCallStack $ hideClockResetEnable (E.fromDoubleWith cfg)
+{-# INLINE fromDoubleWith #-}
+
+-- | Conversion of 'Double' to 'Float', with the default configuration and delay. See
+-- 'E.fromDouble'.
+fromDouble
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Double
+  -> DSignal dom (n + E.FromDoubleDefDelay) Float
+fromDouble = withFrozenCallStack $ hideClockResetEnable E.fromDouble
+{-# INLINE fromDouble #-}
