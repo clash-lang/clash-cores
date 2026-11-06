@@ -21,3 +21,4 @@
 * Add `iserdese3` and `oserdese3`, wrappers for Xilinx's `ISERDESE3` and `OSERDESE3` serializers/deserializers
 * Add `idelaye3`, `odelaye3` and `idelayctrl`, wrappers for Xilinx's `IDELAYE3`, `ODELAYE3` and `IDELAYCTRL` primitives. The delay lines' data paths are simulated without delay; their tap counters are simulated cycle-accurately.
 * Add `startupE3`, `usrAccessE2` and `icapE3`, wrappers for Xilinx's `STARTUPE3`, `USR_ACCESSE2` and `ICAPE3` configuration primitives
+* Add `iserdese2` and `oserdese2`, wrappers for the 7 series `ISERDESE2` (networking mode, with bitslip) and `OSERDESE2` serializers/deserializers, in `Clash.Cores.Xilinx.Unisim.Series7.Serdes`

@@ -360,6 +360,18 @@ runClashTest = defaultMain $ clashTestRoot
               , hdlSim=[Vivado]
               , buildTargets=BuildSpecific ["tbStartupE3", "tbIcapE3"]
               }
+          , runTest "Series7Serdes" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  [ "tbIserdesSdr2", "tbIserdesSdr3", "tbIserdesSdr5", "tbIserdesSdr8"
+                  , "tbIserdesDdr4", "tbIserdesDdr6", "tbIserdesDdr8"
+                  , "tbOserdesSdr2", "tbOserdesSdr5", "tbOserdesSdr8"
+                  , "tbOserdesDdr4", "tbOserdesDdr6", "tbOserdesDdr8"
+                  , "tbLoopbackSdr4", "tbLoopbackDdr8"
+                  ]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =
