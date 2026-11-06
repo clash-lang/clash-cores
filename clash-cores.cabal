@@ -165,6 +165,9 @@ library
     Clash.Cores.Xilinx.DcFifo.Internal.Types
     Clash.Cores.Xilinx.Ethernet.Gmii
     Clash.Cores.Xilinx.Ethernet.Gmii.Internal
+    Clash.Cores.Xilinx.Fir
+    Clash.Cores.Xilinx.Fir.Explicit
+    Clash.Cores.Xilinx.Fir.Internal
     Clash.Cores.Xilinx.Floating
     Clash.Cores.Xilinx.Floating.Explicit
     Clash.Cores.Xilinx.Floating.Internal
