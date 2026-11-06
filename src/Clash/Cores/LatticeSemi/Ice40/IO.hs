@@ -97,12 +97,12 @@ data PinOutputConfig
   -- ^ Output registered and enable registered
   | PIN_OUTPUT_DDR
   -- ^ Output DDR data is clocked out on rising and falling clock edges. See
-  -- 'sbioDdr'.
+  -- 'Clash.Cores.LatticeSemi.Ice40.IO.sbioDdr'.
   | PIN_OUTPUT_DDR_ENABLE
   -- ^ Output data is clocked out on rising and falling clock edges. See
-  -- 'sbioDdr'.
+  -- 'Clash.Cores.LatticeSemi.Ice40.IO.sbioDdr'.
   | PIN_OUTPUT_DDR_ENABLE_REGISTERED
-  -- ^ Output DDR data with registered enable signal. See 'sbioDdr'.
+  -- ^ Output DDR data with registered enable signal. See 'Clash.Cores.LatticeSemi.Ice40.IO.sbioDdr'.
   | PIN_OUTPUT_REGISTERED_INVERTED
   -- ^ Output registered signal is inverted
   | PIN_OUTPUT_REGISTERED_ENABLE_INVERTED

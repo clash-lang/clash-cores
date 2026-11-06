@@ -13,7 +13,7 @@
   pre-adder.
 
   'sbMac16' exposes the primitive as is: the parameters are set by a
-  'Mac16Config', and every input and output port is a field of 'Mac16Input' and
+  t'Mac16Config', and every input and output port is a field of 'Mac16Input' and
   'Mac16Output'. The simulation model follows the community simulation model of
   Yosys (@share\/yosys\/ice40\/cells_sim.v@), against which it is tested with
   Yosys 0.70 (@\/nix\/store\/cfry5mn7l5qk6cy730gspaa51fahc108-yosys-0.70@). In
@@ -308,7 +308,7 @@ data Mac16Output dom = Mac16Output
   -- for the 'signExtIn' of the DSP block above
   }
 
--- | Instantiate an @SB_MAC16@, configured by a 'Mac16Config'. See the module
+-- | Instantiate an @SB_MAC16@, configured by a t'Mac16Config'. See the module
 -- documentation for the simulation behavior.
 sbMac16 ::
   forall dom.
