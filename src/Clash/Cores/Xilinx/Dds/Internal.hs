@@ -38,6 +38,45 @@ The simulation model follows the description of the IP in
 
 * Negating the sine or cosine negates the table value.
 
+Taylor series correction (PG141, /Taylor Series Corrected DDS/) uses a table
+of 2048 entries and corrects its values with the rest of the phase. PG141
+describes the principle, not the arithmetic. The structure below comes from
+the block names and widths in Vivado's utilization report of the synthesized
+IP (a multiplier of the phase error by pi with an 18-bit result, two
+multiply-adders for the first order term, and for second order a block RAM
+for the square of the phase error and two more multiply-adders); the
+rounding was then pinned down by comparing with the C model, including on
+inputs chosen to hit rounding ties:
+
+* The table holds the sine and cosine at the centres of its entries,
+  @round(A * K * sin(2 pi (j + 1\/2) \/ 2048))@, in the output width. For first
+  order correction (outputs of up to 21 bits) @K = 1 - (pi \/ 2048)^2 \/ 4@,
+  which halves the maximum error of a linear approximation; for second order
+  correction (22 bits and more) @K = 1@. Negated outputs negate these values.
+
+* The phase error is the rest of the phase relative to the centre of the
+  entry, a signed fraction @x@ of an entry, of which the IP uses 17 bits
+  (rounded down). It is multiplied by @floor(pi * 2^15)@, and the product is
+  rounded down to 14 fractional bits: @d@, the phase error in radians times
+  1024.
+
+* The multipliers take the table values as 18-bit operands: their 18 most
+  significant bits for outputs of more than 18 bits, and for narrower ones the
+  value with a one appended after its least significant bit.
+
+* First order: @sin(phase) = S + C' * d@ (and @cos(phase) = C - S' * d@), where
+  @S'@ and @C'@ are the operands. The product is added to the table value at
+  the full precision of the product, and the sum is rounded to 6 bits less
+  (ties up).
+
+* Second order: the square of the phase error, @(pi x)^2 \/ 2@, comes from a
+  table of 1024 entries addressed by the 10 most significant bits of @x@, and
+  is rounded to 10 fractional bits. Its product with the other operand is
+  rounded to the precision of the first order sum (ties towards negative
+  infinity) and subtracted.
+
+* Finally the sum is rounded to the output width (ties up).
+
 These details were validated against Xilinx's bit-accurate C model of the IP,
 see @test\/Test\/Cores\/Xilinx\/Dds.hs@, and against the IP itself in Vivado's
 simulator.
@@ -119,6 +158,12 @@ data NoiseShaping
   = NoNoiseShaping
     -- ^ Phase truncation: the most significant bits of the phase address the
     -- lookup table.
+  | TaylorSeriesCorrected
+    -- ^ Taylor series correction: the lookup table has 2048 entries, and the
+    -- IP corrects its values with the rest of the phase. Outputs of up to 21
+    -- bits use a first order (linear) correction, wider outputs a second order
+    -- one. Needs a phase width and an output width of at least 12 bits. See
+    -- "Clash.Cores.Xilinx.Dds.Internal" for the details of the model.
   deriving (Eq, Show, Lift)
 
 -- | Amplitude of the outputs, see /Amplitude Mode/ in PG141.
@@ -211,14 +256,21 @@ mkParams p inc off cfg pw ow = Params
 -- | Width of the address of the lookup table: the number of most significant
 -- bits of the phase that select a table entry.
 angleWidth :: Params -> Int
-angleWidth Params{..} = case parts of
+angleWidth Params{..}
+  | taylor config = 11
+  | otherwise = case parts of
   SinCosLutOnly -> phaseWidth
   _ -> min phaseWidth outputWidth
 
 -- | Whether the table entries are taken half an address step after the
 -- address. See the module documentation.
 halfStepOffset :: Params -> Bool
-halfStepOffset Params{..} = parts /= SinCosLutOnly && outputWidth <= phaseWidth
+halfStepOffset Params{..} =
+  not (taylor config) && parts /= SinCosLutOnly && outputWidth <= phaseWidth
+
+-- | Whether a configuration uses Taylor series correction
+taylor :: Config -> Bool
+taylor cfg = noiseShaping cfg == TaylorSeriesCorrected
 
 -- | Amplitude of the sine and cosine, in units of the least significant bit of
 -- the output.
@@ -277,14 +329,80 @@ tableEntry p k
 -- | The sine and cosine of a phase (unsigned, @phaseWidth@ bits), as signed
 -- integers. Returns @(cosine, sine)@, negated if configured.
 modelSinCos :: Params -> Integer -> (Integer, Integer)
-modelSinCos p@Params{..} phase = (neg (negativeCosine config) c, neg (negativeSine config) s)
+modelSinCos p@Params{..} phase
+  | taylor config = let (s, c) = taylorSinCos p ph in (c, s)
+  | otherwise = (neg (negativeCosine config) c0, neg (negativeSine config) s0)
  where
   aw = angleWidth p
-  k = (phase .&. ((1 `shiftL` phaseWidth) - 1)) `shiftR` (phaseWidth - aw)
+  ph = phase .&. ((1 `shiftL` phaseWidth) - 1)
+  k = ph `shiftR` (phaseWidth - aw)
   n = 1 `shiftL` aw :: Integer
-  s = tableEntry p k
-  c = tableEntry p (k + n `shiftR` 2)
+  s0 = tableEntry p k
+  c0 = tableEntry p (k + n `shiftR` 2)
   neg b v = if b then negate v else v
+
+-- | Sine and cosine with Taylor series correction, see the module
+-- documentation. Takes a phase of @phaseWidth@ bits, returns @(sine, cosine)@.
+-- Negation is included: the IP negates the table values (and the multiplier
+-- operands it derives from them), and corrects the signs of the products,
+-- which does not give the same rounding as negating the result.
+taylorSinCos :: Params -> Integer -> (Integer, Integer)
+taylorSinCos p@Params{..} phase = (sinOut, cosOut)
+ where
+  sign b = if b then -1 else 1 :: Integer
+  sgnS = sign (negativeSine config)
+  sgnC = sign (negativeCosine config)
+  -- The tables as the IP stores them
+  sq' = sgnS * sq
+  cq' = sgnC * cq
+  -- @sgnS * sin = sq' + sgnS * sgnC * cq' * d - sq' * d^2 / 2@, and likewise
+  -- for the cosine
+  sinOut = stage sq' (sgnS * sgnC * operand cq') (operand sq')
+  cosOut = stage cq' (negate (sgnS * sgnC) * operand sq') (operand cq')
+  e = phaseWidth - 11
+  j = phase `shiftR` e
+  -- The phase error relative to the centre of the table entry, as a signed
+  -- fraction of an entry with 17 bits (rounded down)
+  xi = (phase .&. ((1 `shiftL` e) - 1)) - (1 `shiftL` (e - 1))
+  x17 = if e <= 17 then xi `shiftL` (17 - e) else xi `shiftR` (e - 17)
+  -- The phase error in radians (times 1024), rounded down to 14 fractional
+  -- bits: the product with pi rounded down to 15 fractional bits
+  dq = (x17 * 102943) `shiftR` 18
+  second = outputWidth >= 22
+  (sq, cq) = taylorTable p j
+  -- The table values as 18-bit multiplier operands: the 18 most significant
+  -- bits, or the value with a one appended after its least significant bit
+  kk = 18 - outputWidth
+  operand t
+    | kk > 0 = (t `shiftL` kk) + (1 `shiftL` (kk - 1))
+    | otherwise = t `shiftR` negate kk
+  -- Half of the square of the phase error in radians (times 1024^2), for
+  -- 10 bits of the phase error, rounded to 10 fractional bits
+  xb = fromInteger (x17 `shiftR` 7) / 1024 :: Double
+  q2 = floor ((xb * pi) * (xb * pi) / 2 * 1024 + 0.5) :: Integer
+  s1 = 24 + kk
+  stage t a1 a2 =
+    let
+      -- First order: drop 6 bits of the sum, rounding
+      p1 = ((t `shiftL` s1) + a1 * dq + 32) `shiftR` 6
+      -- Second order: subtract the product with the square of the phase
+      -- error, rounded to the same precision (ties towards negative infinity)
+      p2 | second = p1 + ((negate (a2 * q2) + 2048) `shiftR` 12)
+         | otherwise = p1
+    in (p2 + (1 `shiftL` (s1 - 7))) `shiftR` (s1 - 6)
+
+-- | Sine and cosine at the centre of an entry of the Taylor series corrected
+-- table: @round(A * K * sin(2 pi (j + 1/2) / 2048))@ and the cosine. For first
+-- order correction, the IP scales the table by @K = 1 - (pi / 2048)^2 / 4@,
+-- which halves the maximum error of the linear approximation.
+taylorTable :: Params -> Integer -> (Integer, Integer)
+taylorTable p@Params{..} j = (rnd (sin phc), rnd (cos phc))
+ where
+  phc = 2 * pi * (fromInteger j + 0.5) / 2048 :: Double
+  k | outputWidth >= 22 = 1
+    | otherwise = 1 - (pi / 2048) ^ (2 :: Int) / 4
+  a = fromInteger (amplitude p) * k
+  rnd x = floor (a * x + 0.5)
 
 -- | One step of the phase generator: given the accumulated phase, the phase
 -- increment, the phase offset and whether to resynchronize, return the new
@@ -315,18 +433,24 @@ blockRom p = case memoryType (config p) of
   DistributedRom -> False
   AutoMemory -> angleWidth p > 5
 
+-- | Whether a configuration uses second order Taylor series correction, which
+-- needs a cycle more
+secondOrder :: Params -> Bool
+secondOrder p = taylor (config p) && outputWidth p >= 22
+
 -- | Minimum latency the IP supports for a configuration, in clock cycles. The
 -- IP accepts a latency of 0 for a SIN\/COS LUT in distributed memory, but it
 -- then has no clock input; that is not supported here.
 --
 -- PG141 (/Latency Options/) lists the sources of latency; we found these
 -- minimums by letting Vivado validate a wide range of configurations: the
--- phase generator takes a cycle, and so does a lookup table in block RAM.
+-- phase generator takes a cycle, and so do a lookup table in block RAM and
+-- second order Taylor series correction.
 minLatency :: Params -> Int
 minLatency p = case parts p of
   PhaseGeneratorOnly -> 1
-  SinCosLutOnly -> 1
-  PhaseGeneratorAndSinCosLut -> 1 + fromEnum (blockRom p)
+  SinCosLutOnly -> max 1 (fromEnum (blockRom p) + fromEnum (secondOrder p))
+  PhaseGeneratorAndSinCosLut -> 1 + fromEnum (blockRom p) + fromEnum (secondOrder p)
 
 -- | Check that the IP supports the widths of a configuration (see /Hardware
 -- Parameters/ in PG141, and the ranges Vivado enforces). Returns an error
@@ -337,11 +461,14 @@ checkWidths Params{..}
       Just ("the phase width must be between 3 and " <> show maxPhase <> " bits")
   | parts /= PhaseGeneratorOnly && (outputWidth < 3 || outputWidth > 26) =
       Just "the output width must be between 3 and 26 bits"
-  | parts == PhaseGeneratorAndSinCosLut && min phaseWidth outputWidth > 16 =
+  | taylorLut && (phaseWidth < 12 || outputWidth < 12) =
+      Just "Taylor series correction needs a phase width and an output width of at least 12 bits"
+  | parts == PhaseGeneratorAndSinCosLut && not taylorLut && min phaseWidth outputWidth > 16 =
       Just "the phase width or the output width must be at most 16 bits"
   | otherwise = Nothing
  where
   maxPhase = if parts == SinCosLutOnly then 16 else 48
+  taylorLut = parts /= PhaseGeneratorOnly && taylor config
 
 -- | Maximum latency the IP supports, in clock cycles
 maxLatency :: Int
@@ -356,6 +483,7 @@ partsPresentToTcl = \case
 noiseShapingToTcl :: NoiseShaping -> String
 noiseShapingToTcl = \case
   NoNoiseShaping -> "None"
+  TaylorSeriesCorrected -> "Taylor_Series_Corrected"
 
 amplitudeModeToTcl :: AmplitudeMode -> String
 amplitudeModeToTcl = \case

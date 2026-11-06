@@ -20,8 +20,11 @@
   the C model for the same configuration of the IP. They cover all three
   configurations of the IP (complete DDS, phase generator only, SIN\/COS
   lookup table only), all ways to set the phase increment and offset, output
-  selection, negation, both amplitude modes, and a range of phase and output
-  widths.
+  selection, negation, both amplitude modes, no noise shaping and first and
+  second order Taylor series correction, and a range of phase and output
+  widths. Lookup tables of 16-bit phases are also compared for all phases at
+  once, which covers every table entry of the Taylor series corrected
+  configurations.
 
   The C model is not cycle accurate: it computes one output per input sample,
   and applies new values of programmable increments and offsets between calls.
@@ -87,7 +90,7 @@ import qualified Clash.Signal.Delayed as D
 
 import Clash.Cores.Xilinx.Dds.Explicit
   ( AmplitudeMode (..), Config (..), DataOutput, Increment (..), MemoryType (..)
-  , Offset (..), Output (..), Phase, Sample )
+  , NoiseShaping (..), Offset (..), Output (..), Phase, Sample )
 import qualified Clash.Cores.Xilinx.Dds.Explicit as X
 import Clash.Cores.Xilinx.Dds.Internal
   ( Params (..), PartsPresent (..), PhaseSource (..), checkWidths, minLatency, mkParams
@@ -539,7 +542,9 @@ runCModel model@DdsCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} Batch{.
         , (ChannelsF, 1)
         , (ModeOfOperationF, 0)
         , (ParameterEntryF, 1)
-        , (NoiseShapingF, 0)
+        , (NoiseShapingF, case noiseShaping tcConfig of
+            NoNoiseShaping -> 0
+            TaylorSeriesCorrected -> 2)
         , (PhaseIncrementF, sourceCode (incSourceOf tcIncrement))
         , (ResyncF, if tcIncrement == IncStreamingResync then 1 else 0)
         , (PhaseOffsetF, sourceCode (offSourceOf tcOffset))
@@ -744,6 +749,20 @@ prop_cmodel getModel tc = H.withTests nTests $ H.property $ do
   zip4 (a : as) (b : bs) (c : cs) (d : ds) = (a, b, c, d) : zip4 as bs cs ds
   zip4 _ _ _ _ = []
 
+-- | Compare all phases of a SIN/COS lookup table with the C model at once
+prop_exhaustive :: IO DdsCModel -> TestConfig -> Property
+prop_exhaustive getModel tc@TestConfig{tcPhaseWidth} = H.withTests 1 $ H.property $ do
+  model <- H.evalIO getModel
+  let batch = Batch [ InputSample k 0 False | k <- [0 .. (1 `shiftL` tcPhaseWidth) - 1] ] []
+  cOut <- H.evalIO (runCModel model tc batch)
+  let mismatches = [ (k, c, h) | (k, c, h) <- zip3 [0 :: Integer ..] cOut (runClash tc batch), c /= h ]
+  H.annotateShow (tcParams tc)
+  case mismatches of
+    [] -> pure ()
+    ((k, c, h) : _) -> do
+      H.footnote ("first mismatch at phase " <> show k <> " of " <> show (length mismatches))
+      c === h
+
 ------------------------------------------------------------------------------
 -- Generators
 ------------------------------------------------------------------------------
@@ -851,7 +870,32 @@ testConfigs =
   , sel <- [SineOnly, CosineOnly, SineAndCosine]
   , cfg <- outputConfigs
   ]
+  <>
+  -- Taylor series correction: SIN/COS lookup table, first and second order
+  [ (defaultTest SinCosLutOnly pw ow){tcConfig = taylorCfg}
+  | pw <- [12, 14, 16]
+  , ow <- [12, 13, 16, 17, 18, 19, 21, 22, 24, 25, 26]
+  ]
+  <>
+  [ (defaultTest SinCosLutOnly pw ow){tcOutput = sel, tcConfig = cfg{noiseShaping = TaylorSeriesCorrected}}
+  | (pw, ow) <- [(16, 18), (13, 24)]
+  , sel <- [SineOnly, CosineOnly, SineAndCosine]
+  , cfg <- outputConfigs
+  ]
+  <>
+  -- Taylor series correction: DDS, phase errors narrower and wider than the
+  -- 17 bits the IP uses
+  [ (defaultTest PhaseGeneratorAndSinCosLut pw ow){tcConfig = taylorCfg}
+  | pw <- [12, 20, 28, 29, 40, 48]
+  , ow <- [12, 16, 21, 22, 26]
+  ]
+  <>
+  [ (defaultTest PhaseGeneratorAndSinCosLut 32 24){tcIncrement = inc, tcOffset = off, tcConfig = taylorCfg}
+  | inc <- incrementModes 32
+  , off <- offsetModes 32
+  ]
  where
+  taylorCfg = X.defConfig{noiseShaping = TaylorSeriesCorrected}
   outputConfigs =
     [ X.defConfig{negativeSine = ns, negativeCosine = nc, amplitudeMode = am}
     | (ns, nc) <- [(False, False), (True, False), (False, True), (True, True)]
@@ -874,6 +918,11 @@ tests =
           | (i, tc) <- zip [0 :: Int ..] (nubOn testName testConfigs)
           , checkWidths (tcParams tc) == Nothing
           ]
+    , withResource loadDds unloadDds $ \getModel ->
+        testGroup "vs. C model, all phases"
+          [ testPropertyNamed (testName tc) (fromString ("prop_dds_all_" <> show i)) (prop_exhaustive getModel tc)
+          | (i, tc) <- zip [0 :: Int ..] exhaustiveConfigs
+          ]
     ]
  where
   nubOn f = go []
@@ -882,3 +931,14 @@ tests =
     go seen (x : xs)
       | f x `elem` seen = go seen xs
       | otherwise = x : go (f x : seen) xs
+
+-- | SIN/COS lookup tables compared for all phases: every table entry of the
+-- Taylor series corrected configurations (whose tables depend on the output
+-- width and amplitude), and some without noise shaping
+exhaustiveConfigs :: [TestConfig]
+exhaustiveConfigs =
+  [ (defaultTest SinCosLutOnly 16 ow){tcConfig = X.defConfig{noiseShaping = ns, amplitudeMode = am}}
+  | (ns, ows) <- [(TaylorSeriesCorrected, [12 .. 26]), (NoNoiseShaping, [8, 16, 20, 26])]
+  , ow <- ows
+  , am <- [FullRange, UnitCircle]
+  ]

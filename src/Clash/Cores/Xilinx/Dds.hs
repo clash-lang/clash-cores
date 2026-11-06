@@ -51,9 +51,15 @@ The IP supports these widths:
 
 * The phase width is 3 to 48 bits, or 3 to 16 bits for the SIN\/COS LUT only.
 * The output width (@f + 1@) is 3 to 26 bits.
-* For a complete DDS, at least one of them is at most 16 bits: the lookup
-  table has @2^min(pw, f + 1)@ entries, which the phase addresses with its
-  most significant bits.
+* For a complete DDS without noise shaping, at least one of them is at most
+  16 bits: the lookup table has @2^min(pw, f + 1)@ entries, which the phase
+  addresses with its most significant bits.
+* With Taylor series correction ('E.TaylorSeriesCorrected'), both are at least
+  12 bits. The table has 2048 entries, and the rest of the phase corrects its
+  values: linearly for outputs of up to 21 bits, with a second order term for
+  wider outputs. PG141 gives a spurious free dynamic range of 6 dB per output
+  bit but one, independent of the phase width. The simulation model is
+  bit-exact for these too.
 
 = Phase increment and offset
 
@@ -109,15 +115,19 @@ least:
 * 1 cycle for a complete DDS with its lookup table in distributed memory, and
   2 cycles with its lookup table in block RAM. With 'E.AutoMemory', the IP uses
   block RAM for tables of more than 32 entries: if both the phase width and
-  the output width are more than 5 bits.
+  the output width are more than 5 bits, or with Taylor series correction.
+* one more cycle with second order Taylor series correction (outputs of more
+  than 21 bits).
 
 Vivado and the simulation model report an error for other latencies. For
 reference, the latencies Vivado picks for the highest clock frequency
 (/Auto/ latency) are:
 
 * for a complete DDS: 7 cycles if the table has more than 1024 entries, else
-  3, plus one if there is a phase offset;
-* for a SIN\/COS LUT: 6 cycles for a phase of more than 10 bits, else 2;
+  3, plus one if there is a phase offset; with Taylor series correction 8, or
+  10 for second order, plus one if there is a phase offset;
+* for a SIN\/COS LUT: 6 cycles for a phase of more than 10 bits, else 2; with
+  Taylor series correction 7, or 9 for second order;
 * for a phase generator: 1 cycle, plus one if there is a phase offset.
 
 De-asserting the 'Enable' signal of a function stalls the whole IP: the
@@ -127,10 +137,6 @@ pipeline, the phase accumulator and the CONFIG channel.
 
 * Phase dithering (/Noise Shaping/ \"Phase Dithering\"): the IP adds a pseudo
   random sequence to the phase, which PG141 does not specify.
-* Taylor series corrected noise shaping. The IP corrects the lookup table with
-  a multiplication by the truncated part of the phase, but PG141 does not
-  document the widths and rounding of that datapath, and comparing with
-  Xilinx's C model did not pin them down exactly.
 * Rasterized mode
 * More than one (time division multiplexed) channel
 * Blocking AXI4-Stream interfaces (@TREADY@), resets, @TLAST@ and @TUSER@
