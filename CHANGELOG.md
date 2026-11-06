@@ -22,3 +22,4 @@
 * Add `idelaye3`, `odelaye3` and `idelayctrl`, wrappers for Xilinx's `IDELAYE3`, `ODELAYE3` and `IDELAYCTRL` primitives. The delay lines' data paths are simulated without delay; their tap counters are simulated cycle-accurately.
 * Add `startupE3`, `usrAccessE2` and `icapE3`, wrappers for Xilinx's `STARTUPE3`, `USR_ACCESSE2` and `ICAPE3` configuration primitives
 * Add `BitBiSignalInPort` to `inst`, for single-bit bidirectional ports that are a `std_logic` in VHDL, such as the `IO` port of `IOBUF`. A 1-bit `BiSignalInPort` renders as a `std_logic_vector(0 downto 0)`, which VHDL does not allow to be connected to such ports.
+* Add `obuft`, `iobuf`, `obuftds` and `iobufds`, wrappers for Xilinx's `OBUFT`, `IOBUF`, `OBUFTDS` and `IOBUFDS` tristate and bidirectional buffers. Their pads are `BiSignal`s, and the pull resistor of a single-ended pad follows its `BiSignalDefault`.

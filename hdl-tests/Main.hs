@@ -326,6 +326,9 @@ runClashTest = defaultMain $ clashTestRoot
               , buildTargets=BuildSpecific
                   [ "tbObufds", "tbIbufdsGte4Div1", "tbIbufdsGte4Div2"
                   , "tbIbufdsGte3Div2"
+                  , "tbIobufFloating", "tbIobufPullUp", "tbIobufPullDown"
+                  , "tbObuftFloating", "tbObuftPullUp", "tbObuftPullDown"
+                  , "tbIobufds", "tbObuftds"
                   ]
               }
           , runTest "Ddr" def
