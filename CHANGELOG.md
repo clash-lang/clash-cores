@@ -19,3 +19,4 @@
 * Fix `inst` failing on a `BiSignalInPort` or `BiSignalOutPort` whose width is a type family application, such as `BitSize a`
 * Add `Clash.Cores.Intel.DDR` with `altddioBidir`, a wrapper for `ALTDDIO_BIDIR` on a `BiSignal` pad, completing `altddioIn` and `altddioOut` of `clash-prelude` (which it re-exports)
 * Add `Clash.Cores.Intel.Cdc` with `stdSynchronizer` and `stdSynchronizerBundle`, wrappers for `altera_std_synchronizer` and `altera_std_synchronizer_bundle`
+* Add `Clash.Cores.Intel.Fifo` with `scfifo`, a wrapper for Intel's single-clock FIFO `scfifo`

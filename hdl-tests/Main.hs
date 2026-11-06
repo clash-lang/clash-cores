@@ -186,6 +186,13 @@ runClashTest = defaultMain $ clashTestRoot
             { buildTargets=BuildSpecific
                 ["tbSingle2", "tbSingle3", "tbBundle3", "tbBundle5"]
             }
+        , runTest "ScFifo" intelOpts
+            { buildTargets=BuildSpecific
+                [ "tbNormalArea", "tbNormalSpeed", "tbShowAheadArea"
+                , "tbShowAheadSpeed", "tbShowAheadSpeedSync", "tbUncheckedNormal"
+                , "tbUncheckedShowAhead"
+                ]
+            }
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
