@@ -98,6 +98,8 @@ jobs:
           # The tests of the Xilinx floating point models need Xilinx's C model,
           # see test/Test/Cores/Xilinx/Floating.hs
           CLASH_CORES_XILINX_FLOATING_CMODEL: /opt/tools/Xilinx/Vivado/2022.1/data/ip/xilinx/floating_point_v7_1/cmodel/floating_point_v7_1_bitacc_cmodel_lin64.zip
+          # Likewise for the DDS Compiler models, see test/Test/Cores/Xilinx/Dds.hs
+          CLASH_CORES_XILINX_DDS_CMODEL: /opt/tools/Xilinx/Vivado/2022.1/data/ip/xilinx/dds_compiler_v6_0/cmodel/dds_compiler_v6_0_bitacc_cmodel_lin64.zip
         run: bin/clash-cores:unit-tests -j$(.ci/effective_cpus.sh) --hide-successes
 
   haddock:
