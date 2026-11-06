@@ -112,6 +112,18 @@ clashTestGroup testName testTrees =
     testGroup testName $
       zipWith ($) testTrees (repeat (testName : parentNames))
 
+-- | Options for the tests of the Intel primitives and megafunctions, see
+-- @hdl-tests/shouldwork/Intel/IntelSimLib.hs@. VHDL is tested with Vivado only:
+-- GHDL needs @-fsynopsys@ and @-fexplicit@ to compile Intel's VHDL models.
+-- Verilog is tested with Icarus Verilog and Vivado, SystemVerilog with Vivado.
+intelOpts :: TestOptions
+intelOpts = def
+  { hdlTargets=[VHDL, Verilog, SystemVerilog]
+  , hdlLoad=[IVerilog, Vivado]
+  , hdlSim=[IVerilog, Vivado]
+  , clashFlags=["-ihdl-tests/shouldwork/Intel"]
+  }
+
 runClashTest :: IO ()
 runClashTest = defaultMain $ clashTestRoot
   [ clashTestGroup "hdl-tests"
