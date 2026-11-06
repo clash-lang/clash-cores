@@ -804,7 +804,28 @@ instWithXilinxWizardBBF _ _ args resTys = error $
 
 -- | 'BlackBoxFunction' for @inst@ and @instWithXilinxWizard@
 instBBFWorker :: (HasCallStack, KnownNat n) => Int -> Maybe (XilinxWizard n) -> BlackBoxFunction
-instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
+instBBFWorker nExtraArgs maybeXilinxWizard =
+  instBBFWorkerWithIncludes nExtraArgs (wizardIncludes <$> maybeXilinxWizard)
+ where
+  wizardIncludes w InstConfig{compName} =
+    [ ( (Text.pack compName, "clash.tcl")
+      , BBFunction
+          (show 'instWizardBBTF)
+          0
+          (TemplateFunction [0..] (const True) (instWizardBBTF w))
+      )
+    ]
+
+-- | Files to generate alongside an instance, such as scripts creating vendor
+-- IP. When given, 'inst' instantiates the component by the name Clash gives to
+-- the first of these files, instead of by 'compName'. That name is available
+-- to the files' templates as @bbQsysIncName@.
+type InstIncludes = InstConfig -> [((Text, Text), BlackBox)]
+
+-- | 'BlackBoxFunction' for @inst@ and functions like @instWithXilinxWizard@,
+-- which generate files to create the instantiated component.
+instBBFWorkerWithIncludes :: HasCallStack => Int -> Maybe InstIncludes -> BlackBoxFunction
+instBBFWorkerWithIncludes nExtraArgs maybeIncludes _isD _primName args [resTy]
   | _instConstraint:config:userArgs <- P.drop nExtraArgs $ lefts args
   = do
       doms <- Lens.view (clashEnv . Lens.to envDomains)
@@ -827,22 +848,12 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
     pure (config1, argPorts, resPorts)
 
   bbMeta :: HDL -> InstConfig -> BlackBoxMeta
-  bbMeta hdl InstConfig{..} = emptyBlackBoxMeta
+  bbMeta hdl cfg@InstConfig{..} = emptyBlackBoxMeta
     { bbKind = TDecl
     , bbLibrary = libToBBTemplate hdl library
     , bbImports = libToBBTemplate hdl libraryImport
     , bbRenderVoid = if renderVoid then RenderVoid else NoRenderVoid
-    , bbIncludes =
-      case maybeXilinxWizard of
-        Nothing -> []
-        Just w ->
-          [ ( (Text.pack compName, "clash.tcl")
-            , BBFunction
-              (show 'instWizardBBTF)
-              0
-              (TemplateFunction [0..] (const True) (instWizardBBTF w))
-            )
-          ]
+    , bbIncludes = maybe [] ($ cfg) maybeIncludes
     }
 
   libToBBTemplate hdl
@@ -851,30 +862,33 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
 
   bb :: DomainMap -> InstConfig -> [PrimPortOrParam ()] -> [PrimPort Bool] -> BlackBox
   bb doms config primArgs primRes =
-    BBFunction (show 'instTF) 0 (instTF nExtraArgs doms config maybeXilinxWizard primArgs primRes)
+    BBFunction (show 'instTF) 0 (instTF nExtraArgs doms config hasIncludes primArgs primRes)
 
-instBBFWorker _ _ _ _ args resTys = error $
-     show 'instBBFWorker
+  hasIncludes = isJust maybeIncludes
+
+instBBFWorkerWithIncludes _ _ _ _ args resTys = error $
+     show 'instBBFWorkerWithIncludes
   <> ", bad args:\n\n"
   <> ppShow args
   <> "\n\nor result types:\n\n"
   <> ppShow resTys
 
 instTF ::
-  (HasCallStack, KnownNat n) =>
+  HasCallStack =>
   Int ->
   DomainMap ->
   InstConfig ->
-  Maybe (XilinxWizard n) ->
+  -- | Whether the instance has includes, see 'InstIncludes'
+  Bool ->
   [PrimPortOrParam ()] ->
   -- | Output ports, annotated with whether they have a zero-width type
   [PrimPort Bool] ->
   TemplateFunction
-instTF nExtraArgs doms config maybeXilinxWizard primArgs primRes =
+instTF nExtraArgs doms config hasIncludes primArgs primRes =
   TemplateFunction
     (usedArguments primArgs)
     (const True)
-    (instBBTF nExtraArgs doms config maybeXilinxWizard primArgs primRes)
+    (instBBTF nExtraArgs doms config hasIncludes primArgs primRes)
 
 usedArguments :: [PrimPortOrParam a] -> [Int]
 usedArguments (P.length -> nUserArgs) = 1 : [2..nUserArgs+2]
@@ -922,18 +936,19 @@ instWizardBBTF xilinxWizard bbCtx | [compName] <- bbQsysIncName bbCtx =
 instWizardBBTF _ bbCtx = error (show 'instWizardBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
 
 instBBTF ::
-  forall s n .
-  (Backend s, KnownNat n, HasCallStack) =>
+  forall s .
+  (Backend s, HasCallStack) =>
   Int ->
   DomainMap ->
   InstConfig ->
-  Maybe (XilinxWizard n) ->
+  -- | Whether the instance has includes, see 'InstIncludes'
+  Bool ->
   [PrimPortOrParam ()] ->
   -- | Output ports, annotated with whether they have a zero-width type
   [PrimPort Bool] ->
   BlackBoxContext ->
   State s Doc
-instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
+instBBTF nExtraArgs doms config hasIncludes primArgs0 primResults0 bbCtx
   | (   _instConstraint
       : _instConfig
       : userArgs
@@ -999,16 +1014,16 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
           P.filter (not . isVoid . DSL.ety . snd) . P.concat <$> mapM mkInPort inPorts0
         instLabel <- Id.make (Text.pack (compName config) <> "_inst")
 
-        let compName1 = case maybeXilinxWizard of
-              Just _ ->
+        let compName1
+              | hasIncludes =
                 -- Use Clash's generated name when instantiating the wizard
                 bbQsysIncName bbCtx P.!! 0
-              Nothing ->
+              | otherwise =
                 -- Use exact name the user supplied
                 Text.pack (compName config)
 
         DSL.instDecl
-          (if isJust maybeXilinxWizard then Comp else Empty)
+          (if hasIncludes then Comp else Empty)
           (Id.unsafeMake compName1)
           instLabel
           params1
@@ -1108,7 +1123,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
       var <- DSL.declare (name port) ty
       pure ([(name port, var)], var)
 
-instBBTF _nExtraArgs _doms _config _maybeXilinxWizard _primArgs _primResults bbCtx =
+instBBTF _nExtraArgs _doms _config _hasIncludes _primArgs _primResults bbCtx =
   error (show 'instBBTF <> ", bad bbCtx:\n\n" <> ppShow bbCtx)
 
 #if !MIN_VERSION_clash_prelude(1,9,0)
