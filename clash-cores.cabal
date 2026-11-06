@@ -38,6 +38,14 @@ flag xilinx-floating-cmodel
   default: False
   manual: True
 
+flag xilinx-dds-cmodel
+  description:
+    Test the Xilinx DDS Compiler models against Xilinx's C model. The tests
+    need the C model, which ships with Vivado, when they run. See
+    test/Test/Cores/Xilinx/Dds.hs.
+  default: False
+  manual: True
+
 flag clash-18
   description:
     Disable cores that require a Clash version later than 1.8
@@ -274,6 +282,16 @@ test-suite unit-tests
     cpp-options: -DXILINX_FLOATING_CMODEL
     other-modules:
       Test.Cores.Xilinx.Floating
+    build-depends:
+      directory,
+      filepath,
+      process,
+      temporary,
+
+  if flag(xilinx-dds-cmodel)
+    cpp-options: -DXILINX_DDS_CMODEL
+    other-modules:
+      Test.Cores.Xilinx.Dds
     build-depends:
       directory,
       filepath,
