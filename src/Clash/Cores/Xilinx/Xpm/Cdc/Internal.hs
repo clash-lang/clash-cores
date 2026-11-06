@@ -288,6 +288,12 @@ data XilinxWizardOption
   = StrOpt String
   | IntegerOpt Integer
   | BoolOpt Bool
+  | BinaryOpt Integer Integer
+  -- ^ The @w@ least significant bits of an integer, as binary digits, most
+  -- significant first: @BinaryOpt 4 5@ is @{0101}@. Some wizards take values
+  -- in this format. Clash evaluates wizard options when it generates HDL, but
+  -- it cannot evaluate (recursive) functions that build strings, so use this
+  -- instead of a 'StrOpt' with computed digits.
   deriving (Show)
 deriveTermLiteral ''XilinxWizardOption
 
@@ -297,6 +303,8 @@ xilinxWizardOptionToTcl = \case
   IntegerOpt i -> Text.pack $ show i
   BoolOpt True -> "true"
   BoolOpt False -> "false"
+  BinaryOpt w i ->
+    '{' `Text.cons` Text.pack [ if P.odd (i `P.div` (2 P.^ k)) then '1' else '0' | k <- [w - 1, w - 2 .. 0] ] <> "}"
 
 data XilinxWizard n = XilinxWizard
   { wiz_name :: String
