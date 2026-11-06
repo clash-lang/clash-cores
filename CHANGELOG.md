@@ -20,3 +20,4 @@
 * Add `sbioDdr`, a variant of `sbio` with its pad in a domain with half the period of the clock, to simulate the double data rate features of `SB_IO`
 * Add `sbGb`, `sbGbSignal`, `sbGbIo` and `sbGbIoClock`, wrappers for the iCE40 global buffers `SB_GB` and `SB_GB_IO`
 * Add `sbioOd`, a wrapper for the open-drain I/O cell `SB_IO_OD` of the iCE40 UltraPlus devices
+* Add `Clash.Cores.LatticeSemi.Ice40.Memory` with `sbRam40_4k`, a wrapper for the iCE40 block RAM `SB_RAM40_4K` and its variants with inverted clocks, with typed read and write modes and initial contents

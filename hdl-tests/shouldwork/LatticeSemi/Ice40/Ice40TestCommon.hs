@@ -171,6 +171,9 @@ type Dom = System
 -- | Domain with half the period of 'Dom', for double data rate signals
 createDomain vSystem{vName = "Fast", vPeriod = 5000}
 
+-- | Like 'Dom', but with the falling edge as its active edge
+createDomain vSystem{vName = "DomFalling", vActiveEdge = Falling}
+
 -- * Expected outputs
 
 -- | Expected values along with a mask of the bits to check. Undefined bits are
@@ -190,8 +193,9 @@ definedBits a = case pack a of
 -- | Simulate a circuit with the Haskell model, and return the expected values
 -- along with a mask of the bits to check.
 expected ::
-  (BitPack i, BitPack o, NFDataX i) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
+  forall dom i o.
+  (KnownDomain dom, BitPack i, BitPack o, NFDataX i) =>
+  (Clock dom -> Signal dom i -> Signal dom o) ->
   [i] ->
   [(BitVector (BitSize o), BitVector (BitSize o))]
 expected circuit is =
@@ -200,8 +204,9 @@ expected circuit is =
 -- | Memory blobs with the stimuli, expected values, and masks of the bits to
 -- check, for 'tb'
 blobs ::
-  (BitPack i, BitPack o, NFDataX i) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
+  forall dom i o.
+  (KnownDomain dom, BitPack i, BitPack o, NFDataX i) =>
+  (Clock dom -> Signal dom i -> Signal dom o) ->
   [i] ->
   ExpQ
 blobs circuit is =
@@ -219,32 +224,32 @@ blobs circuit is =
 compares the outputs to the expected values, for every bit in the mask.
 -}
 tb ::
-  forall n i o.
-  (KnownNat n, 1 <= n, BitPack i, BitPack o) =>
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
+  forall dom n i o.
+  (KnownDomain dom, KnownNat n, 1 <= n, BitPack i, BitPack o) =>
+  (Clock dom -> Signal dom i -> Signal dom o) ->
   ( MemBlob n (BitSize i)
   , MemBlob n (BitSize o)
   , MemBlob n (BitSize o) ) ->
-  Signal Dom Bool
+  Signal dom Bool
 tb = tbWithClock (\done -> tbClockGen (not <$> done))
 {-# INLINE tb #-}
 
 -- | Like 'tb', but with a custom clock. The clock should stop once the given
 -- signal is 'True'.
 tbWithClock ::
-  forall n i o.
-  (KnownNat n, 1 <= n, BitPack i, BitPack o) =>
-  (Signal Dom Bool -> Clock Dom) ->
-  (Clock Dom -> Signal Dom i -> Signal Dom o) ->
+  forall dom n i o.
+  (KnownDomain dom, KnownNat n, 1 <= n, BitPack i, BitPack o) =>
+  (Signal dom Bool -> Clock dom) ->
+  (Clock dom -> Signal dom i -> Signal dom o) ->
   ( MemBlob n (BitSize i)
   , MemBlob n (BitSize o)
   , MemBlob n (BitSize o) ) ->
-  Signal Dom Bool
+  Signal dom Bool
 tbWithClock mkClock circuit (stimBlob, expectedBlob, maskBlob) = withCellsSim done
  where
   clk = mkClock done
 
-  cnt :: Signal Dom (Index n)
+  cnt :: Signal dom (Index n)
   cnt = register clk noReset enableGen 0 (satSucc SatBound <$> cnt)
 
   stim = unpack . asyncRomBlob stimBlob <$> cnt
