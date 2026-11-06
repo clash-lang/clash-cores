@@ -89,3 +89,46 @@ dutBufgceDiv n threshold clkA =
   ena = randomEnable randomSeed threshold clkA
   clr = randomClear (randomSeed + 1) clkA
 
+
+-- | Like 'observe', but masking the observations up to and including the given
+-- input clock edge
+observeFrom ::
+  (KnownDomain dom) =>
+  Index 32 ->
+  Clock A ->
+  Clock dom ->
+  Signal A (Unsigned 8)
+observeFrom edge clkA clkB =
+  delay clkA enableGen 0 $
+    mux (cycleCount clkA .<=. pure edge) 0 (unsafeSynchronizer clkB clkA cnt)
+ where
+  cnt = delay clkB enableGen 0 (cnt + 1)
+
+-- | Random mask, deasserted up to and including 'firstEdge', and asserted in
+-- one out of eight cycles after that
+randomMask :: Int -> Clock A -> Signal A Bool
+randomMask seed clkA =
+  delay clkA enableGen False $
+    (\n r -> n >= startupCycles && r == (0 :: Unsigned 3))
+      <$> cycleCount clkA
+      <*> genTestData seed clkA
+
+-- | A 'bufgGt' with random clears, enables and masks. Its first output edge is
+-- two input edges after 'firstEdge', as its clear and enable are synchronized.
+dutBufgGt ::
+  forall n dom.
+  ( KnownDomain dom
+  , 1 <= n, n <= 8
+  , DomainPeriod dom ~ n * DomainPeriod A ) =>
+  SNat n ->
+  -- | Enable threshold (out of 16)
+  Unsigned 5 ->
+  Clock A ->
+  Signal A (Unsigned 8)
+dutBufgGt n threshold clkA =
+  observeFrom (firstEdge + 2) clkA (bufgGt @n @A @dom n clkA clr clrMask ena ceMask)
+ where
+  ena = randomEnable randomSeed threshold clkA
+  clr = randomClear (randomSeed + 1) clkA
+  clrMask = randomMask (randomSeed + 2) clkA
+  ceMask = randomMask (randomSeed + 3) clkA

@@ -34,9 +34,9 @@ Clash simulation has two limitations:
     needs its next edge, for example when 'unsafeSynchronizer' moves a signal
     from the stopped domain to another one.
 
-The UNISIM simulation models of 'bufgce' and 'bufgceDiv' produce no clock edges
-while the global set/reset (GSR) is asserted, which is the first 100 ns of an
-HDL simulation.
+The UNISIM simulation models of 'bufgce', 'bufgceDiv' and 'bufgGt' produce no
+clock edges while the global set/reset (GSR) is asserted, which is the first
+100 ns of an HDL simulation.
 
 = Clock multiplexers in Clash simulation
 
@@ -106,9 +106,12 @@ module Clash.Cores.Xilinx.Unisim.ClockBuffer
   , BufgctrlControl (..)
   , bufgmuxCtrl
   , bufgmux
+    -- * Transceiver clocks
+  , bufgGt
   ) where
 
 import Clash.Explicit.Prelude
+import Clash.Signal.Internal (Signal ((:-)))
 
 import Clash.Cores.Xilinx.Unisim.ClockBuffer.Internal
   ( BufgctrlConfig (..)
@@ -430,3 +433,92 @@ bufgmux clk0 clk1 clkSel sel =
     clk1
     clkSel
     ((\s -> BufgctrlControl{bufgctrlS = True, bufgctrlCe = s, bufgctrlIgnore = False}) <$> sel)
+
+{- | Clock buffer for the clocks of GTH and GTY transceivers (@BUFG_GT@), such
+as @TXOUTCLK@ and @RXOUTCLK@, and for the @ODIV2@ output of
+'Clash.Cores.Xilinx.Unisim.IoBuffer.ibufdsGte4'. The output clock runs at the
+input frequency divided by @n@, where @n@ is between 1 and 8. Like the one of
+'bufgceDiv', the divider counts the input edges at which it is enabled, and
+every @n@th counted edge, starting with the first one, produces an output edge.
+
+The clock enable (@CE@) and the clear (@CLR@) pass through a synchronizer of
+two flip-flops clocked by the input (the @BUFG_GT_SYNC@ that Vivado inserts
+automatically), so they take effect later than those of 'bufgceDiv'. In Clash
+terms, input edge /k/ is counted if:
+
+  * The clear mask (@CLRMASK@) is asserted at edge /k/, or the clear is not
+    asserted at any of the edges /k - 2/, /k - 1/ and /k/. The clear is
+    asserted asynchronously, but deasserted through the synchronizer.
+
+  * And: the enable mask (@CEMASK@) is asserted at edge /k/, or the enable is
+    asserted at edge /k - 2/.
+
+Input edges at which the clear is in effect (the first condition does not
+hold) restart the divider: the next counted edge produces an output edge. Right
+after configuration, the clear and the enable count as asserted and deasserted
+at the two edges before the first one, respectively.
+
+The clear takes effect asynchronously, so if it takes effect at edge /k + 1/
+(for example because it gets asserted right after edge /k/, or its mask gets
+deasserted), it cuts short the output pulse that edge /k/ started. The UNISIM
+model then produces no output edge for edge /k/ at all, and neither does Clash
+simulation. In hardware, this produces a runt pulse: assert the clear while the
+output is low, or while the enable is deasserted, to prevent that.
+
+The output clock is modelled as a clock with a varying period; see the module
+documentation for how to use it. If the enable is always asserted (or masked)
+and the clear never is (or is masked), the output clock is periodic and its
+domain can be used like any other domain.
+
+For more information see
+[UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/BUFG_GT)
+and UG572. The divider (@DIV@, which is @n - 1@) is fixed; changing it
+dynamically is not supported. @SIM_DEVICE@ and @STARTUP_SYNC@ are left at their
+defaults, which behave the same on UltraScale and UltraScale+ devices.
+-}
+bufgGt ::
+  forall n domIn domOut.
+  ( KnownDomain domIn
+  , KnownDomain domOut
+  , 1 <= n
+  , n <= 8
+  , DomainPeriod domOut ~ n * DomainPeriod domIn
+  ) =>
+  -- | Divider (@DIV + 1@)
+  SNat n ->
+  Clock domIn ->
+  -- | Clear (@CLR@)
+  Reset domIn ->
+  -- | Clear mask (@CLRMASK@)
+  Signal domIn Bool ->
+  -- | Clock enable (@CE@)
+  Enable domIn ->
+  -- | Clock enable mask (@CEMASK@)
+  Signal domIn Bool ->
+  Clock domOut
+bufgGt divider@SNat clk clr clrMask ena ceMask
+  | clashSimulation = gatedClockModel (snatToNum divider) clk clrEffective enaSync
+  | otherwise = unPort go
+ where
+  clr0 = unsafeToActiveHigh clr
+  clr1 = delay clk enableGen True clr0
+  clr2 = delay clk enableGen True clr1
+  clrActive = (not <$> clrMask) .&&. (clr0 .||. clr1 .||. clr2)
+  -- A clear that takes effect at edge k + 1 also suppresses the output edge of
+  -- edge k. Treating edge k as cleared does exactly that: the divider restarts
+  -- at edge k + 1 anyway.
+  clrEffective = clrActive .||. lookahead clrActive
+  lookahead ~(_ :- xs) = xs
+  ce2 = delay clk enableGen False (delay clk enableGen False (fromEnable ena))
+  enaSync = ce2 .||. ceMask
+
+  go :: ClockPort "O" domOut
+  go =
+    inst
+      (unisim "BUFG_GT")
+      (ClockPort @"I" clk)
+      (Port @"CE" (boolToBit <$> fromEnable ena))
+      (Port @"CEMASK" (boolToBit <$> ceMask))
+      (ResetPort @"CLR" @'ActiveHigh clr)
+      (Port @"CLRMASK" (boolToBit <$> clrMask))
+      (Port @"DIV" (pure (fromInteger (snatToInteger divider - 1)) :: Signal domIn (BitVector 3)))

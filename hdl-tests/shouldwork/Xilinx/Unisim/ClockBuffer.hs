@@ -53,3 +53,23 @@ tbBufgceDiv8 = tbWith (dutBufgceDiv @8 @G8 d8 16) expected
  where
   expected = $(listToVecTH (sampleN 300 (dutBufgceDiv @8 @G8 d8 16 clockGen)))
 {-# ANN tbBufgceDiv8 (TestBench 'topEntity) #-}
+
+tbBufgGt1 = tbWith (dutBufgGt @1 @G1 d1 10) expected
+ where
+  expected = $(listToVecTH (sampleN 300 (dutBufgGt @1 @G1 d1 10 clockGen)))
+{-# ANN tbBufgGt1 (TestBench 'topEntity) #-}
+
+tbBufgGt2 = tbWith (dutBufgGt @2 @G2 d2 12) expected
+ where
+  expected = $(listToVecTH (sampleN 300 (dutBufgGt @2 @G2 d2 12 clockGen)))
+{-# ANN tbBufgGt2 (TestBench 'topEntity) #-}
+
+tbBufgGt3 = tbWith (dutBufgGt @3 @G3 d3 12) expected
+ where
+  expected = $(listToVecTH (sampleN 300 (dutBufgGt @3 @G3 d3 12 clockGen)))
+{-# ANN tbBufgGt3 (TestBench 'topEntity) #-}
+
+tbBufgGt8 = tbWith (dutBufgGt @8 @G8 d8 16) expected
+ where
+  expected = $(listToVecTH (sampleN 300 (dutBufgGt @8 @G8 d8 16 clockGen)))
+{-# ANN tbBufgGt8 (TestBench 'topEntity) #-}

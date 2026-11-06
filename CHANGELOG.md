@@ -22,3 +22,4 @@
 * Add `idelaye3`, `odelaye3` and `idelayctrl`, wrappers for Xilinx's `IDELAYE3`, `ODELAYE3` and `IDELAYCTRL` primitives. The delay lines' data paths are simulated without delay; their tap counters are simulated cycle-accurately.
 * Add `startupE3`, `usrAccessE2` and `icapE3`, wrappers for Xilinx's `STARTUPE3`, `USR_ACCESSE2` and `ICAPE3` configuration primitives
 * Add `bufgctrl`, `bufgmuxCtrl` and `bufgmux`, wrappers for Xilinx's `BUFGCTRL` clock multiplexer and the `BUFGMUX_CTRL` and `BUFGMUX` configurations of it. Switching between unrelated clocks is simulated cycle-accurately.
+* Add `bufgGt`, a wrapper for Xilinx's `BUFG_GT` transceiver clock buffer
