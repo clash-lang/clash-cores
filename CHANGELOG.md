@@ -7,3 +7,4 @@
 * Add UART core
 * Add CRC core
 * Add I2C controller core, ported from the `clash-compiler` examples
+* Add `Clash.Cores.Xilinx.Fft`, a wrapper for Xilinx's Fast Fourier Transform LogiCORE IP
