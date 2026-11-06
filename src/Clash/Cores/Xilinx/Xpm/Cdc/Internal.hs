@@ -62,13 +62,14 @@ import Clash.Explicit.Prelude hiding (someNatVal)
 import qualified Prelude as P
 
 import Control.Monad (when)
-import Control.Monad.State (State, gets)
+import Control.Monad.State (State, gets, modify, runState)
 import Data.Proxy (Proxy)
 import Data.Either (lefts, partitionEithers, rights)
 import Data.Maybe (maybeToList, isJust)
 import Data.String.Interpolate (__i)
 import Data.Text (Text)
-import Data.Text.Prettyprint.Doc.Extra (Doc)
+import Data.Monoid (Ap (getAp))
+import Data.Text.Prettyprint.Doc.Extra (Doc, renderOneLine)
 import GHC.Magic (lazy)
 import GHC.Stack (HasCallStack)
 import GHC.TypeNats (someNatVal)
@@ -81,7 +82,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LazyText
 
 import Clash.Annotations.Primitive
-import Clash.Backend (Backend, hdlKind)
+import Clash.Backend (Backend, Usage (External), expr, hdlKind, hdlType)
 import Clash.Core.DataCon ( DataCon(MkData, dcName) )
 import Clash.Core.Name ( Name(Name, nameOcc) )
 import Clash.Core.Term ( Term(Data, Prim), PrimInfo(..), collectArgs, stripAllTicks )
@@ -182,6 +183,10 @@ data PrimParam a = PrimParam
   , paramMeta :: a
   }
   deriving (Show, Functor)
+
+-- | Mode of a port of a VHDL component, see @vhdlComponentInstance@
+data VhdlPortMode = InPort | OutPort | InOut
+  deriving (Show, Eq)
 
 -- | How to render a 'PrimParam'
 data ParamRender
@@ -472,6 +477,11 @@ data InstConfig = InstConfig
     -- ^ Whether to add a @import <name>@. This is only used for VHDL.
   , renderVoid :: Bool
     -- ^ Whether to render an instance that has no output ports.
+  , componentDeclaration :: Bool
+    -- ^ Whether to declare the component in the architecture that instantiates
+    -- it. Use this when no library declares the component, such as for
+    -- primitives of vendors without a VHDL library that ships with every
+    -- simulator. Only used for VHDL.
   } deriving (Show)
 deriveTermLiteral ''InstConfig
 
@@ -485,6 +495,7 @@ instConfig nm = InstConfig
   , library = Nothing
   , libraryImport = Nothing
   , renderVoid = False
+  , componentDeclaration = False
   }
 
 -- | Type class to facilitate /polyvariadic/ behavior of 'inst'. A type @a@
@@ -1027,6 +1038,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
         inPorts1 <-
           P.filter (not . isVoid . DSL.ety . snd) . P.concat <$> mapM (mkInPort hdl) inPorts0
         instLabel <- Id.make (Text.pack (compName config) <> "_inst")
+        let biSignalPortNames = [name p | p@PrimBiSignalInPort{} <- inPorts0]
 
         let compName1 = case maybeXilinxWizard of
               Just _ ->
@@ -1036,13 +1048,23 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
                 -- Use exact name the user supplied
                 Text.pack (compName config)
 
-        DSL.instDecl
-          (if isJust maybeXilinxWizard then Comp else Empty)
-          (Id.unsafeMake compName1)
-          instLabel
-          params1
-          inPorts1
-          outPorts
+        if hdl == VHDL && componentDeclaration config && not (isJust maybeXilinxWizard)
+        then
+          vhdlComponentInstance
+            compName1
+            instLabel
+            (P.zip (P.map paramRender params0) params1)
+            [ (nm, if nm `P.elem` biSignalPortNames then InOut else InPort, e)
+            | (nm, e) <- inPorts1 ]
+            [ (nm, OutPort, e) | (nm, e) <- outPorts ]
+        else
+          DSL.instDecl
+            (if isJust maybeXilinxWizard then Comp else Empty)
+            (Id.unsafeMake compName1)
+            instLabel
+            params1
+            inPorts1
+            outPorts
 
         pure (mkResult outExprs)
  where
@@ -1063,6 +1085,100 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
         | hdl == VHDL -> (paramName, DSL.TExpr Bool (Literal Nothing (BoolLit b)))
         | otherwise ->
             (paramName, DSL.TExpr String (Literal Nothing (StringLit (if b then "TRUE" else "FALSE"))))
+
+  -- Instantiate a component in VHDL, declaring the component in a block
+  -- around the instance. Clash's netlist can't express this: it declares all
+  -- input ports of a component, including bidirectional ones, as @in@, and all
+  -- generics with Clash's types, such as @std_logic_vector@.
+  vhdlComponentInstance ::
+    Text ->
+    Identifier ->
+    [(ParamRender, (Text, DSL.TExpr))] ->
+    [(Text, VhdlPortMode, DSL.TExpr)] ->
+    [(Text, VhdlPortMode, DSL.TExpr)] ->
+    State (DSL.BlockState s) ()
+  vhdlComponentInstance compNm instLbl params ins outs = do
+    generics <- mapM renderGeneric params
+    ports <- mapM renderPort (ins <> outs)
+    blockLbl <- Id.make (Text.pack (compName config) <> "_block")
+    let
+      semiSep = Text.intercalate ";\n"
+      commaSep = Text.intercalate ",\n"
+      indent n = Text.intercalate "\n" . P.map (Text.replicate n " " <>) . Text.lines
+      genericDecls = semiSep [nm <> " : " <> ty | (nm, ty, _) <- generics]
+      portDecls = semiSep [nm <> " : " <> ty | (nm, ty, _) <- ports]
+      genericMap = commaSep [nm <> " => " <> v | (nm, _, v) <- generics]
+      portMap = commaSep [nm <> " => " <> v | (nm, _, v) <- ports]
+      txt = Text.intercalate "\n" $
+        [ Id.toText blockLbl <> " : block"
+        , "  component " <> compNm ] <>
+        (if P.null generics then [] else
+        [ "    generic ("
+        , indent 6 genericDecls
+        , "    );" ]) <>
+        [ "    port ("
+        , indent 6 portDecls
+        , "    );"
+        , "  end component;"
+        , "begin"
+        , "  " <> Id.toText instLbl <> " : " <> compNm ] <>
+        (if P.null generics then [] else
+        [ "    generic map ("
+        , indent 6 genericMap
+        , "    )" ]) <>
+        [ "    port map ("
+        , indent 6 portMap
+        , "    );"
+        , "end block;" ]
+    DSL.addDeclaration $
+      BlackBoxD
+        "Clash.Cores.Xilinx.Xpm.Cdc.Internal.inst"
+        [] [] []
+        (BBTemplate [BlackBox.Text (LazyText.fromStrict txt)])
+        (emptyBBContext "Clash.Cores.Xilinx.Xpm.Cdc.Internal.inst")
+
+  renderExpr :: Expr -> State (DSL.BlockState s) Text
+  renderExpr e =
+    LazyText.toStrict . renderOneLine <$> liftToBlockState (getAp (expr False e))
+
+  renderGeneric :: (ParamRender, (Text, DSL.TExpr)) -> State (DSL.BlockState s) (Text, Text, Text)
+  renderGeneric (render, (nm, DSL.TExpr ty e)) = do
+    v <- renderExpr e
+    tyTxt <- case (render, ty) of
+      (BitVectorRender n _, _) -> pure ("bit_vector(" <> showt (n - 1) <> " downto 0)")
+      (_, Integer) -> pure "integer"
+      (_, String) -> pure "string"
+      (_, Bool) -> pure "boolean"
+      (_, Bit) -> pure "bit"
+      _ -> LazyText.toStrict . renderOneLine <$> liftToBlockState (getAp (hdlType (External nm) ty))
+    pure (nm, tyTxt, v)
+
+  renderPort :: (Text, VhdlPortMode, DSL.TExpr) -> State (DSL.BlockState s) (Text, Text, Text)
+  renderPort (nm, mode, texpr0) = do
+    DSL.TExpr ty e <- case mode of
+      -- Bidirectional signals must be connected directly
+      InOut -> pure texpr0
+      _ -> DSL.toIdentifier (nm <> "_port") texpr0
+    v <- renderExpr e
+    tyTxt <- case stripAnnotated ty of
+      Clock{} -> pure "std_logic"
+      Reset{} -> pure "std_logic"
+      Enable{} -> pure "std_logic"
+      Bit -> pure "std_logic"
+      ty1 -> LazyText.toStrict . renderOneLine <$> liftToBlockState (getAp (hdlType (External nm) ty1))
+    let modeTxt = case mode of { InPort -> "in "; OutPort -> "out "; InOut -> "inout " }
+    pure (nm, modeTxt <> tyTxt, v)
+
+  showt :: Int -> Text
+  showt = Text.pack . show
+
+  -- Run a backend action in the block builder. Like Clash's
+  -- @Clash.Primitives.DSL.liftToBlockState@, which it doesn't export.
+  liftToBlockState :: State s a -> State (DSL.BlockState s) a
+  liftToBlockState act = do
+    (a, backend1) <- gets (runState act . DSL._bsBackend)
+    modify (\bs -> bs{DSL._bsBackend = backend1})
+    pure a
 
   mkInPort :: HDL -> PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
   mkInPort hdl = \case
