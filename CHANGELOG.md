@@ -24,3 +24,6 @@
 * Add `Clash.Cores.Intel.Memory` with `altsyncramSinglePort`, `altsyncramSimpleDualPort` and `altsyncramTrueDualPort`, wrappers for Intel's block RAM `altsyncram`, and functions to write and read Memory Initialization Files
 * Add `altshiftTaps` to `Clash.Cores.Intel.Memory`, a wrapper for Intel's RAM-based shift register `altshift_taps`
 * Add `Clash.Cores.Intel.Clock` with `altclkctrl`, a global clock buffer with an enable (`ALTCLKCTRL`) for Cyclone IV E, Cyclone 10 LP and MAX 10
+* Add `Clash.Cores.Intel.Internal.instWithIntelIp`, the Intel counterpart of `instWithXilinxWizard`: it instantiates Intel IP and writes a Platform Designer system (`.qsys` file) that generates it. If `CLASH_INTEL_SIM_FAMILY` is set, Clash also runs `qsys-generate` and adds the IP's simulation model to its output.
+* Add `Clash.Cores.Intel.Floating`, support for Intel's Floating Point Functions IP (`altera_fp_functions`): addition, subtraction, multiplication, division, multiply-add, comparisons, and conversions from and to 32 bit integers and `Double`, with bit-exact simulation models. The API follows `Clash.Cores.Xilinx.Floating`.
+* Add `Clash.Cores.Intel.Divide` and `Clash.Cores.Intel.Sqrt`, wrappers for Intel's `lpm_divide` and `altsqrt` megafunctions (integer division and square root), with bit-exact simulation models
