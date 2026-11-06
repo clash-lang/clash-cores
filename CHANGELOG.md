@@ -21,3 +21,5 @@
 * Add `iserdese3` and `oserdese3`, wrappers for Xilinx's `ISERDESE3` and `OSERDESE3` serializers/deserializers
 * Add `idelaye3`, `odelaye3` and `idelayctrl`, wrappers for Xilinx's `IDELAYE3`, `ODELAYE3` and `IDELAYCTRL` primitives. The delay lines' data paths are simulated without delay; their tap counters are simulated cycle-accurately.
 * Add `startupE3`, `usrAccessE2` and `icapE3`, wrappers for Xilinx's `STARTUPE3`, `USR_ACCESSE2` and `ICAPE3` configuration primitives
+* Add `Clash.Cores.Xilinx.Unisim.Series7`, re-exporting the UNISIM primitives of 7 series devices
+* Add `bufio`, `bufr`, `bufrDiv`, `bufh`, `bufhce`, `bufmr` and `bufmrce`, wrappers for the 7 series clock buffers `BUFIO`, `BUFR`, `BUFH`, `BUFHCE`, `BUFMR` and `BUFMRCE`. Gated and divided clocks are simulated cycle-accurately, including clears of `BUFR` while its input clock is stopped.

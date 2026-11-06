@@ -10,6 +10,10 @@ Every primitive has a simulation model for Clash simulation and instantiates the
 real primitive in HDL. The simulation models are tested against Xilinx's UNISIM
 simulation models; see the documentation of the individual modules for what
 they do and do not model.
+
+For the UNISIM primitives of 7 series devices (Artix-7, Kintex-7, Virtex-7,
+Zynq-7000), see "Clash.Cores.Xilinx.Unisim.Series7". Some of the primitives
+exported here exist on 7 series devices too; that module lists them.
 -}
 module Clash.Cores.Xilinx.Unisim
   ( module Clash.Cores.Xilinx.Unisim.ClockBuffer

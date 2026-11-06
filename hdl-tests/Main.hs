@@ -360,6 +360,16 @@ runClashTest = defaultMain $ clashTestRoot
               , hdlSim=[Vivado]
               , buildTargets=BuildSpecific ["tbStartupE3", "tbIcapE3"]
               }
+          , runTest "Series7ClockBuffer" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  [ "tbBufio", "tbBufr", "tbBufh", "tbBufmr", "tbBufhce", "tbBufmrce"
+                  , "tbBufrDiv1", "tbBufrDiv2", "tbBufrDiv3", "tbBufrDiv4", "tbBufrDiv5"
+                  , "tbBufrDiv8", "tbBufmrceBufrDiv"
+                  ]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =
