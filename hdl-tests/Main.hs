@@ -112,6 +112,18 @@ clashTestGroup testName testTrees =
     testGroup testName $
       zipWith ($) testTrees (repeat (testName : parentNames))
 
+-- | Options for tests comparing ECP5 primitives against Yosys's simulation
+-- models, see @hdl-tests/shouldwork/LatticeSemi/YosysSim.hs@. GHDL can't
+-- simulate the Verilog models, so VHDL is only tested with Vivado. Verilator
+-- doesn't support the tristate logic of the models.
+ecp5Opts :: TestOptions
+ecp5Opts = def
+  { hdlTargets=[VHDL, Verilog, SystemVerilog]
+  , hdlLoad=[IVerilog, Vivado]
+  , hdlSim=[IVerilog, Vivado]
+  , clashFlags=["-ihdl-tests/shouldwork/LatticeSemi"]
+  }
+
 runClashTest :: IO ()
 runClashTest = defaultMain $ clashTestRoot
   [ clashTestGroup "hdl-tests"
@@ -156,6 +168,13 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlLoad=[GHDL, IVerilog, Verilator]
             , hdlSim=[GHDL, IVerilog, Verilator]
             }
+        ]
+      , clashTestGroup "LatticeSemi"
+        [ clashTestGroup "Ecp5"
+          [ runTest "BidirectionalBuffer" ecp5Opts
+              { buildTargets=BuildSpecific ["tbFloating", "tbPullUp", "tbPullDown"]
+              }
+          ]
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"

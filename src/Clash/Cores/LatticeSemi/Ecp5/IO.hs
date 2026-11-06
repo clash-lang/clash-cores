@@ -1,85 +1,119 @@
 {-|
   Copyright   :  (C) 2020, Foamspace corp & Christoph Mayer
-                     2022, QBayLogic B.V.
+                     2022-2026, QBayLogic B.V.
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  hcab14@gmail.com
 
-  LATTICE ECP5 IO primitives. Implementations are documented in the
-  <http://www.latticesemi.com/-/media/LatticeSemi/Documents/ApplicationNotes/EH/FPGA-TN-02032-1-2-ECP5-ECP5G-sysIO-Usage-Guide.ashx?document_id=50464>.
--}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE QuasiQuotes #-}
+Lattice ECP5 I/O buffer primitives. They are documented in Lattice's
+[ECP5 and ECP5-5G sysIO Usage Guide (FPGA-TN-02032)](https://www.latticesemi.com/view_document?document_id=50464)
+and the "FPGA Libraries Reference Guide" of Lattice Diamond.
 
-{-# LANGUAGE ViewPatterns #-}
+The simulation models are tested against the community simulation models that
+ship with Yosys (@share\/yosys\/ecp5\/cells_io.vh@, validated against Yosys
+0.70). Those models describe the buffers' logic, not their electrical
+behaviour: they don't model pull resistors. The documentation of each function
+says where this matters.
+
+= VHDL
+
+In VHDL, the instances use the component declarations of package
+@ecp5u.components@, like designs for Lattice Diamond do. Lattice Diamond
+provides the @ecp5u@ library. For Yosys-based flows, the
+[GHDL Yosys plugin](https://github.com/ghdl/ghdl-yosys-plugin) provides it in
+@library\/ecp5u\/components.vhdl@.
+
+= Unsupported buffers
+
+There are no wrappers for the single-ended input and output buffers @IB@,
+@IBPU@, @IBPD@ and @OB@: they don't add anything over plain top entity ports.
+Both Lattice Diamond and Yosys insert them automatically, and their attributes
+(@IO_TYPE@, @PULLMODE@, @DRIVE@, ...) are set in the LPF constraints file,
+for example:
+
+> IOBUF PORT "button" IO_TYPE=LVCMOS33 PULLMODE=UP;
+
+The tristate output buffers @OBZ@, @OBZPU@ and @OBZPD@ don't have wrappers
+either: 'bidirectionalBuffer' does the same, while not using its input path is
+free. Clash represents a tristate pad as a 'BiSignalIn' and 'BiSignalOut' pair,
+which renders as an @inout@ port, while the output of @OBZ@ is an @out@ port.
+VHDL doesn't allow connecting those.
+-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Clash.Cores.LatticeSemi.Ecp5.IO
-  ( bidirectionalBuffer
+  ( -- * Bidirectional buffers
+    bidirectionalBuffer
   ) where
 
-import           Clash.Annotations.Primitive  (Primitive(..), HDL(..), hasBlackBox)
-import           Clash.Prelude
-import           Clash.Signal.BiSignal
-import           Data.String.Interpolate      (__i)
-import           GHC.Stack                    (HasCallStack())
+import Clash.Explicit.Prelude
+import Clash.Signal.BiSignal (HasBiSignalDefault (..), SBiSignalDefault (..))
+import GHC.Stack (HasCallStack)
 
--- | BB primitive
-bidirectionalBuffer
-  :: forall ds dom
-   . ( HasCallStack
-     , HasBiSignalDefault ds
-     , KnownDomain dom
-     )
-  => Enable dom
-  -- ^ output enable
-  -> BiSignalIn ds dom 1
-  -- ^ PKG_PIN output BiSignal
-  -> Signal dom Bit
-  -- ^ output bit
-  -> ( BiSignalOut ds dom 1 -- PKG_PIN input BiSignal
-     , Signal dom Bit       -- input bit
-     )
-bidirectionalBuffer en pkgPinOut output = (pkgPinIn, dIn)
-  where
-    (pkgPinIn,dIn) = -- the BB primitve has an active low enable signal
-      bbEcp5 intrinsicName pkgPinOut output invertedEnable
-    invertedEnable = not <$> fromEnable en
-    intrinsicName = case (pullUpMode pkgPinOut) of
-                      SFloating -> "BB"
-                      SPullUp   -> "BBPU"
-                      SPullDown -> "BBPD"
--- {-# NOINLINE bidirectionalBuffer #-}
+import Clash.Cores.Xilinx.Xpm.Cdc.Internal
+  ( BiSignalOutPort, BitBiSignalInPort (..), InstConfig (..), Port (..), inst
+  , instConfig, unPort
+  )
 
-bbEcp5
-  :: forall ds dom
-   . ( HasCallStack
-     , HasBiSignalDefault ds
-     , KnownDomain dom
-     )
-  => String
-  -> BiSignalIn ds dom 1
-  -> Signal dom Bit
-  -> Signal dom Bool
-  -> ( BiSignalOut ds dom 1
-     , Signal dom Bit
-     )
-bbEcp5 _intrinsicName pkgPinIn output notOutputEnable
-  = (pkgPinOut, dIn)
-   where
-     dIn :: Signal dom Bit
-     dIn = readFromBiSignal pkgPinIn
-     pkgPinOut = writeToBiSignal pkgPinIn (toMaybe . not <$> notOutputEnable <*> output)
+-- | Instance of an ECP5 primitive, see the module documentation on VHDL.
+ecp5 :: String -> InstConfig
+ecp5 name =
+  (instConfig name)
+    { library = Just "ecp5u"
+    , libraryImport = Just "ecp5u.components.all"
+    }
 
-     toMaybe :: Bool -> a -> Maybe a
-     toMaybe True a  = Just a
-     toMaybe False _ = Nothing
-{-# OPAQUE bbEcp5 #-}
-{-# ANN bbEcp5 hasBlackBox #-}
-{-# ANN bbEcp5 (InlineYamlPrimitive [VHDL,Verilog,SystemVerilog] [__i|
-  BlackBox:
-    name: Clash.Cores.LatticeSemi.Ecp5.IO.bbEcp5
-    kind: Declaration
-    format: Haskell
-    templateFunction: Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO.bbTF
-  |]) #-}
+{- | Bidirectional buffer (@BB@, @BBPU@ or @BBPD@). Drives the pad with the
+output bit if the output is enabled, and puts it in high impedance otherwise.
+Returns the level of the pad, whether the buffer drives it or not.
+
+The 'BiSignalDefault' of the pad selects the buffer: @BBPU@ (pull-up) for
+'PullUp', @BBPD@ (pull-down) for 'PullDown' and @BB@ (no pull resistor) for
+v'Floating'. The buffer's @T@ input is high when the output is not enabled.
+
+Pass the 'BiSignalIn' of a top entity argument and return the 'BiSignalOut'
+from the top entity. Clash renders a 1-bit 'BiSignalIn' as a vector of one bit,
+so the pad is called @name[0]@ in your constraints file.
+
+__NB__: Yosys's simulation models of @BBPU@ and @BBPD@ don't model the pull
+resistor: when nothing drives the pad, they read @z@ (an undefined value),
+while the Clash simulation reads the level of the pull resistor, like the
+hardware does.
+
+For more information see section \"Programmable PULLUP/PULLDOWN\" and the
+\"Bidirectional Buffer\" primitives in
+[FPGA-TN-02032](https://www.latticesemi.com/view_document?document_id=50464).
+-}
+bidirectionalBuffer ::
+  forall ds dom.
+  ( HasCallStack
+  , HasBiSignalDefault ds
+  , KnownDomain dom
+  ) =>
+  -- | Output enable
+  Enable dom ->
+  -- | Pad (@B@)
+  BiSignalIn ds dom 1 ->
+  -- | Output bit (@I@)
+  Signal dom Bit ->
+  -- | Pad (@B@) and the level of the pad (@O@)
+  (BiSignalOut ds dom 1, Signal dom Bit)
+bidirectionalBuffer en pad output
+  | clashSimulation =
+      ( writeToBiSignal pad (mux (fromEnable en) (Just <$> output) (pure Nothing))
+      , readFromBiSignal pad
+      )
+  | otherwise = (unPort padOut, unPort o)
+ where
+  name = case pullUpMode pad of
+    SFloating -> "BB"
+    SPullUp -> "BBPU"
+    SPullDown -> "BBPD"
+
+  (padOut, o) = go
+  go :: (BiSignalOutPort "B" ds dom 1, Port "O" dom Bit)
+  go =
+    inst
+      (ecp5 name){renderVoid = True}
+      (BitBiSignalInPort @"B" pad)
+      (Port @"I" output)
+      (Port @"T" (boolToBit . not <$> fromEnable en))
