@@ -155,6 +155,15 @@ data ResetPort (portName :: Symbol) (polarity :: ResetPolarity) dom = ResetPort 
 data BiSignalInPort (portName :: Symbol) (ds :: BiSignalDefault) (dom :: Domain) (n :: Nat) =
   BiSignalInPort (BiSignalIn ds dom n)
 
+-- | Like @'BiSignalInPort' portName ds dom 1@, but for an HDL port that is a
+-- single bit instead of a vector of one bit, such as the @IO@ port of Xilinx's
+-- @IOBUF@. Clash represents a 1-bit 'BiSignalIn' as a @std_logic_vector(0
+-- downto 0)@ in VHDL, which can't be connected to a @std_logic@ port. In VHDL,
+-- this port connects the instance to the single element of that vector
+-- instead. In Verilog and SystemVerilog it is the same as 'BiSignalInPort'.
+data BitBiSignalInPort (portName :: Symbol) (ds :: BiSignalDefault) (dom :: Domain) =
+  BitBiSignalInPort (BiSignalIn ds dom 1)
+
 -- | 'BiSignalOut' port carrying a bitvector of size /n/ type, where @portName@
 -- is the name of the port that is mapped in the target HDL.
 data BiSignalOutPort (portName :: Symbol) (ds :: BiSignalDefault) (dom :: Domain) (n :: Nat) =
@@ -185,14 +194,15 @@ data ParamRender
   deriving (Show)
 
 -- | A term level, post-normalization version of 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'Port', 'BiSignalInPort', or
--- 'BiSignalOutPort'. Used internally by this module.
+-- 'NamedDiffClockPort', 'ResetPort', 'Port', 'BiSignalInPort',
+-- 'BitBiSignalInPort', or 'BiSignalOutPort'. Used internally by this module.
 data PrimPort a
   = PrimClockPort       { name :: Text, dom :: Text, meta :: a }
   | PrimDiffClockPort   { nameP :: Text, nameN :: Text, dom :: Text, meta :: a }
   | PrimResetPort       { name :: Text, dom :: Text, meta :: a, polarity :: ResetPolarity }
   | PrimSignalPort      { name :: Text, dom :: Text, meta :: a }
-  | PrimBiSignalInPort  { name :: Text, dom :: Text, meta :: a, n :: Integer }
+  | PrimBiSignalInPort  { name :: Text, dom :: Text, meta :: a, n :: Integer, bitPort :: Bool }
+  -- ^ 'BiSignalInPort', or 'BitBiSignalInPort' if 'bitPort' is set
   | PrimBiSignalOutPort { name :: Text, dom :: Text, meta :: a, n :: Integer }
   deriving (Show, Functor)
 
@@ -321,6 +331,22 @@ instance TermLiteral (PrimPortOrParam ()) where
         , dom=Text.pack domNm
         , meta=()
         , n = width
+        , bitPort = False
+        }
+      ))
+
+    | constrName == show 'BitBiSignalInPort
+    , ( LitTy (SymTy nm)
+      : ConstTy _dflt
+      : LitTy (SymTy domNm)
+      : _
+      ) <- rights args
+    = pure (MkPrimPort (PrimBiSignalInPort
+        { name=Text.pack nm
+        , dom=Text.pack domNm
+        , meta=()
+        , n = 1
+        , bitPort = True
         }
       ))
 
@@ -468,8 +494,8 @@ instConfig nm = InstConfig
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
 -- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param',
--- 'BitVectorParam', or 'BoolStringParam'. The result type, @r@ can be a
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'BitBiSignalInPort',
+-- 'Param', 'BitVectorParam', or 'BoolStringParam'. The result type, @r@ can be a
 -- 'Port', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort',
 -- 'BiSignalOutPort', a tuple of these, or unit (@()@).
 --
@@ -572,6 +598,9 @@ instance Inst a => Inst (ResetPort s polarity dom -> a) where
 instance Inst a => Inst (BiSignalInPort s ds dom n -> a) where
   instX !_i = instX @a
 
+instance Inst a => Inst (BitBiSignalInPort s ds dom -> a) where
+  instX !_i = instX @a
+
 instance Inst a => Inst (Param s const -> a) where
   instX !_i = instX @a
 
@@ -604,8 +633,8 @@ See https://github.com/clash-lang/clash-cores/issues/80.
 --
 -- where @n@ is the number of arguments (which can be zero) and @r@ is the
 -- result type. Each argument can be a 'Port', 'ClockPort', 'DiffClockPort',
--- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'Param',
--- 'BitVectorParam', or 'BoolStringParam'. The result type, @r@ can be a
+-- 'NamedDiffClockPort', 'ResetPort', 'BiSignalInPort', 'BitBiSignalInPort',
+-- 'Param', 'BitVectorParam', or 'BoolStringParam'. The result type, @r@ can be a
 -- 'Port', 'ClockPort', 'DiffClockPort', 'NamedDiffClockPort', 'ResetPort',
 -- 'BiSignalOutPort', a tuple of these, or unit (@()@). Like arguments, a
 -- 'DiffClockPort' or 'NamedDiffClockPort' in the result maps to two HDL ports:
@@ -996,7 +1025,7 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
         -- Like output ports, input ports with a zero-width type don't exist in
         -- HDL. Leave them out of the port map.
         inPorts1 <-
-          P.filter (not . isVoid . DSL.ety . snd) . P.concat <$> mapM mkInPort inPorts0
+          P.filter (not . isVoid . DSL.ety . snd) . P.concat <$> mapM (mkInPort hdl) inPorts0
         instLabel <- Id.make (Text.pack (compName config) <> "_inst")
 
         let compName1 = case maybeXilinxWizard of
@@ -1035,8 +1064,8 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
         | otherwise ->
             (paramName, DSL.TExpr String (Literal Nothing (StringLit (if b then "TRUE" else "FALSE"))))
 
-  mkInPort :: PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
-  mkInPort = \case
+  mkInPort :: HDL -> PrimPort DSL.TExpr -> State (DSL.BlockState s) [(Text, DSL.TExpr)]
+  mkInPort hdl = \case
     PrimDiffClockPort{nameP, nameN, meta=diffClkExpr} -> do
       clockPN <- DSL.deconstructProduct diffClkExpr [nameP, nameN]
       let
@@ -1056,11 +1085,28 @@ instBBTF nExtraArgs doms config maybeXilinxWizard primArgs0 primResults0 bbCtx
               Nothing ->
                 error ("Internal error: could not find domain " <> Text.unpack dom)
       pure [(name, rst)]
-    PrimBiSignalInPort{name, meta=DSL.TExpr ty e} ->
+    PrimBiSignalInPort{name, bitPort, meta=DSL.TExpr ty e} ->
       -- 'DSL.instDecl' assigns any expression that is not an identifier to an
       -- intermediate signal first. That would turn the inout port into an
       -- input, so make sure we pass the identifier of the bidirectional signal.
-      pure [(name, DSL.TExpr ty (stripNewtypeDataCon e))]
+      case stripNewtypeDataCon e of
+        Identifier i Nothing
+          | bitPort, hdl == VHDL ->
+              -- Connect the single element of the @std_logic_vector(0 downto
+              -- 0)@. The VHDL backend has no modifier rendering as an element
+              -- of a vector without converting it, which would make it an
+              -- expression instead of a name, so we write the name ourselves.
+              pure [(name, DSL.TExpr Bit (Identifier (Id.unsafeMake (Id.toText i <> "(0)")) Nothing))]
+        e1
+          | bitPort, hdl == VHDL ->
+              error [I.i|
+                BitBiSignalInPort #{show name}: expected the bidirectional
+                signal to be an identifier, but got:
+
+                  #{ppShow e1}
+              |]
+          | otherwise ->
+              pure [(name, DSL.TExpr ty e1)]
     p -> pure [(name p, meta p)]
 
   -- The ports passed to 'inst' are wrapped in data types with a single
