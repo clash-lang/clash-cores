@@ -41,6 +41,8 @@ module Clash.Cores.Xilinx.Fir
   , firValid
   , firDecimateWith
   , firDecimate
+  , firInterpolateWith
+  , firInterpolate
     -- * Numbers
   , E.FirNumber(..)
   , E.FirOutput
@@ -54,6 +56,7 @@ module Clash.Cores.Xilinx.Fir
   , E.firLatency
   , E.firValidLatency
   , E.firDecimateLatency
+  , E.firInterpolateLatency
   , E.fullPrecisionWidth
   ) where
 
@@ -234,3 +237,67 @@ firDecimate ::
   (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
 firDecimate r p coefs = withFrozenCallStack $ hideEnable $ hideClock $ E.firDecimate @d r p coefs
 {-# INLINE firDecimate #-}
+
+-- | Customizable interpolating FIR filter for valid-qualified samples, at most
+-- one every @p@ clock cycles. See 'E.firInterpolateWith'.
+firInterpolateWith ::
+  forall d l p a c wd wc wo n dom k.
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= l
+  , l <= p
+  , HasCallStack
+  ) =>
+  E.Config ->
+  -- | Interpolation factor @l@
+  SNat l ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, interpolated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firInterpolateWith cfg l p coefs =
+  withFrozenCallStack $ hideEnable $ hideClock $ E.firInterpolateWith @d cfg l p coefs
+{-# INLINE firInterpolateWith #-}
+
+-- | Interpolating FIR filter with full precision output. See
+-- 'E.firInterpolate'.
+firInterpolate ::
+  forall d l p a c wd wc wo n dom k.
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= l
+  , l <= p
+  , HasCallStack
+  ) =>
+  -- | Interpolation factor @l@
+  SNat l ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, interpolated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firInterpolate l p coefs = withFrozenCallStack $ hideEnable $ hideClock $ E.firInterpolate @d l p coefs
+{-# INLINE firInterpolate #-}

@@ -38,7 +38,8 @@ against the IP in Vivado's simulator:
 * For a sample period of more than one clock cycle, each multiply-add unit
   handles several coefficients, one per clock cycle, and the latency also
   includes that number of cycles. A decimator by @r@ has @r@ times as many
-  cycles per output. See 'latency' and t'Params' for the details.
+  cycles per output; an interpolator by @l@ computes @l@ outputs per sample
+  with a polyphase filter. See 'latency' and t'Params' for the details.
 
 __NB__: None of the functions in this module are synthesizable.
 -}
@@ -77,6 +78,7 @@ module Clash.Cores.Xilinx.Fir.Internal
     -- * Simulation model
   , roundOutput
   , firOutputModel
+  , firOutputModelWith
   , firModel
   , firValidModel
     -- * Instantiating the IP
@@ -384,6 +386,8 @@ data Rate
   = SingleRate
   | Decimation Int
     -- ^ Decimation by an integer factor of at least 2
+  | Interpolation Int
+    -- ^ Interpolation by an integer factor of at least 2
   deriving (Eq, Show)
 
 -- | All properties of a filter that follow from its configuration and
@@ -419,6 +423,11 @@ data Params = Params
     -- ^ The number of clock cycles the IP needs per sample: it can accept a
     -- new sample every 'cyclesPerSample' cycles. This is 'oversampling', plus
     -- one for symmetric rounding, but at most 'samplePeriod'.
+  , cyclesPerOutput :: Int
+    -- ^ For an interpolator by @l@: the number of clock cycles between its
+    -- @l@ outputs for a sample, @'samplePeriod' `div` l@
+  , phases :: [[Integer]]
+    -- ^ For an interpolator by @l@: the coefficients of its @l@ phases
   , frontPadding :: Int
     -- ^ The number of zeros the IP effectively puts in front of the
     -- coefficients, which delays the output by as many samples. When the
@@ -464,22 +473,41 @@ mkParams config coefficients dataWidth dataSigned coefficientWidth coefficientTy
   structureOk = isJust inferred
   decimation = case rate of
     Decimation r -> r
-    SingleRate -> 1
+    _ -> 1
+  interpolation = case rate of
+    Interpolation l -> l
+    _ -> 1
+  -- An interpolator by l computes l outputs per input sample, each in
+  -- @samplePeriod `div` l@ clock cycles, with a polyphase filter: the
+  -- coefficients @c_m, c_(m+l), c_(m+2l), ...@ give output @m@.
+  cyclesPerOutput = max 1 (samplePeriod `div` interpolation)
+  phases = [ [ c | (i, c) <- P.zip [0 :: Int ..] coefficients, i `mod` interpolation == m ]
+           | m <- [0 .. interpolation - 1] ]
   coefficientsSigned = P.any (< 0) coefficients
-  fullWidth = fullPrecisionWidth dataWidth dataSigned coefficients
+  -- The full precision width of an interpolator is that of its widest phase.
+  fullWidth = case rate of
+    Interpolation _ ->
+      P.maximum [ fullPrecisionWidth dataWidth True ph | ph <- phases ]
+        + (if not dataSigned && coefficientsSigned then 1 else 0)
+    _ -> fullPrecisionWidth dataWidth dataSigned coefficients
   -- With a sample period of p clock cycles, each multiply-add unit can handle
   -- up to p coefficients (or pairs) per sample; a decimator by r has r * p
   -- cycles per output. The IP uses as few multiply-add units as that allows,
   -- and spreads the coefficients over them evenly: 'slots' each.
-  maddsP1 = multiplyAdds structure (P.length coefficients)
-  madds = divRU maddsP1 (max 1 (decimation * samplePeriod))
+  maddsP1 = case rate of
+    Interpolation l -> divRU (P.length coefficients) l
+    _ -> multiplyAdds structure (P.length coefficients)
+  madds = case rate of
+    Interpolation _ -> divRU maddsP1 cyclesPerOutput
+    _ -> divRU maddsP1 (max 1 (decimation * samplePeriod))
   slots = divRU maddsP1 (max 1 madds)
   oversampling = divRU slots decimation
   divRU a b = (a + b - 1) `div` b
   symmetricRounding =
     rounding config `P.elem` [SymmetricRoundingToZero, SymmetricRoundingToInfinity]
-  cyclesPerSample =
-    min (max 1 samplePeriod) (oversampling + (if symmetricRounding then 1 else 0))
+  cyclesPerSample = case rate of
+    Interpolation l -> l * cyclesPerOutput
+    _ -> min (max 1 samplePeriod) (oversampling + (if symmetricRounding then 1 else 0))
   -- The multiply-add units have 'oversampling' cycles per input sample, so
   -- @decimation * oversampling@ per output
   padding = madds * decimation * oversampling - maddsP1
@@ -512,6 +540,8 @@ latency Params{..} =
   bool b = if b then 1 else 0
   core = case rate of
     Decimation _ -> decimating
+    Interpolation _ ->
+      oversampling + 5 + bool (series7 && madds > 1 && cyclesPerOutput > 1)
     SingleRate
       | samplePeriod <= 1 -> 5 + preAdd + singleCycle
       | otherwise -> 5 + preAdd + multiCycle
@@ -552,6 +582,15 @@ checkParams params@Params{..}
       err "the sample period should be at least 1"
   | Decimation r <- rate, r < 2 =
       err "the decimation factor should be at least 2"
+  | Interpolation l <- rate, l < 2 =
+      err "the interpolation factor should be at least 2"
+  | Interpolation l <- rate, samplePeriod < l =
+      err "the sample period should be at least the interpolation factor"
+  | Interpolation _ <- rate, structure /= NonSymmetricStructure =
+      err $
+           "the IP exploits the symmetry of the coefficients of an interpolator "
+        <> "in ways that are not supported. Use coefficientStructure = "
+        <> "NonSymmetric instead."
   | not structureOk =
       err $
            "the coefficients are not " <> show (coefficientStructure config)
@@ -617,9 +656,14 @@ roundOutput mode k y = case mode of
 -- sum of products, rounded to the output width. The result is not wrapped to
 -- the output width yet. The coefficients include the 'frontPadding'.
 firOutputModel :: Params -> [Integer] -> Integer
-firOutputModel Params{..} samples =
+firOutputModel params@Params{..} =
+  firOutputModelWith params (P.replicate frontPadding 0 <> coefficients)
+
+-- | Like 'firOutputModel', with the given coefficients
+firOutputModelWith :: Params -> [Integer] -> [Integer] -> Integer
+firOutputModelWith Params{..} cs samples =
   roundOutput (rounding config) (fullWidth - outputWidth)
-    (P.sum (P.zipWith (*) (P.replicate frontPadding 0 <> coefficients) samples))
+    (P.sum (P.zipWith (*) cs samples))
 
 -- | Simulation model of the IP for valid-qualified samples, see
 -- 'Clash.Cores.Xilinx.Fir.Explicit.firValidWith'. Gives the IP's @TREADY@ and
@@ -648,7 +692,7 @@ firValidModel ::
   Enable dom ->
   Signal dom (Maybe Integer) ->
   (Signal dom Bool, Signal dom (Maybe Integer))
-firValidModel params clk en x = (ready, delayChain (latency params) y)
+firValidModel params clk en x = (ready, out)
  where
   started = delay clk en False (pure True)
   busy :: Signal dom Int
@@ -671,10 +715,21 @@ firValidModel params clk en x = (ready, delayChain (latency params) y)
   phase1 = (\acc ph -> if acc then (ph + 1) `mod` decimationFactor else ph) <$> accepted <*> phase
   decimationFactor = case rate params of
     Decimation r -> r
-    SingleRate -> 1
+    _ -> 1
   givesOutput = (\acc ph -> acc && ph == decimationFactor - 1) <$> accepted <*> phase
 
-  y = (\out h -> if out then Just (firOutputModel params h) else Nothing) <$> givesOutput <*> history1
+  out = case rate params of
+    Interpolation _ ->
+      -- Output m of a sample comes cyclesPerOutput * m cycles after output 0
+      P.foldr1 (liftA2 (<|>))
+        [ delayChain (latency params + m * cyclesPerOutput params) (phaseOutput ph <$> accepted <*> history1)
+        | (m, ph) <- P.zip [0 ..] (phases params) ]
+    _ ->
+      delayChain (latency params)
+        ((\o h -> if o then Just (firOutputModel params h) else Nothing) <$> givesOutput <*> history1)
+  phaseOutput ph acc h
+    | acc = Just (firOutputModelWith params ph h)
+    | otherwise = Nothing
 
   delayChain :: Int -> Signal dom (Maybe Integer) -> Signal dom (Maybe Integer)
   delayChain 0 s = s
@@ -723,7 +778,7 @@ firOptions ::
 firOptions cfg rate samplePeriod coefs =
      ("CONFIG.Filter_Type",                  StrOpt filterType)
   :> ("CONFIG.Rate_Change_Type",             StrOpt "Integer")
-  :> ("CONFIG.Interpolation_Rate",           IntegerOpt 1)
+  :> ("CONFIG.Interpolation_Rate",           IntegerOpt interpolationRate)
   :> ("CONFIG.Decimation_Rate",              IntegerOpt decimationRate)
   :> ("CONFIG.Number_Channels",              IntegerOpt 1)
   :> ("CONFIG.Number_Paths",                 IntegerOpt 1)
@@ -754,14 +809,15 @@ firOptions cfg rate samplePeriod coefs =
   :> ("CONFIG.M_DATA_Has_TUSER",             StrOpt "Not_Required")
   :> Nil
  where
-  (filterType, decimationRate) = case rate of
-    SingleRate -> ("Single_Rate", 1)
-    Decimation r -> ("Decimation", toInteger r)
+  (filterType, interpolationRate, decimationRate) = case rate of
+    SingleRate -> ("Single_Rate", 1, 1)
+    Decimation r -> ("Decimation", 1, toInteger r)
+    Interpolation l -> ("Interpolation", toInteger l, 1)
 {-# INLINE firOptions #-}
 
 -- | Instantiate the FIR Compiler. It is always configured as:
 --
--- * A single rate or decimating, single channel filter
+-- * A single rate, decimating or interpolating, single channel filter
 -- * Non-blocking AXI4-Stream interfaces: no FIFO on the input, no @TREADY@ on
 --   the output
 -- * A clock enable (@aclken@), no reset

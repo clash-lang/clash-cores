@@ -402,3 +402,102 @@ firDecimate4 = firDecimate4'
 firDecimate4TB :: Signal XilinxSystem Bool
 firDecimate4TB = validFirTB firDecimate4 $(memBlobTH (Just 0) (validSamples firDecimate4' (validStimuli 2 50)))
 {-# ANN firDecimate4TB (TestBench 'firDecimate4) #-}
+
+firInterp2P2 :: ValidFirFun (Signed 16) 11 (Signed 25)
+firInterp2P2 = firInterp2P2'
+{-# OPAQUE firInterp2P2 #-}
+{-# ANN firInterp2P2 (topAnn "firInterp2P2") #-}
+
+firInterp2P2TB :: Signal XilinxSystem Bool
+firInterp2P2TB = validFirTB firInterp2P2 $(memBlobTH (Just 0) (validSamples firInterp2P2' (validStimuli 2 60)))
+{-# ANN firInterp2P2TB (TestBench 'firInterp2P2) #-}
+
+firInterp2P4 :: ValidFirFun (Signed 16) 11 (Signed 25)
+firInterp2P4 = firInterp2P4'
+{-# OPAQUE firInterp2P4 #-}
+{-# ANN firInterp2P4 (topAnn "firInterp2P4") #-}
+
+firInterp2P4TB :: Signal XilinxSystem Bool
+firInterp2P4TB = validFirTB firInterp2P4 $(memBlobTH (Just 0) (validSamples firInterp2P4' (validStimuli 4 61)))
+{-# ANN firInterp2P4TB (TestBench 'firInterp2P4) #-}
+
+firInterp3P3 :: ValidFirFun (Signed 16) 9 (Signed 16)
+firInterp3P3 = firInterp3P3'
+{-# OPAQUE firInterp3P3 #-}
+{-# ANN firInterp3P3 (topAnn "firInterp3P3") #-}
+
+firInterp3P3TB :: Signal XilinxSystem Bool
+firInterp3P3TB = validFirTB firInterp3P3 $(memBlobTH (Just 0) (validSamples firInterp3P3' (validStimuli 3 62)))
+{-# ANN firInterp3P3TB (TestBench 'firInterp3P3) #-}
+
+firInterp2P3 :: ValidFirFun (Signed 16) 11 (Signed 25)
+firInterp2P3 = firInterp2P3'
+{-# OPAQUE firInterp2P3 #-}
+{-# ANN firInterp2P3 (topAnn "firInterp2P3") #-}
+
+firInterp2P3TB :: Signal XilinxSystem Bool
+firInterp2P3TB = validFirTB firInterp2P3 $(memBlobTH (Just 0) (validSamples firInterp2P3' (validStimuli 3 63)))
+{-# ANN firInterp2P3TB (TestBench 'firInterp2P3) #-}
+
+firInterp4P8SymRound :: ValidFirFun (Signed 16) 11 (Signed 16)
+firInterp4P8SymRound = firInterp4P8SymRound'
+{-# OPAQUE firInterp4P8SymRound #-}
+{-# ANN firInterp4P8SymRound (topAnn "firInterp4P8SymRound") #-}
+
+firInterp4P8SymRoundTB :: Signal XilinxSystem Bool
+firInterp4P8SymRoundTB = validFirTB firInterp4P8SymRound $(memBlobTH (Just 0) (validSamples firInterp4P8SymRound' (validStimuli 8 64)))
+{-# ANN firInterp4P8SymRoundTB (TestBench 'firInterp4P8SymRound) #-}
+
+firInterp2P10SymRound :: ValidFirFun (Signed 16) 10 (Signed 16)
+firInterp2P10SymRound = firInterp2P10SymRound'
+{-# OPAQUE firInterp2P10SymRound #-}
+{-# ANN firInterp2P10SymRound (topAnn "firInterp2P10SymRound") #-}
+
+firInterp2P10SymRoundTB :: Signal XilinxSystem Bool
+firInterp2P10SymRoundTB = validFirTB firInterp2P10SymRound $(memBlobTH (Just 0) (validSamples firInterp2P10SymRound' (validStimuli 10 65)))
+{-# ANN firInterp2P10SymRoundTB (TestBench 'firInterp2P10SymRound) #-}
+
+firInterp2Sym :: ValidFirFun (Signed 16) 11 (Signed 16)
+firInterp2Sym = firInterp2Sym'
+{-# OPAQUE firInterp2Sym #-}
+{-# ANN firInterp2Sym (topAnn "firInterp2Sym") #-}
+
+firInterp2SymTB :: Signal XilinxSystem Bool
+firInterp2SymTB = validFirTB firInterp2Sym $(memBlobTH (Just 0) (validSamples firInterp2Sym' (validStimuli 4 66)))
+{-# ANN firInterp2SymTB (TestBench 'firInterp2Sym) #-}
+
+firInterp5Wide :: ValidFirFun (Unsigned 24) 9 (Signed 30)
+firInterp5Wide = firInterp5Wide'
+{-# OPAQUE firInterp5Wide #-}
+{-# ANN firInterp5Wide (topAnn "firInterp5Wide") #-}
+
+firInterp5WideTB :: Signal XilinxSystem Bool
+firInterp5WideTB = validFirTB firInterp5Wide $(memBlobTH (Just 0) (validSamples firInterp5Wide' (validStimuli 5 67)))
+{-# ANN firInterp5WideTB (TestBench 'firInterp5Wide) #-}
+
+firInterp2HalfBand :: ValidFirFun (Signed 16) 12 (Signed 30)
+firInterp2HalfBand = firInterp2HalfBand'
+{-# OPAQUE firInterp2HalfBand #-}
+{-# ANN firInterp2HalfBand (topAnn "firInterp2HalfBand") #-}
+
+firInterp2HalfBandTB :: Signal XilinxSystem Bool
+firInterp2HalfBandTB = validFirTB firInterp2HalfBand $(memBlobTH (Just 0) (validSamples firInterp2HalfBand' (validStimuli 2 68)))
+{-# ANN firInterp2HalfBandTB (TestBench 'firInterp2HalfBand) #-}
+
+firInterp8 :: ValidFirFun (Signed 12) 9 (Signed 12)
+firInterp8 = firInterp8'
+{-# OPAQUE firInterp8 #-}
+{-# ANN firInterp8 (topAnn "firInterp8") #-}
+
+firInterp8TB :: Signal XilinxSystem Bool
+firInterp8TB = validFirTB firInterp8 $(memBlobTH (Just 0) (validSamples firInterp8' (validStimuli 8 69)))
+{-# ANN firInterp8TB (TestBench 'firInterp8) #-}
+
+firInterpolate2 :: ValidFirFun (Signed 14) 10 (Signed 23)
+firInterpolate2 = firInterpolate2'
+{-# OPAQUE firInterpolate2 #-}
+{-# ANN firInterpolate2 (topAnn "firInterpolate2") #-}
+
+firInterpolate2TB :: Signal XilinxSystem Bool
+firInterpolate2TB = validFirTB firInterpolate2 $(memBlobTH (Just 0) (validSamples firInterpolate2' (validStimuli 8 70)))
+{-# ANN firInterpolate2TB (TestBench 'firInterpolate2) #-}

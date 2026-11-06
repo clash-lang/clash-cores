@@ -347,11 +347,12 @@ offDim = 24
 offDimSize = 32
 
 -- | Byte offsets in @xip_fir_v7_2_config@
-offName, offFilterType, offDecimRate, offCoeff, offNumCoeffs, offCoeffSets, offQuantization,
+offName, offFilterType, offInterpRate, offDecimRate, offCoeff, offNumCoeffs, offCoeffSets, offQuantization,
   offCoeffWidth, offNumChannels, offNumPaths, offDataWidth, offRounding,
   offOutputWidth :: Int
 offName = 0
 offFilterType = 8
+offInterpRate = 16
 offDecimRate = 20
 offCoeff = 32
 offNumCoeffs = 44
@@ -396,12 +397,12 @@ peekMpz p = do
 -- 'Nothing' if the C model cannot discard the same bits as the IP (see the
 -- module documentation).
 runCModel :: FirCModel -> TestConfig -> [Integer] -> IO (Maybe [Integer])
-runCModel model tc = runCModelRate model tc 1 0
+runCModel model tc = runCModelRate model tc SingleRate 0
 
--- | Like 'runCModel', for a decimator by @r@ (or a single rate filter, for
--- @r = 1@), and with zeros in front of the coefficients
-runCModelRate :: FirCModel -> TestConfig -> Int -> Int -> [Integer] -> IO (Maybe [Integer])
-runCModelRate model@FirCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} decimation padding xs =
+-- | Like 'runCModel', for any rate, and with zeros in front of the
+-- coefficients
+runCModelRate :: FirCModel -> TestConfig -> Rate -> Int -> [Integer] -> IO (Maybe [Integer])
+runCModelRate model@FirCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} rt padding xs =
   withMVar lock $ \() ->
   allocaBytes configSize $ \cfgPtr ->
   withCString "clash-cores" $ \name ->
@@ -410,8 +411,13 @@ runCModelRate model@FirCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} dec
       pokeConfig rnd outputWidth = do
         checkStatus "default_config" =<< defaultConfig model cfgPtr
         pokeByteOff cfgPtr offName name
-        pokeByteOff cfgPtr offFilterType (if decimation > 1 then 2 else 0 :: Word32)
-        pokeByteOff cfgPtr offDecimRate (fromIntegral (max 1 decimation) :: Word32)
+        let (filterType, interp, decim) = case rt of
+              SingleRate -> (0, 1, 1)
+              Interpolation l -> (1, l, 1)
+              Decimation r -> (2 :: Word32, 1, r)
+        pokeByteOff cfgPtr offFilterType filterType
+        pokeByteOff cfgPtr offInterpRate (fromIntegral interp :: Word32)
+        pokeByteOff cfgPtr offDecimRate (fromIntegral decim :: Word32)
         pokeByteOff cfgPtr offCoeff coefPtr
         pokeByteOff cfgPtr offNumCoeffs (fromIntegral nCoefs :: Word32)
         pokeByteOff cfgPtr offCoeffSets (1 :: Word32)
@@ -434,7 +440,7 @@ runCModelRate model@FirCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} dec
       checkStatus "get_config" =<< getConfig model h cfgPtr
       fromIntegral <$> (peekByteOff cfgPtr offOutputWidth :: IO Word32)
     let
-      extraBits = cFullWidth - fullWidth (tcParams tc)
+      extraBits = cFullWidth - fullWidth (tcParamsRate tc 1 rt)
       cOutputWidth = tcOutputWidth + extraBits
     unless (extraBits `elem` [-1, 0, 1]) $
       fail ("Unexpected full precision output width of the C model: " <> show cFullWidth)
@@ -591,22 +597,52 @@ runClashValid tc@TestConfig{..} p xs =
 -- period on a list of valid-qualified samples. Gives the samples the IP
 -- accepted, and the valid outputs.
 runClashDecimate :: TestConfig -> Int -> Int -> [Maybe Integer] -> ([Integer], [Integer])
-runClashDecimate tc@TestConfig{..} r p xs =
-  withNat (latency (tcParamsRate tc p (Decimation r))) $ \(Proxy :: Proxy d) ->
+runClashDecimate = runClashRate False
+
+-- | Like 'runClashDecimate', for 'X.firInterpolateWith'
+runClashInterpolate :: TestConfig -> Int -> Int -> [Maybe Integer] -> ([Integer], [Integer])
+runClashInterpolate = runClashRate True
+
+runClashRate :: Bool -> TestConfig -> Int -> Int -> [Maybe Integer] -> ([Integer], [Integer])
+runClashRate interpolate tc@TestConfig{..} r p xs =
+  withNat (latency (tcParamsRate tc p rt)) $ \(Proxy :: Proxy d) ->
   withNat r $ \(Proxy :: Proxy r) ->
   withNat p $ \(Proxy :: Proxy p) ->
   withNat tcDataWidth $ \(Proxy :: Proxy wd) ->
   withNat tcCoefWidth $ \(Proxy :: Proxy wc) ->
   withNat tcOutputWidth $ \(Proxy :: Proxy wo) ->
   withNat (length tcCoefficients) $ \(Proxy :: Proxy n) ->
-    case (C.compareSNat (C.SNat @1) (C.SNat @p), C.compareSNat (C.SNat @2) (C.SNat @r)) of
-      (C.SNatLE, C.SNatLE) -> case (tcDataSigned, tcCoefSigned) of
+    case (C.compareSNat (C.SNat @r) (C.SNat @p), C.compareSNat (C.SNat @1) (C.SNat @p), C.compareSNat (C.SNat @2) (C.SNat @r)) of
+      (C.SNatLE, C.SNatLE, C.SNatLE) | interpolate -> case (tcDataSigned, tcCoefSigned) of
+        (True, True) -> goI @d @r @p @Signed @Signed @wd @wc @wo @n
+        (True, False) -> goI @d @r @p @Signed @Unsigned @wd @wc @wo @n
+        (False, True) -> goI @d @r @p @Unsigned @Signed @wd @wc @wo @n
+        (False, False) -> goI @d @r @p @Unsigned @Unsigned @wd @wc @wo @n
+      (_, C.SNatLE, C.SNatLE) | not interpolate -> case (tcDataSigned, tcCoefSigned) of
         (True, True) -> go @d @r @p @Signed @Signed @wd @wc @wo @n
         (True, False) -> go @d @r @p @Signed @Unsigned @wd @wc @wo @n
         (False, True) -> go @d @r @p @Unsigned @Signed @wd @wc @wo @n
         (False, False) -> go @d @r @p @Unsigned @Unsigned @wd @wc @wo @n
-      _ -> error "runClashDecimate: bad factor or sample period"
+      _ -> error "runClashRate: bad factor or sample period"
  where
+  rt = if interpolate then Interpolation r else Decimation r
+  goI ::
+    forall d l p a c wd wc wo n.
+    ( KnownNat d, KnownNat l, 2 C.<= l, l C.<= p, KnownNat p, KnownNat wd, KnownNat wc, KnownNat wo, KnownNat n
+    , FirNumber a, FirNumber c, FirNumber (FirOutput a c)
+    , C.NFDataX (a wd), C.NFDataX (FirOutput a c wo) ) =>
+    ([Integer], [Integer])
+  goI = (accepted, map toInteger (catMaybes outs))
+   where
+    coefs = V.unsafeFromList (map fromInteger tcCoefficients) :: Vec n (c wc)
+    nCycles = length xs + natToNum @d + natToNum @p + 1
+    ins = map (fmap fromInteger) xs <> repeat Nothing :: [Maybe (a wd)]
+    (ready, out) =
+      X.firInterpolateWith @d @l @p @a @c @wd @wc @wo tcConfig{rounding = tcRounding} C.SNat C.SNat coefs clk en
+        (D.fromSignal (C.fromList ins))
+    readys = C.sampleN nCycles (D.toSignal ready)
+    outs = C.sampleN nCycles (D.toSignal out)
+    accepted = [ x | (rd, Just x) <- zip readys xs, rd ]
   go ::
     forall d r p a c wd wc wo n.
     ( KnownNat d, KnownNat r, 2 C.<= r, KnownNat p, 1 C.<= p, KnownNat wd, KnownNat wc, KnownNat wo, KnownNat n
@@ -725,12 +761,46 @@ prop_cmodelDecimate getModel = H.withTests (nTests `div` 3) $ H.property $ do
   valids <- H.forAllWith showBatch (Gen.list (Range.singleton (length xs)) (Gen.frequency [(1, pure True), (p - 1, pure False)]))
   let
     (accepted, hOut) = runClashDecimate tc r p (zipWith (\v x -> if v then Just x else Nothing) valids xs)
-  cOut <- H.evalIO (runCModelRate model tc r (frontPadding params) accepted) >>= maybe H.discard pure
+  cOut <- H.evalIO (runCModelRate model tc (Decimation r) (frontPadding params) accepted) >>= maybe H.discard pure
   let expected = take (length accepted `div` r) (map (wrapOutput tc) cOut)
   H.annotateShow (structure params, madds params, oversampling params, frontPadding params, latency params)
   H.label (fromString ("padding " <> show (min 2 (frontPadding params))))
   length hOut === length accepted `div` r
   hOut === expected
+ where
+  showBatch xs = show (length xs) <> " elements"
+
+-- | 'X.firInterpolateWith' with random interpolation factors, sample periods
+-- and valid-qualified samples: its outputs are the outputs of the C model of
+-- the interpolator for the samples it accepted
+prop_cmodelInterpolate :: IO FirCModel -> Property
+prop_cmodelInterpolate getModel = H.withTests (nTests `div` 3) $ H.property $ do
+  model <- H.evalIO getModel
+  tc0 <- H.forAll genTestConfig
+  l <- H.forAll (Gen.frequency [(3, pure 2), (2, Gen.int (Range.constant 3 8))])
+  p <- H.forAll (Gen.int (Range.constant l (4 * l)))
+  let
+    -- Only the non-symmetric structure is supported for interpolators
+    cfg0 = (tcConfig tc0){coefficientStructure = NonSymmetric}
+    params0 = tcParamsRate tc0{tcConfig = cfg0} p (Interpolation l)
+  -- The full precision width of an interpolator differs from that of a single
+  -- rate filter
+  wo <-
+    if tcRounding tc0 == FullPrecision
+    then pure (fullWidth params0)
+    else H.forAll (Gen.int (Range.constant 1 (fullWidth params0 - 1)))
+  let
+    tc = tc0{tcConfig = cfg0, tcOutputWidth = wo}
+    params = tcParamsRate tc p (Interpolation l)
+  xs <- H.forAllWith showBatch (genSamples tc)
+  valids <- H.forAllWith showBatch (Gen.list (Range.singleton (length xs)) (Gen.frequency [(1, pure True), (p - 1, pure False)]))
+  let
+    (accepted, hOut) = runClashInterpolate tc l p (zipWith (\v x -> if v then Just x else Nothing) valids xs)
+  cOut <- H.evalIO (runCModelRate model tc (Interpolation l) 0 accepted) >>= maybe H.discard pure
+  let expected = map (wrapOutput tc) cOut
+  H.annotateShow (madds params, oversampling params, cyclesPerOutput params, latency params)
+  length hOut === length accepted * l
+  hOut === take (length hOut) expected
  where
   showBatch xs = show (length xs) <> " elements"
 
@@ -851,5 +921,6 @@ tests =
           [ testPropertyNamed "firWith" (fromString "prop_cmodel") (prop_cmodel getModel)
           , testPropertyNamed "firValidWith" (fromString "prop_cmodelValid") (prop_cmodelValid getModel)
           , testPropertyNamed "firDecimateWith" (fromString "prop_cmodelDecimate") (prop_cmodelDecimate getModel)
+          , testPropertyNamed "firInterpolateWith" (fromString "prop_cmodelInterpolate") (prop_cmodelInterpolate getModel)
           ]
     ]

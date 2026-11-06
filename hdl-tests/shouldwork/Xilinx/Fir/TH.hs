@@ -423,3 +423,83 @@ firDecimate4' :: ValidFirFun (Signed 14) 8 (Signed 24)
 firDecimate4' = Fir.firDecimate @8 d4 d2
   (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> Nil :: Vec 8 (Signed 16))
 {-# INLINE firDecimate4' #-}
+
+------------------------------------------------------------------------------
+-- Interpolators
+------------------------------------------------------------------------------
+
+-- | The configuration for interpolators: only the non-symmetric structure is
+-- supported
+k7i :: Config
+k7i = k7{coefficientStructure = NonSymmetric}
+
+-- | Interpolation by 2, sample period 2: an output every cycle
+firInterp2P2' :: ValidFirFun (Signed 16) 11 (Signed 25)
+firInterp2P2' = Fir.firInterpolateWith @11 k7i d2 d2
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firInterp2P2' #-}
+
+-- | Interpolation by 2, sample period 4: an output every second cycle
+firInterp2P4' :: ValidFirFun (Signed 16) 11 (Signed 25)
+firInterp2P4' = Fir.firInterpolateWith @11 k7i d2 d4
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firInterp2P4' #-}
+
+-- | Interpolation by 3, sample period 3
+firInterp3P3' :: ValidFirFun (Signed 16) 9 (Signed 16)
+firInterp3P3' = Fir.firInterpolateWith @9 k7i{rounding = TruncateLsbs} d3 d3
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firInterp3P3' #-}
+
+-- | Interpolation by 2, sample period 3: the IP is ready for a sample every two cycles
+firInterp2P3' :: ValidFirFun (Signed 16) 11 (Signed 25)
+firInterp2P3' = Fir.firInterpolateWith @11 k7i d2 d3
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firInterp2P3' #-}
+
+-- | Interpolation by 4, sample period 8, symmetric rounding
+firInterp4P8SymRound' :: ValidFirFun (Signed 16) 11 (Signed 16)
+firInterp4P8SymRound' = Fir.firInterpolateWith @11 k7i{rounding = SymmetricRoundingToZero} d4 d8
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> 1 :> 2 :> 3 :> 4 :>
+   5 :> 6 :> 7 :> Nil :: Vec 16 (Signed 16))
+{-# INLINE firInterp4P8SymRound' #-}
+
+-- | Interpolation by 2, sample period 10, symmetric rounding: three cycles of work per output, five cycles between outputs
+firInterp2P10SymRound' :: ValidFirFun (Signed 16) 10 (Signed 16)
+firInterp2P10SymRound' = Fir.firInterpolateWith @10 k7i{rounding = SymmetricRoundingToInfinity} d2 d10
+  (3000 :> (-5000) :> 7000 :> 11000 :> (-13000) :> 1000 :> Nil :: Vec 6 (Signed 16))
+{-# INLINE firInterp2P10SymRound' #-}
+
+-- | Symmetric coefficients, interpolated as non-symmetric ones
+firInterp2Sym' :: ValidFirFun (Signed 16) 11 (Signed 16)
+firInterp2Sym' = Fir.firInterpolateWith @11 k7i{rounding = ConvergentRoundingToEven} d2 d4
+  (30 :> (-50) :> 70 :> 110 :> (-130) :> 1000 :> 1000 :> (-130) :> 110 :> 70 :> (-50) :>
+   30 :> Nil :: Vec 12 (Signed 16))
+{-# INLINE firInterp2Sym' #-}
+
+-- | Interpolation by 5, unsigned data, wide coefficients
+firInterp5Wide' :: ValidFirFun (Unsigned 24) 9 (Signed 30)
+firInterp5Wide' = Fir.firInterpolateWith @9 k7i{rounding = TruncateLsbs} d5 d5
+  (131071 :> (-131072) :> 5000 :> (-77777) :> 12345 :> 1 :> (-1) :> 99999 :> 7 :> 7 :>
+   (-9) :> 1000 :> Nil :: Vec 12 (Signed 18))
+{-# INLINE firInterp5Wide' #-}
+
+-- | Half-band coefficients, interpolated as non-symmetric ones
+firInterp2HalfBand' :: ValidFirFun (Signed 16) 12 (Signed 30)
+firInterp2HalfBand' = Fir.firInterpolateWith @12 k7i d2 d2
+  ((-300) :> 0 :> 1200 :> 0 :> (-5000) :> 16384 :> (-5000) :> 0 :> 1200 :> 0 :> (-300) :> Nil :: Vec 11 (Signed 16))
+{-# INLINE firInterp2HalfBand' #-}
+
+-- | Interpolation by 8, sample period 8
+firInterp8' :: ValidFirFun (Signed 12) 9 (Signed 12)
+firInterp8' = Fir.firInterpolateWith @9 k7i{rounding = NonSymmetricRoundingDown} d8 d8
+  (1000 :> (-2047) :> 3 :> 0 :> 77 :> (-1500) :> 2047 :> 1000 :> (-2047) :> 3 :> 0 :>
+   77 :> (-1500) :> 2047 :> 1000 :> (-2047) :> 3 :> 0 :> 77 :> (-1500) :> Nil :: Vec 20 (Signed 12))
+{-# INLINE firInterp8' #-}
+
+-- | Interpolation by 2 with the default configuration: a single multiply-add
+-- unit, so the latency is the same on all devices
+firInterpolate2' :: ValidFirFun (Signed 14) 10 (Signed 23)
+firInterpolate2' = Fir.firInterpolate @10 d2 d8
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> Nil :: Vec 8 (Signed 16))
+{-# INLINE firInterpolate2' #-}

@@ -39,6 +39,10 @@ There are two kinds of filters:
 * 'firDecimateWith' and 'firDecimate' are like 'firValidWith', but decimate by
   an integer factor @r@: they give an output for every @r@ samples.
 
+* 'firInterpolateWith' and 'firInterpolate' are like 'firValidWith', but
+  interpolate by an integer factor @l@: they give @l@ outputs for every
+  sample, at most one per clock cycle.
+
 The data and the coefficients are integers. The output is the exact sum of
 products, so for fixed point data and coefficients the output has as many
 fractional bits as the data and coefficients together, minus the bits the
@@ -69,7 +73,7 @@ rounding discards.
 
 All IP instantiated by this module has the following properties:
 
-* Single rate or decimating, single channel filter
+* Single rate, decimating or interpolating, single channel filter
 * The systolic multiply-accumulate architecture
 * Non-blocking AXI4-Stream interfaces without an input FIFO, a clock enable, no
   reset input, no @TLAST@ or @TUSER@. For 'firWith', @TVALID@ on the input is
@@ -80,13 +84,13 @@ the latency of the CORDIC IP, and unlike that of the Floating-Point IP, it
 cannot be configured: it depends on the coefficients and the configuration.
 The delay must therefore equal the IP's latency. Simulation checks this, and
 fails with an error message stating the correct latency if it does not. HDL
-generation does not check it. Functions 'firLatency', 'firValidLatency' and
-'firDecimateLatency' compute the latency, which is also the latency Vivado
-reports for the IP. It depends on:
+generation does not check it. Functions 'firLatency', 'firValidLatency',
+'firDecimateLatency' and 'firInterpolateLatency' compute the latency, which is
+also the latency Vivado reports for the IP. It depends on:
 
 * the number of coefficients and their structure: symmetric coefficients
   halve the number of multiplications, see 'CoefficientStructure';
-* the sample period and the decimation factor;
+* the sample period and the decimation or interpolation factor;
 * the widths of the data and coefficients, if a multiplication needs several
   DSP slices, which depends on the family of the device ('dspSlice'), and on
   the width of the full precision result, if it exceeds the 48 bits of the
@@ -104,7 +108,13 @@ outputs of the first cycles, until the latency has passed, are undefined.
 
 = Not supported
 
-* Interpolation and fractional rate changes
+* Interpolation with a sample period shorter than the interpolation factor,
+  for which the IP gives several outputs per clock cycle, and fractional rate
+  changes
+* Interpolators that exploit symmetric coefficients: use 'NonSymmetric' for
+  interpolators, see 'firInterpolateWith'.
+* Vivado rejects symmetric rounding for some decimators and interpolators.
+  It reports an error when creating the IP then.
 * Half-band decimators: the IP decimates half-band coefficients by two with a
   dedicated half-band decimator. Simulation reports an error for those; use
   'Symmetric' for such coefficients.
@@ -132,6 +142,8 @@ module Clash.Cores.Xilinx.Fir.Explicit
   , firValid
   , firDecimateWith
   , firDecimate
+  , firInterpolateWith
+  , firInterpolate
     -- * Numbers
   , FirNumber(..)
   , FirOutput
@@ -145,6 +157,7 @@ module Clash.Cores.Xilinx.Fir.Explicit
   , firLatency
   , firValidLatency
   , firDecimateLatency
+  , firInterpolateLatency
   , fullPrecisionWidth
   ) where
 
@@ -530,6 +543,117 @@ firDecimateLatency cfg r@SNat p@SNat coefs =
     mkParams cfg (P.map toInteger (toList coefs))
       (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 (snatToNum p)
       (Decimation (snatToNum r))
+
+-- | Customizable interpolating FIR filter: it filters valid-qualified samples,
+-- at most one every @p@ clock cycles, and gives @l@ outputs for every sample
+-- it accepts. The sample period should be at least the interpolation factor,
+-- @p >= l@, so that the IP gives at most one output per clock cycle.
+--
+-- The outputs are those of the filter for the input with @l - 1@ zeros after
+-- every sample: output @m@ (counting from 0) for sample @x[j]@ is
+-- @sum_i c_(m + l*i) * x[j - i]@. Output 0 comes out @d@ (enabled) clock
+-- cycles after the IP accepted the sample (the IP's latency, see
+-- 'firInterpolateLatency'), and output @m@ another @m * (p \`div\` l)@ cycles
+-- later. Each output is 'Just' for a single clock cycle; the output is
+-- 'Nothing' in all other cycles. The IP is not ready for a new sample for
+-- @l * (p \`div\` l) - 1@ cycles after it accepts one, which can be fewer than
+-- @p - 1@.
+--
+-- The full precision output width is that of the widest phase: the data width
+-- plus @ceil (log2 (sum_i |c_(m + l*i)|))@ for the phase @m@ with the largest
+-- sum, plus one for unsigned data and signed coefficients.
+--
+-- Only the 'NonSymmetric' coefficient structure is supported: the IP exploits
+-- symmetric coefficients of an interpolator in ways the simulation model does
+-- not cover, so simulation reports an error for those unless the
+-- configuration says 'NonSymmetric'. This costs DSP slices, not results.
+--
+-- Everything else is as for 'firValidWith'.
+firInterpolateWith ::
+  forall d l p a c wd wc wo n dom k.
+  ( KnownDomain dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= l
+  , l <= p
+  , HasCallStack
+  ) =>
+  Config ->
+  -- | Interpolation factor @l@
+  SNat l ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, interpolated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firInterpolateWith cfg l@SNat p@SNat =
+  firRate @d cfg (Interpolation (snatToNum l)) (snatToNum p)
+{-# INLINE firInterpolateWith #-}
+
+-- | Interpolating FIR filter with full precision output and the
+-- 'NonSymmetric' coefficient structure. See 'firInterpolateWith'.
+firInterpolate ::
+  forall d l p a c wd wc wo n dom k.
+  ( KnownDomain dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= l
+  , l <= p
+  , HasCallStack
+  ) =>
+  -- | Interpolation factor @l@
+  SNat l ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, interpolated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firInterpolate =
+  withFrozenCallStack $ firInterpolateWith @d defConfig{coefficientStructure = NonSymmetric}
+{-# INLINE firInterpolate #-}
+
+-- | Latency of the IP for 'firInterpolateWith', for a configuration,
+-- interpolation factor, sample period, set of coefficients and data type
+-- @a wd@: the latency of the first output for a sample.
+--
+-- >>> import Clash.Prelude
+-- >>> firInterpolateLatency @Signed @16 defConfig{coefficientStructure = NonSymmetric} d2 d4 (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+-- 10
+firInterpolateLatency ::
+  forall a wd c wc n l p.
+  (FirNumber a, FirNumber c, KnownNat wd, KnownNat wc) =>
+  Config ->
+  SNat l ->
+  SNat p ->
+  Vec n (c wc) ->
+  Int
+firInterpolateLatency cfg l@SNat p@SNat coefs =
+  latency $
+    mkParams cfg (P.map toInteger (toList coefs))
+      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 (snatToNum p)
+      (Interpolation (snatToNum l))
 
 -- | Width of the exact output of a filter with data of type @a wd@ and the
 -- given coefficients: the data width plus @ceil (log2 (sum |c_i|))@, plus one

@@ -377,6 +377,17 @@ runClashTest = defaultMain $ clashTestRoot
                 , "firDecim8WideTB"
                 , "firDecim2P8Sym11TB"
                 , "firDecimate4TB"
+                , "firInterp2P2TB"
+                , "firInterp2P4TB"
+                , "firInterp3P3TB"
+                , "firInterp2P3TB"
+                , "firInterp4P8SymRoundTB"
+                , "firInterp2P10SymRoundTB"
+                , "firInterp2SymTB"
+                , "firInterp5WideTB"
+                , "firInterp2HalfBandTB"
+                , "firInterp8TB"
+                , "firInterpolate2TB"
                 ]
             }
         ]
