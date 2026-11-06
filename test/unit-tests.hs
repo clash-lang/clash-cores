@@ -35,6 +35,9 @@ import qualified Test.Cores.Xilinx.Ethernet.Gmii
 #ifdef XILINX_FLOATING_CMODEL
 import qualified Test.Cores.Xilinx.Floating
 #endif
+#ifdef XILINX_FIR_CMODEL
+import qualified Test.Cores.Xilinx.Fir
+#endif
 
 tests :: TestTree
 tests = testGroup "Unittests" $
@@ -52,6 +55,9 @@ tests = testGroup "Unittests" $
   , Test.Cores.Xilinx.Ethernet.Gmii.tests
 #ifdef XILINX_FLOATING_CMODEL
   , Test.Cores.Xilinx.Floating.tests
+#endif
+#ifdef XILINX_FIR_CMODEL
+  , Test.Cores.Xilinx.Fir.tests
 #endif
   ] ++ tests_modern
 
