@@ -172,6 +172,8 @@ runClashTest = defaultMain $ clashTestRoot
           , runTest "SbRam40" ice40VhdlOpts{buildTargets=sbRam40Targets}
           , runTest "SbSpram" ice40VerilogOpts{buildTargets=BuildSpecific ["tbReadWrite", "tbLowPower"]}
           , runTest "SbSpram" ice40VhdlOpts{buildTargets=BuildSpecific ["tbReadWrite", "tbLowPower"]}
+          , runTest "SbMac16" ice40VerilogOpts{buildTargets=sbMac16Targets}
+          , runTest "SbMac16" ice40VhdlOpts{buildTargets=sbMac16Targets}
           ]
         ]
       , clashTestGroup "Xilinx"
@@ -455,6 +457,12 @@ sbRam40Targets :: BuildTargets
 sbRam40Targets = BuildSpecific
   [ "tb256x16", "tb512x8", "tb1024x4", "tb2048x2", "tbWide2Narrow"
   , "tbNarrow2Wide", "tbFalling", "tbDualClock"
+  ]
+
+sbMac16Targets :: BuildTargets
+sbMac16Targets = BuildSpecific
+  [ "tbMult16Unsigned", "tbMult16Signed", "tbMult8x8", "tbMac32", "tbAddSub16"
+  , "tbAccum8x8", "tbSignExtension", "tbMult16Mixed", "tbMult16MixedB"
   ]
 
 main :: IO ()

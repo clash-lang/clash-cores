@@ -22,3 +22,4 @@
 * Add `sbioOd`, a wrapper for the open-drain I/O cell `SB_IO_OD` of the iCE40 UltraPlus devices
 * Add `Clash.Cores.LatticeSemi.Ice40.Memory` with `sbRam40_4k`, a wrapper for the iCE40 block RAM `SB_RAM40_4K` and its variants with inverted clocks, with typed read and write modes and initial contents
 * Add `sbSpram256ka`, a wrapper for the 256 kbit single-port RAM `SB_SPRAM256KA` of the iCE40 UltraPlus devices, including its low-power modes
+* Add `Clash.Cores.LatticeSemi.Ice40.Dsp` with `sbMac16`, a wrapper for the iCE40 DSP block `SB_MAC16` with a typed configuration, and `multiply16`, a signed 16x16 multiplier on it
