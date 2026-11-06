@@ -169,6 +169,14 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlSim=[GHDL, IVerilog, Verilator]
             }
         ]
+      , clashTestGroup "Intel"
+        [ runTest "IoBuffer" intelOpts
+            { buildTargets=BuildSpecific
+                [ "tbIobufFloating", "tbIobufPullUp", "tbOutbufTri", "tbOpndrn"
+                , "tbOutbufDiff", "tbIobufDiff"
+                ]
+            }
+        ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}

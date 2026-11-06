@@ -129,6 +129,8 @@ library
     Clash.Cores.I2c.ByteController
     Clash.Cores.I2c.ByteController.ShiftRegister
     Clash.Cores.I2c.Types
+    Clash.Cores.Intel.IO
+    Clash.Cores.Intel.Primitive.Internal
     Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO
     Clash.Cores.LatticeSemi.Ecp5.IO
     Clash.Cores.LatticeSemi.Ice40.Blackboxes.IO
