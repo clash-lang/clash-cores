@@ -89,7 +89,7 @@ import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.Pretty (showPpr)
 import Clash.Core.TyCon(isTupleTyConLike)
-import Clash.Core.Type (Type(..), LitTy (SymTy, NumTy), ConstTy(TyCon), splitTyConAppM, isIntegerTy)
+import Clash.Core.Type (Type(..), LitTy (SymTy, NumTy), ConstTy(TyCon), normalizeType, splitTyConAppM, isIntegerTy)
 import Clash.Core.Util (undefinedPrims, undefinedXPrims)
 import Clash.Driver.Types (DomainMap, envDomains)
 import Clash.Netlist.BlackBox.Types
@@ -323,14 +323,20 @@ instance TermLiteral (PrimPortOrParam ()) where
     , ( LitTy (SymTy nm)
       : ConstTy _dflt
       : LitTy (SymTy domNm)
-      : LitTy (NumTy width)
+      : widthTy
       : _
       ) <- rights args
     = pure (MkPrimPort (PrimBiSignalInPort
         { name=Text.pack nm
         , dom=Text.pack domNm
         , meta=()
-        , n = width
+          -- The width can be an unreduced type family application, such as
+          -- @BitSize a@ when the port is passed down from a polymorphic
+          -- function. We don't need the width of input ports, so we don't
+          -- insist on a literal.
+        , n = case widthTy of
+            LitTy (NumTy width) -> width
+            _ -> 0
         , bitPort = False
         }
       ))
@@ -838,7 +844,10 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
   = do
       doms <- Lens.view (clashEnv . Lens.to envDomains)
       hdl <- Lens.use (backend . fromSomeBackend hdlKind)
-      case go config userArgs of
+      tcm <- Lens.view tcCache
+      -- Reduce type families in the result type, such as the width @BitSize a@
+      -- of a 'BiSignalOutPort' passed up from a polymorphic function
+      case go config userArgs (normalizeType tcm resTy) of
         Left s -> error ("instBBF, bad context:\n\n" <> s)
         Right (c, a, r0) -> do
           -- Determine which output ports have a zero-width type, see
@@ -848,11 +857,11 @@ instBBFWorker nExtraArgs maybeXilinxWizard _isD _primName args [resTy]
             r0
           pure $ Right (bbMeta hdl c, bb doms c a r1)
  where
-  go :: Term -> [Term] -> Either String (InstConfig, [PrimPortOrParam ()], [(PrimPort (), Type)])
-  go config0 userArgs = do
+  go :: Term -> [Term] -> Type -> Either String (InstConfig, [PrimPortOrParam ()], [(PrimPort (), Type)])
+  go config0 userArgs resTy1 = do
     config1 <- Compat.termToDataError config0
     argPorts <- argsToPrimPortOrParams userArgs
-    resPorts <- tyToPrimPort resTy
+    resPorts <- tyToPrimPort resTy1
     pure (config1, argPorts, resPorts)
 
   bbMeta :: HDL -> InstConfig -> BlackBoxMeta
