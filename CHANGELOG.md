@@ -17,3 +17,4 @@
 * Add `BitBiSignalInPort` to `inst`, for single-bit bidirectional ports that are a `std_logic` in VHDL, such as the `IO` port of `IOBUF`. A 1-bit `BiSignalInPort` renders as a `std_logic_vector(0 downto 0)`, which VHDL does not allow to be connected to such ports.
 * Add `Clash.Cores.Intel.IO`: wrappers for the I/O buffer primitives of Intel FPGAs `ALT_OUTBUF_TRI`, `ALT_IOBUF`, `OPNDRN`, `ALT_INBUF_DIFF`, `ALT_OUTBUF_DIFF` and `ALT_IOBUF_DIFF`
 * Fix `inst` failing on a `BiSignalInPort` or `BiSignalOutPort` whose width is a type family application, such as `BitSize a`
+* Add `Clash.Cores.Intel.DDR` with `altddioBidir`, a wrapper for `ALTDDIO_BIDIR` on a `BiSignal` pad, completing `altddioIn` and `altddioOut` of `clash-prelude` (which it re-exports)

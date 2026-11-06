@@ -176,6 +176,12 @@ runClashTest = defaultMain $ clashTestRoot
                 , "tbOutbufDiff", "tbIobufDiff"
                 ]
             }
+        , runTest "DdioBidir" intelOpts
+            { buildTargets=BuildSpecific
+                [ "tbCycloneVAsync", "tbCycloneVSync", "tbCycloneIVEAsync"
+                , "tbMax10Async"
+                ]
+            }
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"

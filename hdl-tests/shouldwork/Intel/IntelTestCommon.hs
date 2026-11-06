@@ -41,12 +41,12 @@ withIntelSim = fmap (bitToBool . alteraLib . alteraMfLib . boolToBit)
 
 -- * Pull-up resistor
 
-{- | Pull-up resistor on a wire. Clash simulates wires with a v'PullUp'
+{- | Pull-up resistors on a wire. Clash simulates wires with a v'PullUp'
 default, but doesn't add a pull-up in HDL. Neither do the Intel buffers: they
 set the @weak_pull_up_resistor@ parameter, which the simulation models ignore.
 -}
-pullUp :: BiSignalIn 'PullUp dom 1 -> BiSignalOut 'PullUp dom 1
-pullUp pad = writeToBiSignal pad (pure (Nothing :: Maybe Bit))
+pullUp :: (KnownNat n) => BiSignalIn 'PullUp dom n -> BiSignalOut 'PullUp dom n
+pullUp pad = writeToBiSignal pad (pure (Nothing :: Maybe (BitVector n)))
 {-# OPAQUE pullUp #-}
 {-# ANN pullUp hasBlackBox #-}
 {-# ANN pullUp (InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
@@ -55,7 +55,7 @@ pullUp pad = writeToBiSignal pad (pure (Nothing :: Maybe Bit))
     kind: Declaration
     renderVoid: RenderVoid
     template: |-
-      pullup (~ARG[0]);
+      pullup ~GENSYM[pull_up][0] [~SIZE[~TYP[1]]-1:0] (~ARG[1]);
   |]) #-}
 {-# ANN pullUp (InlineYamlPrimitive [VHDL] [__i|
   BlackBox:
@@ -63,7 +63,7 @@ pullUp pad = writeToBiSignal pad (pure (Nothing :: Maybe Bit))
     kind: Declaration
     renderVoid: RenderVoid
     template: |-
-      ~ARG[0] <= (others => 'H');
+      ~ARG[1] <= (others => 'H');
   |]) #-}
 
 {- | Converts the weak levels of a VHDL @std_logic@ (@\'H\'@, @\'L\'@) to
@@ -84,6 +84,24 @@ strengthen = id
 {-# ANN strengthen (InlineYamlPrimitive [VHDL] [__i|
   BlackBox:
     name: IntelTestCommon.strengthen
+    kind: Expression
+    template: to_X01(~ARG[0])
+  |]) #-}
+
+-- | 'strengthen' for a 'BitVector'
+strengthenBV :: Signal dom (BitVector n) -> Signal dom (BitVector n)
+strengthenBV = id
+{-# OPAQUE strengthenBV #-}
+{-# ANN strengthenBV hasBlackBox #-}
+{-# ANN strengthenBV (InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
+  BlackBox:
+    name: IntelTestCommon.strengthenBV
+    kind: Expression
+    template: ~ARG[0]
+  |]) #-}
+{-# ANN strengthenBV (InlineYamlPrimitive [VHDL] [__i|
+  BlackBox:
+    name: IntelTestCommon.strengthenBV
     kind: Expression
     template: to_X01(~ARG[0])
   |]) #-}
