@@ -182,6 +182,10 @@ runClashTest = defaultMain $ clashTestRoot
                 , "tbMax10Async"
                 ]
             }
+        , runTest "Synchronizer" intelOpts
+            { buildTargets=BuildSpecific
+                ["tbSingle2", "tbSingle3", "tbBundle3", "tbBundle5"]
+            }
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
