@@ -4,8 +4,11 @@
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Block RAM of Intel FPGAs (@altsyncram@) in single-port, simple dual-port and
-true dual-port mode. For more information see the /Embedded Memory User Guide/
-(<https://www.intel.com/content/www/us/en/docs/programmable/683240/current/embedded-memory-user-guide.html>).
+true dual-port mode, and the RAM-based shift register @altshift_taps@. For more
+information see the /Embedded Memory User Guide/
+(<https://www.intel.com/content/www/us/en/docs/programmable/683240/current/embedded-memory-user-guide.html>)
+and the /Shift Register (RAM-based) IP Core User Guide/
+(<https://www.intel.com/content/www/us/en/docs/programmable/683490/current/shift-register-ram-based-ip-core-user-guide.html>).
 
 = Ports
 
@@ -61,6 +64,8 @@ module Clash.Cores.Intel.Memory
     altsyncramSinglePort
   , altsyncramSimpleDualPort
   , altsyncramTrueDualPort
+    -- * Shift register
+  , altshiftTaps
     -- * Configuration
   , AltsyncramConfig (..)
   , defAltsyncramConfig
@@ -450,6 +455,86 @@ altsyncramTrueDualPort _ cfg cfgA cfgB clk en portA portB
       (Port @"wren_b" (boolToBit . isJust <$> wrB))
       (Port @"byteena_b" (maybe 0 fst <$> wrB))
       (Port @"data_b" (pack . snd . fromJustX <$> wrB))
+
+-- * Shift register
+
+{- | RAM-based shift register with taps (@altshift_taps@): a chain of
+@nTaps * distance@ registers for words of type @a@, with a tap after every
+@distance@ registers. Returns the output of the last register (@shiftout@) and
+the taps (@taps@), the nearest tap first: tap /k/ is the input delayed by
+@(k + 1) * distance@ enabled clock cycles. The last tap equals @shiftout@.
+
+The registers start cleared (@power_up_state = \"CLEARED\"@). There is no
+reset: Quartus Prime Lite 21.1 doesn't support the synchronous clear (@sclr@)
+of Intel's simulation model, and its implementation of the asynchronous clear
+(@aclr@) only clears the output registers of the RAM, while the simulation
+model clears the whole shift register.
+
+The simulation model matches Intel's simulation model (@altera_mf@) cycle by
+cycle.
+-}
+altshiftTaps ::
+  forall nTaps distance a dom deviceFamily.
+  ( HasCallStack
+  , KnownDomain dom
+  , KnownNat nTaps
+  , 1 <= nTaps
+  , KnownNat distance
+  , 3 <= distance
+  , BitPack a
+  , NFDataX a
+  , KnownSymbol deviceFamily
+  ) =>
+  -- | The FPGA family (@intended_device_family@), for example
+  -- @SSymbol \@\"Cyclone V\"@
+  SSymbol deviceFamily ->
+  -- | Number of taps (@number_of_taps@)
+  SNat nTaps ->
+  -- | Distance between the taps (@tap_distance@), at least 3
+  SNat distance ->
+  -- | @clock@
+  Clock dom ->
+  -- | @clken@
+  Enable dom ->
+  -- | @shiftin@
+  Signal dom a ->
+  -- | @shiftout@, and @taps@ with the nearest tap first
+  (Signal dom a, Signal dom (Vec nTaps a))
+altshiftTaps _ SNat SNat clk en shiftin
+  | clashSimulation = shiftModel
+  | otherwise = (unpack <$> unPort shiftout, reverse . unpack <$> unPort taps)
+ where
+  (shiftout, taps) = ports
+  ports ::
+    ( Port "shiftout" dom (BitVector (BitSize a))
+    , Port "taps" dom (BitVector (nTaps * BitSize a))
+    )
+  ports =
+    inst
+      (alteraMf "altshift_taps")
+      (Param @"number_of_taps" @Integer (natToNum @nTaps))
+      (Param @"tap_distance" @Integer (natToNum @distance))
+      (Param @"width" @Integer (natToNum @(BitSize a)))
+      (Param @"power_up_state" @String "CLEARED")
+      (Param @"intended_device_family" @String (symbolVal (Proxy @deviceFamily)))
+      (Param @"lpm_type" @String "altshift_taps")
+      (ClockPort @"clock" clk)
+      (Port @"clken" (boolToBit <$> fromEnable en))
+      (Port @"shiftin" (pack <$> shiftin))
+
+  total = natToNum @nTaps * natToNum @distance :: Int
+
+  -- The registers, nearest first
+  shiftModel =
+    unbundle (go (P.replicate total (unpack 0)) (fromEnable en) shiftin)
+  go regs ~(e :- es) ~(x :- xs) =
+    out :- (e `seq` go regs' es xs)
+   where
+    out = (P.last regs, taps0)
+    taps0 = map (\k -> regs P.!! ((fromIntegral k + 1) * natToNum @distance - 1)) indicesI
+    regs'
+      | e = x : P.init regs
+      | otherwise = regs
 
 -- * Memory initialization files
 
