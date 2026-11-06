@@ -356,6 +356,16 @@ runClashTest = defaultMain $ clashTestRoot
                 , "firTruncMaxTB"
                 , "firUnsignedSymTB"
                 , "firSymHalfBandTB"
+                , "firPeriod4TB"
+                , "firPeriod3SymTB"
+                , "firPeriod2HalfBandTB"
+                , "firPeriod1TB"
+                , "firPeriod8WideTB"
+                , "firPeriod16LongTB"
+                , "firPeriod2SymPadTB"
+                , "firPeriod3HalfBandPadTB"
+                , "firPeriod8SymRoundTB"
+                , "firPeriod4AccumulatorTB"
                 ]
             }
         ]

@@ -19,12 +19,22 @@ coefficients are given as a 'Vec' of 'Signed' or 'Unsigned' numbers, and are
 compiled into the IP. Clash reads them while it generates HDL, so they should
 be constants that Clash sees directly: a literal 'Vec' or one made with
 'listToVecTH'. Clash does not evaluate functions applied to them, such as
-'map', at that point. You can compute coefficients in Template Haskell:
+'map', at that point. You can compute coefficients in Template Haskell, with a
+function @designLowPass@ defined in another module:
 
 @
 lowPass :: Vec 11 (Signed 16)
 lowPass = $(listToVecTH (designLowPass 11 0.2 :: [Signed 16]))
 @
+
+There are two kinds of filters:
+
+* 'firWith' and 'fir' take a sample every clock cycle.
+
+* 'firValidWith' and 'firValid' take valid-qualified samples ('Maybe'), at
+  most one every @p@ clock cycles: the /sample period/. They give
+  valid-qualified outputs, and the IP's @TREADY@. A longer sample period lets
+  the IP use fewer DSP slices.
 
 The data and the coefficients are integers. The output is the exact sum of
 products, so for fixed point data and coefficients the output has as many
@@ -56,24 +66,28 @@ rounding discards.
 
 All IP instantiated by this module has the following properties:
 
-* Single rate, single channel filter, which takes a sample every clock cycle
+* Single rate, single channel filter
 * The systolic multiply-accumulate architecture
-* Non-blocking AXI4-Stream interfaces, a clock enable, no reset input, no
-  @TLAST@ or @TUSER@. @TVALID@ on the input is always asserted, @TVALID@ on
-  the output is ignored.
+* Non-blocking AXI4-Stream interfaces without an input FIFO, a clock enable, no
+  reset input, no @TLAST@ or @TUSER@. For 'firWith', @TVALID@ on the input is
+  always asserted, and @TVALID@ on the output is ignored.
 
 The latency of the IP is the delay argument of the resulting 'DSignal'. Like
 the latency of the CORDIC IP, and unlike that of the Floating-Point IP, it
 cannot be configured: it depends on the coefficients and the configuration.
 The delay must therefore equal the IP's latency. Simulation checks this, and
 fails with an error message stating the correct latency if it does not. HDL
-generation does not check it. Function 'firLatency' computes the latency, which
-is also the latency Vivado reports for the IP. It depends on:
+generation does not check it. Functions 'firLatency' and 'firValidLatency'
+compute the latency, which is also the latency Vivado reports for the IP. It
+depends on:
 
 * the number of coefficients and their structure: symmetric coefficients
   halve the number of multiplications, see 'CoefficientStructure';
+* the sample period;
 * the widths of the data and coefficients, if a multiplication needs several
-  DSP slices, which depends on the family of the device ('dspSlice');
+  DSP slices, which depends on the family of the device ('dspSlice'), and on
+  the width of the full precision result, if it exceeds the 48 bits of the
+  accumulator of a DSP slice;
 * the rounding mode;
 * the number of columns of DSP slices the filter needs ('dspColumnLength').
 
@@ -87,8 +101,7 @@ outputs of the first cycles, until the latency has passed, are undefined.
 
 = Not supported
 
-* Lower sample rates (multiple clock cycles per sample), interpolation and
-  decimation
+* Interpolation and decimation, fractional rate changes
 * Hilbert transformers with the IP's two outputs: the IP gives coefficients
   that form a Hilbert transformer a second output, the delayed input. Use
   'NegativeSymmetric' for such coefficients.
@@ -109,6 +122,8 @@ module Clash.Cores.Xilinx.Fir.Explicit
   ( -- * Instantiating IP
     firWith
   , fir
+  , firValidWith
+  , firValid
     -- * Numbers
   , FirNumber(..)
   , FirOutput
@@ -120,11 +135,14 @@ module Clash.Cores.Xilinx.Fir.Explicit
   , DspSlice(..)
     -- * Latency and output width
   , firLatency
+  , firValidLatency
   , fullPrecisionWidth
   ) where
 
 import Clash.Explicit.Prelude
 import qualified Prelude as P
+
+import Data.Maybe (fromMaybe, isJust)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -179,7 +197,7 @@ firWith cfg coefs clk en x
  where
   params =
     mkParams cfg (P.map toInteger (toList coefs))
-      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) (natToNum @wo)
+      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) (natToNum @wo) 1
 
   sim =
     withFrozenCallStack (checkParams @d params) `seq`
@@ -187,10 +205,10 @@ firWith cfg coefs clk en x
         ( numberFromInteger @(FirOutput a c) @wo
             <$> firModel params clk en (toInteger <$> D.toSignal x) )
 
-  synth =
-    D.unsafeFromSignal $
-          numberFromPaddedBitVector @(FirOutput a c) @wo
-      <$> firInst @a @c @wd @wc @wo cfg coefs clk en (D.toSignal x)
+  synth = D.unsafeFromSignal (numberFromPaddedBitVector @(FirOutput a c) @wo <$> tdata)
+   where
+    (_tready, _tvalid, tdata) =
+      firInst @a @c @wd @wc @wo cfg 1 coefs clk en (pure True) (D.toSignal x)
 {-# INLINE firWith #-}
 
 -- | FIR filter with the default configuration, 'defConfig': full precision
@@ -237,7 +255,141 @@ firLatency ::
 firLatency cfg coefs =
   latency $
     mkParams cfg (P.map toInteger (toList coefs))
-      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0
+      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 1
+
+-- | Customizable FIR filter for samples that arrive at most once every @p@
+-- clock cycles: the IP's /sample period/. With a longer sample period, the IP
+-- needs fewer DSP slices: each of them handles several coefficients, one per
+-- clock cycle.
+--
+-- The samples are valid-qualified: 'Nothing' means there is no sample in that
+-- clock cycle. So are the outputs: the output for a sample comes out @d@
+-- (enabled) clock cycles after the IP accepted the sample, in the IP's latency
+-- (see 'firValidLatency'), and is 'Nothing' in all other clock cycles.
+--
+-- The function also gives the IP's @TREADY@: whether the IP is ready to
+-- accept a sample in the same clock cycle. The IP accepts a sample in a clock
+-- cycle in which it is enabled and ready, and the sample is 'Just'. Other
+-- samples are lost. The IP is not ready in the first clock cycle in which it is
+-- enabled, and for a few clock cycles after it accepts a sample: at most @p -
+-- 1@, but fewer if it can process a sample faster than that. So a stream of
+-- samples at most one every @p@ clock cycles is always accepted, except in
+-- the first enabled clock cycle.
+--
+-- With a sample period of more than one clock cycle, the IP spreads the
+-- coefficients (or pairs of symmetric coefficients) evenly over its
+-- multiply-add units. If they do not fill those exactly, it pads them with
+-- zeros. It pads symmetric coefficients at both ends, to keep them symmetric,
+-- which delays the output by a sample per padded pair, or by two samples for
+-- a half-band filter. For example, 10 symmetric coefficients (5 pairs) with a
+-- sample period of 2 use three multiply-add units of two pairs each: one pair
+-- of zeros pads the coefficients, and the output is delayed by one sample. The
+-- simulation model does the same.
+--
+-- A sample period of 1 gives a filter like 'firWith', but with valid-qualified
+-- samples. Everything else is as for 'firWith'.
+firValidWith ::
+  forall d p a c wd wc wo n dom k.
+  ( KnownDomain dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  Config ->
+  -- | Sample period @p@: the number of clock cycles per sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firValidWith cfg p@SNat coefs clk en x
+  | clashSimulation = sim
+  | otherwise = synth
+ where
+  params =
+    mkParams cfg (P.map toInteger (toList coefs))
+      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) (natToNum @wo)
+      (snatToNum p)
+
+  sim =
+    withFrozenCallStack (checkParams @d params) `seq`
+      ( D.unsafeFromSignal ready
+      , D.unsafeFromSignal (fmap (numberFromInteger @(FirOutput a c) @wo) <$> out) )
+   where
+    (ready, out) = firValidModel params clk en (fmap toInteger <$> D.toSignal x)
+
+  synth =
+    ( D.unsafeFromSignal tready
+    , D.unsafeFromSignal (toOutput <$> tvalid <*> tdata) )
+   where
+    (tready, tvalid, tdata) =
+      firInst @a @c @wd @wc @wo cfg (snatToNum p) coefs clk en
+        (isJust <$> D.toSignal x)
+        (fromMaybe 0 <$> D.toSignal x)
+    toOutput valid dat
+      | valid = Just (numberFromPaddedBitVector @(FirOutput a c) @wo dat)
+      | otherwise = Nothing
+{-# INLINE firValidWith #-}
+
+-- | FIR filter for samples that arrive at most once every @p@ clock cycles,
+-- with the default configuration, 'defConfig': full precision output. See
+-- 'firValidWith'.
+firValid ::
+  forall d p a c wd wc wo n dom k.
+  ( KnownDomain dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  -- | Sample period @p@: the number of clock cycles per sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firValid = withFrozenCallStack $ firValidWith @d defConfig
+{-# INLINE firValid #-}
+
+-- | Latency of the IP for 'firValidWith', for a configuration, sample period,
+-- set of coefficients and data type @a wd@. This is the latency Vivado reports
+-- for the IP.
+--
+-- >>> import Clash.Prelude
+-- >>> firValidLatency @Signed @16 defConfig{dspSlice = Dsp48E1} d4 (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+-- 12
+firValidLatency ::
+  forall a wd c wc n p.
+  (FirNumber a, FirNumber c, KnownNat wd, KnownNat wc) =>
+  Config ->
+  SNat p ->
+  Vec n (c wc) ->
+  Int
+firValidLatency cfg p@SNat coefs =
+  latency $
+    mkParams cfg (P.map toInteger (toList coefs))
+      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 (snatToNum p)
 
 -- | Width of the exact output of a filter with data of type @a wd@ and the
 -- given coefficients: the data width plus @ceil (log2 (sum |c_i|))@, plus one

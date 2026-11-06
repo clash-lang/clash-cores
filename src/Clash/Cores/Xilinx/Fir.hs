@@ -37,6 +37,8 @@ module Clash.Cores.Xilinx.Fir
   ( -- * Instantiating IP
     firWith
   , fir
+  , firValidWith
+  , firValid
     -- * Numbers
   , E.FirNumber(..)
   , E.FirOutput
@@ -48,6 +50,7 @@ module Clash.Cores.Xilinx.Fir
   , E.DspSlice(..)
     -- * Latency and output width
   , E.firLatency
+  , E.firValidLatency
   , E.fullPrecisionWidth
   ) where
 
@@ -107,3 +110,61 @@ fir ::
   DSignal dom (k + d) (FirOutput a c wo)
 fir coefs = withFrozenCallStack $ hideEnable $ hideClock $ E.fir @d coefs
 {-# INLINE fir #-}
+
+-- | Customizable FIR filter for valid-qualified samples, at most one every @p@
+-- clock cycles. See 'E.firValidWith'.
+firValidWith ::
+  forall d p a c wd wc wo n dom k.
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  E.Config ->
+  -- | Sample period @p@: the number of clock cycles per sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firValidWith cfg p coefs =
+  withFrozenCallStack $ hideEnable $ hideClock $ E.firValidWith @d cfg p coefs
+{-# INLINE firValidWith #-}
+
+-- | FIR filter for valid-qualified samples, at most one every @p@ clock
+-- cycles, with full precision output. See 'E.firValid'.
+firValid ::
+  forall d p a c wd wc wo n dom k.
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  -- | Sample period @p@: the number of clock cycles per sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firValid p coefs = withFrozenCallStack $ hideEnable $ hideClock $ E.firValid @d p coefs
+{-# INLINE firValid #-}

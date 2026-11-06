@@ -32,7 +32,12 @@ against the IP in Vivado's simulator:
   (except on UltraScale devices when the centre tap is a positive power of
   two), plus 2 or 6 if a multiplication needs 2 or 4 DSP slices
   ('dspsPerMultiply'), plus one for symmetric rounding, plus 4 for every extra
-  column of DSP slices.
+  column of DSP slices. The accumulator of a DSP slice has 48 bits: a wider
+  full precision result needs two DSP slices per multiplication.
+
+* For a sample period of more than one clock cycle, each multiply-add unit
+  handles several coefficients, one per clock cycle, and the latency also
+  includes that number of cycles. See 'latency' and t'Params' for the details.
 
 __NB__: None of the functions in this module are synthesizable.
 -}
@@ -71,6 +76,7 @@ module Clash.Cores.Xilinx.Fir.Internal
   , roundOutput
   , firOutputModel
   , firModel
+  , firValidModel
     -- * Instantiating the IP
   , firInst
   , firOptions
@@ -383,6 +389,8 @@ data Params = Params
     -- ^ The declared type of the coefficients. The IP infers the sign from the
     -- values, see 'coefficientsSigned'.
   , outputWidth :: Int
+  , samplePeriod :: Int
+    -- ^ The number of clock cycles per input sample the IP is configured for
   , structure :: Structure
     -- ^ The structure of the IP. 'NonSymmetricStructure' if the coefficients
     -- do not have the structure the configuration demands, see 'checkParams'.
@@ -392,7 +400,24 @@ data Params = Params
   , fullWidth :: Int
     -- ^ 'fullPrecisionWidth'
   , madds :: Int
-    -- ^ 'multiplyAdds'
+    -- ^ The number of multiply-add units: 'multiplyAdds' for a sample period
+    -- of 1, fewer for longer sample periods (see 'oversampling').
+  , oversampling :: Int
+    -- ^ The number of coefficients (or pairs of coefficients) each
+    -- multiply-add unit handles
+  , cyclesPerSample :: Int
+    -- ^ The number of clock cycles the IP needs per sample: it can accept a
+    -- new sample every 'cyclesPerSample' cycles. This is 'oversampling', plus
+    -- one for symmetric rounding, but at most 'samplePeriod'.
+  , frontPadding :: Int
+    -- ^ The number of zeros the IP effectively puts in front of the
+    -- coefficients, which delays the output by as many samples. When the
+    -- multiply-add units have more room than the coefficients need
+    -- (@'madds' * 'oversampling' > 'multiplyAdds'@), the IP pads the
+    -- coefficients with zeros. It pads non-symmetric coefficients at the end,
+    -- but symmetric coefficients at both ends, to keep them symmetric: one zero
+    -- at each end per padded pair, or two for a half-band filter, of which only
+    -- every second coefficient is in a multiply-add unit.
   , dsps :: Int
     -- ^ 'dspsPerMultiply'
   } deriving (Show)
@@ -412,8 +437,10 @@ mkParams ::
   Bool ->
   -- | Output width
   Int ->
+  -- | Sample period
+  Int ->
   Params
-mkParams config coefficients dataWidth dataSigned coefficientWidth coefficientTypeSigned outputWidth =
+mkParams config coefficients dataWidth dataSigned coefficientWidth coefficientTypeSigned outputWidth samplePeriod =
   Params{..}
  where
   inferred = inferStructure (coefficientStructure config) coefficients
@@ -421,22 +448,53 @@ mkParams config coefficients dataWidth dataSigned coefficientWidth coefficientTy
   structureOk = isJust inferred
   coefficientsSigned = P.any (< 0) coefficients
   fullWidth = fullPrecisionWidth dataWidth dataSigned coefficients
-  madds = multiplyAdds structure (P.length coefficients)
-  dsps =
-    dspsPerMultiply (dspSlice config) structure dataWidth dataSigned
-      coefficientWidth coefficientsSigned
+  -- With a sample period of p clock cycles, each multiply-add unit can handle
+  -- up to p coefficients (or pairs). The IP uses as few multiply-add units as
+  -- that allows, and spreads the coefficients over them evenly.
+  maddsP1 = multiplyAdds structure (P.length coefficients)
+  madds = divRU maddsP1 (max 1 samplePeriod)
+  oversampling = divRU maddsP1 (max 1 madds)
+  divRU a b = (a + b - 1) `div` b
+  symmetricRounding =
+    rounding config `P.elem` [SymmetricRoundingToZero, SymmetricRoundingToInfinity]
+  cyclesPerSample =
+    min (max 1 samplePeriod) (oversampling + (if symmetricRounding then 1 else 0))
+  padding = madds * oversampling - maddsP1
+  frontPadding = case structure of
+    NonSymmetricStructure -> 0
+    SymmetricStructure -> padding
+    HalfBandStructure -> 2 * padding
+    HilbertStructure -> 2 * padding
+  -- The accumulator of a DSP slice has 48 bits. If the full precision result
+  -- does not fit, the IP splits multiplications that would fit a single DSP
+  -- slice over two, each with a narrower product.
+  dsps = case dspsPerMultiply (dspSlice config) structure dataWidth dataSigned coefficientWidth coefficientsSigned of
+    1 | fullWidth > 48 -> 2
+    d -> d
 
--- | Latency of the IP in clock cycles, as reported by Vivado (@C_LATENCY@)
+-- | Latency of the IP in clock cycles, as reported by Vivado (@C_LATENCY@):
+-- from accepting a sample to giving the output for it
 latency :: Params -> Int
 latency Params{..} =
     madds
   + 5
   + (if structure == NonSymmetricStructure then 0 else 1)
-  + (if structure == HalfBandStructure && not centreIsShift then 1 else 0)
   + (case dsps of { 1 -> 0; 2 -> 2; _ -> 6 })
   + (if rounding config `P.elem` [SymmetricRoundingToZero, SymmetricRoundingToInfinity] then 1 else 0)
   + 4 * (columns - 1)
+  + (if samplePeriod <= 1 then singleCycle else multiCycle)
  where
+  -- The fully parallel filter, which takes a sample every clock cycle
+  singleCycle = if halfBandCentre then 1 else 0
+  halfBandCentre = structure == HalfBandStructure && not centreIsShift
+  -- A filter of which every multiply-add unit handles several coefficients,
+  -- one per clock cycle, and accumulates their products
+  -- A half-band filter (unless its centre tap is a shift), and a filter with
+  -- several multiply-add units on a 7 series device, take a cycle more (but
+  -- not two for both).
+  multiCycle =
+      oversampling
+    + (if halfBandCentre || (dspSlice config == Dsp48E1 && madds > 1) then 1 else 0)
   -- On UltraScale devices, the IP implements a centre tap that is a positive
   -- power of two as a shift, which takes a cycle less
   centre = coefficients P.!! (P.length coefficients `div` 2)
@@ -452,6 +510,8 @@ checkParams :: forall d. (KnownNat d, HasCallStack) => Params -> ()
 checkParams params@Params{..}
   | P.length coefficients < 2 =
       err "the IP needs at least two coefficients"
+  | samplePeriod < 1 =
+      err "the sample period should be at least 1"
   | not structureOk =
       err $
            "the coefficients are not " <> show (coefficientStructure config)
@@ -510,16 +570,65 @@ roundOutput mode k y = case mode of
 
 -- | The output of a filter for the most recent samples (newest first): the
 -- sum of products, rounded to the output width. The result is not wrapped to
--- the output width yet.
+-- the output width yet. The coefficients include the 'frontPadding'.
 firOutputModel :: Params -> [Integer] -> Integer
 firOutputModel Params{..} samples =
   roundOutput (rounding config) (fullWidth - outputWidth)
-    (P.sum (P.zipWith (*) coefficients samples))
+    (P.sum (P.zipWith (*) (P.replicate frontPadding 0 <> coefficients) samples))
 
--- | Simulation model of the IP, see "Clash.Cores.Xilinx.Fir". It delays the
--- output by the latency of the IP in enabled clock cycles. The IP ignores the
--- sample in the first enabled clock cycle, so the model does too. The initial
--- history of the filter is all zeros.
+-- | Simulation model of the IP for valid-qualified samples, see
+-- 'Clash.Cores.Xilinx.Fir.Explicit.firValidWith'. Gives the IP's @TREADY@ and
+-- its output, @Just@ when @TVALID@ is asserted. The IP:
+--
+-- * is not ready in the first enabled clock cycle;
+--
+-- * accepts a sample in an enabled clock cycle in which it is ready and the
+--   sample is valid ('Just');
+--
+-- * is not ready in the 'cyclesPerSample' minus one enabled clock cycles
+--   after it accepts a sample;
+--
+-- * gives the output for an accepted sample 'latency' enabled clock cycles
+--   later, for a single clock cycle (or as long as the IP is disabled).
+--
+-- The history of the filter starts out as all zeros. The output includes the
+-- delay of the 'frontPadding'.
+firValidModel ::
+  forall dom.
+  KnownDomain dom =>
+  Params ->
+  Clock dom ->
+  Enable dom ->
+  Signal dom (Maybe Integer) ->
+  (Signal dom Bool, Signal dom (Maybe Integer))
+firValidModel params clk en x = (ready, delayChain (latency params) y)
+ where
+  started = delay clk en False (pure True)
+  busy :: Signal dom Int
+  busy = delay clk en 0 busy1
+  ready = (&&) <$> started <*> ((== 0) <$> busy)
+  accepted = (\r s -> r && isJust s) <$> ready <*> x
+  busy1 = (\acc b -> if acc then cyclesPerSample params - 1 else max 0 (b - 1)) <$> accepted <*> busy
+
+  history :: Signal dom [Integer]
+  history = delay clk en initHistory history1
+  initHistory = P.replicate (frontPadding params + P.length (coefficients params)) 0
+  history1 = newHistory <$> accepted <*> x <*> history
+  newHistory acc smp h = case smp of
+    Just s | acc -> s : P.init h
+    _ -> h
+
+  y = (\acc h -> if acc then Just (firOutputModel params h) else Nothing) <$> accepted <*> history1
+
+  delayChain :: Int -> Signal dom (Maybe Integer) -> Signal dom (Maybe Integer)
+  delayChain 0 s = s
+  delayChain i s = delayChain (i - 1) (delay clk en Nothing s)
+
+-- | Simulation model of the IP for a sample every clock cycle, see
+-- 'Clash.Cores.Xilinx.Fir.Explicit.firWith': 'firValidModel' with valid
+-- samples only. The outputs for which the IP does not assert @TVALID@, those
+-- of the first cycles and of the sample in the first enabled cycle, are
+-- undefined.
 firModel ::
   forall dom.
   (KnownDomain dom, HasCallStack) =>
@@ -528,19 +637,9 @@ firModel ::
   Enable dom ->
   Signal dom Integer ->
   Signal dom Integer
-firModel params clk en x = delayChain (latency params) y
+firModel params clk en x =
+  fromMaybe und <$> snd (firValidModel params clk en (Just <$> x))
  where
-  started = delay clk en False (pure True)
-  history :: Signal dom [Integer]
-  history = delay clk en initHistory history1
-  initHistory = P.replicate (P.length (coefficients params)) 0
-  history1 = mux started ((\s h -> s : P.init h) <$> x <*> history) history
-  y = mux started (firOutputModel params <$> history1) (pure und)
-
-  delayChain :: Int -> Signal dom Integer -> Signal dom Integer
-  delayChain 0 s = s
-  delayChain i s = delayChain (i - 1) (delay clk en und s)
-
   und = withFrozenCallStack $ errorX "Clash.Cores.Xilinx.Fir: initial value undefined"
 
 ------------------------------------------------------------------------------
@@ -560,9 +659,11 @@ firOptions ::
   , KnownNat n
   ) =>
   Config ->
+  -- | Sample period
+  Integer ->
   Vec n (c wc) ->
   Vec 30 (OptionName, XilinxWizardOption)
-firOptions cfg coefs =
+firOptions cfg samplePeriod coefs =
      ("CONFIG.Filter_Type",                  StrOpt "Single_Rate")
   :> ("CONFIG.Rate_Change_Type",             StrOpt "Integer")
   :> ("CONFIG.Interpolation_Rate",           IntegerOpt 1)
@@ -570,7 +671,7 @@ firOptions cfg coefs =
   :> ("CONFIG.Number_Channels",              IntegerOpt 1)
   :> ("CONFIG.Number_Paths",                 IntegerOpt 1)
   :> ("CONFIG.RateSpecification",            StrOpt "Input_Sample_Period")
-  :> ("CONFIG.SamplePeriod",                 IntegerOpt 1)
+  :> ("CONFIG.SamplePeriod",                 IntegerOpt samplePeriod)
   :> ("CONFIG.CoefficientSource",            StrOpt "Vector")
   :> ("CONFIG.CoefficientVector",            IntegerVecOpt (IntegerVec coefs))
   :> ("CONFIG.Coefficient_Sets",             IntegerOpt 1)
@@ -599,12 +700,13 @@ firOptions cfg coefs =
 
 -- | Instantiate the FIR Compiler. It is always configured as:
 --
--- * A single rate, single channel filter that takes one sample per clock cycle
--- * Non-blocking AXI4-Stream interfaces: always valid input, no @TREADY@ on
+-- * A single rate, single channel filter
+-- * Non-blocking AXI4-Stream interfaces: no FIFO on the input, no @TREADY@ on
 --   the output
 -- * A clock enable (@aclken@), no reset
 --
--- Gives the output's @TDATA@.
+-- Takes the sample period, the input's @TVALID@ and @TDATA@. Gives the input's
+-- @TREADY@ and the output's @TVALID@ and @TDATA@.
 firInst ::
   forall a c wd wc wo n dom.
   ( KnownDomain dom
@@ -617,14 +719,21 @@ firInst ::
   , HasCallStack
   ) =>
   Config ->
+  -- | Sample period
+  Integer ->
   Vec n (c wc) ->
   Clock dom ->
   Enable dom ->
+  -- | Input @TVALID@
+  Signal dom Bool ->
+  -- | Input @TDATA@
   Signal dom (a wd) ->
-  Signal dom (BitVector (ByteWidth wo))
-firInst cfg coefs clk en x = unPort tdata
+  -- | Input @TREADY@, output @TVALID@ and @TDATA@
+  (Signal dom Bool, Signal dom Bool, Signal dom (BitVector (ByteWidth wo)))
+firInst cfg samplePeriod coefs clk en valid x =
+  (bitToBool <$> unPort tready, bitToBool <$> unPort tvalid, unPort tdata)
  where
-  (_tready, _tvalid, tdata) = go
+  (tready, tvalid, tdata) = go
 
   go ::
     ( Port "s_axis_data_tready" dom Bit
@@ -639,11 +748,11 @@ firInst cfg coefs clk en x = unPort tdata
         , wiz_vendor = "xilinx.com"
         , wiz_library = "ip"
         , wiz_version = "7.2"
-        , wiz_options = firOptions @a @c @wd @wc @wo cfg coefs
+        , wiz_options = firOptions @a @c @wd @wc @wo cfg samplePeriod coefs
         }
       (ClockPort @"aclk" clk)
       (Port @"aclken" (boolToBit <$> fromEnable en))
-      (Port @"s_axis_data_tvalid" (pure 1 :: Signal dom Bit))
+      (Port @"s_axis_data_tvalid" (boolToBit <$> valid))
       -- The IP ignores the padding of the data, but follow the AXI4-Stream
       -- convention of the IP anyway: sign extension for signed data.
       (Port @"s_axis_data_tdata"

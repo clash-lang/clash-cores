@@ -108,6 +108,7 @@ import Clash.Cores.Xilinx.Fir.Explicit
   (Config (..), CoefficientStructure (..), DspSlice (..), Rounding (..), FirNumber, FirOutput)
 import qualified Clash.Cores.Xilinx.Fir.Explicit as X
 import Clash.Cores.Xilinx.Fir.Internal (Structure (..), Params (..), mkParams, latency)
+import Data.Maybe (catMaybes)
 
 import Hedgehog (Gen, Property, (===))
 import qualified Hedgehog as H
@@ -487,7 +488,7 @@ data TestConfig = TestConfig
 tcParams :: TestConfig -> Params
 tcParams TestConfig{..} =
   mkParams tcConfig{rounding = tcRounding} tcCoefficients tcDataWidth tcDataSigned
-    tcCoefWidth tcCoefSigned tcOutputWidth
+    tcCoefWidth tcCoefSigned tcOutputWidth 1
 
 withNat :: Int -> (forall n. KnownNat n => Proxy n -> r) -> r
 withNat i f
@@ -541,6 +542,49 @@ runClash tc@TestConfig{..} xs =
    where
     coefs = V.unsafeFromList (map fromInteger tcCoefficients) :: Vec n (c wc)
 
+-- | Run 'X.firValidWith' for a configuration and sample period on a list of
+-- valid-qualified samples. Gives the samples the IP accepted, and the valid
+-- outputs.
+runClashValid :: TestConfig -> Int -> [Maybe Integer] -> ([Integer], [Integer])
+runClashValid tc@TestConfig{..} p xs =
+  withNat (latency (tcParamsP tc p)) $ \(Proxy :: Proxy d) ->
+  withNat p $ \(Proxy :: Proxy p) ->
+  withNat tcDataWidth $ \(Proxy :: Proxy wd) ->
+  withNat tcCoefWidth $ \(Proxy :: Proxy wc) ->
+  withNat tcOutputWidth $ \(Proxy :: Proxy wo) ->
+  withNat (length tcCoefficients) $ \(Proxy :: Proxy n) ->
+    case C.compareSNat (C.SNat @1) (C.SNat @p) of
+      C.SNatGT -> error "runClashValid: sample period 0"
+      C.SNatLE -> case (tcDataSigned, tcCoefSigned) of
+        (True, True) -> go @d @p @Signed @Signed @wd @wc @wo @n
+        (True, False) -> go @d @p @Signed @Unsigned @wd @wc @wo @n
+        (False, True) -> go @d @p @Unsigned @Signed @wd @wc @wo @n
+        (False, False) -> go @d @p @Unsigned @Unsigned @wd @wc @wo @n
+ where
+  go ::
+    forall d p a c wd wc wo n.
+    ( KnownNat d, KnownNat p, 1 C.<= p, KnownNat wd, KnownNat wc, KnownNat wo, KnownNat n
+    , FirNumber a, FirNumber c, FirNumber (FirOutput a c)
+    , C.NFDataX (a wd), C.NFDataX (FirOutput a c wo) ) =>
+    ([Integer], [Integer])
+  go = (accepted, map toInteger (catMaybes outs))
+   where
+    coefs = V.unsafeFromList (map fromInteger tcCoefficients) :: Vec n (c wc)
+    -- Enough cycles to flush the last output
+    nCycles = length xs + natToNum @d + 1
+    ins = map (fmap fromInteger) xs <> repeat Nothing :: [Maybe (a wd)]
+    (ready, out) =
+      X.firValidWith @d @p @a @c @wd @wc @wo tcConfig{rounding = tcRounding} C.SNat coefs clk en
+        (D.fromSignal (C.fromList ins))
+    readys = C.sampleN nCycles (D.toSignal ready)
+    outs = C.sampleN nCycles (D.toSignal out)
+    accepted = [ x | (r, Just x) <- zip readys xs, r ]
+
+tcParamsP :: TestConfig -> Int -> Params
+tcParamsP TestConfig{..} p =
+  mkParams tcConfig{rounding = tcRounding} tcCoefficients tcDataWidth tcDataSigned
+    tcCoefWidth tcCoefSigned tcOutputWidth p
+
 -- | Wrap a C model output to the output width and signedness of the IP
 wrapOutput :: TestConfig -> Integer -> Integer
 wrapOutput TestConfig{..} y
@@ -588,6 +632,28 @@ prop_cmodel getModel = H.withTests nTests $ H.property $ do
  where
   showBatch xs = show (length xs) <> " samples"
 
+-- | 'X.firValidWith' with random sample periods and valid-qualified samples:
+-- its outputs are the outputs of the C model for the samples it accepted,
+-- delayed by the 'frontPadding' of the IP
+prop_cmodelValid :: IO FirCModel -> Property
+prop_cmodelValid getModel = H.withTests (nTests `div` 3) $ H.property $ do
+  model <- H.evalIO getModel
+  tc <- H.forAll genTestConfig
+  p <- H.forAll (Gen.frequency [(1, pure 1), (4, Gen.int (Range.constant 2 16))])
+  xs <- H.forAllWith showBatch (genSamples tc)
+  valids <- H.forAllWith showBatch (Gen.list (Range.singleton (length xs)) (Gen.frequency [(1, pure True), (p, pure False)]))
+  let
+    (accepted, hOut) = runClashValid tc p (zipWith (\v x -> if v then Just x else Nothing) valids xs)
+    padding = frontPadding (tcParamsP tc p)
+  cOut <- H.evalIO (runCModel model tc accepted) >>= maybe H.discard pure
+  let expected = take (length accepted) (replicate padding 0 <> map (wrapOutput tc) cOut)
+  H.annotateShow (structure (tcParamsP tc p), madds (tcParamsP tc p), oversampling (tcParamsP tc p), padding)
+  H.label (fromString ("padding " <> show (min 2 padding)))
+  length hOut === length accepted
+  hOut === expected
+ where
+  showBatch xs = show (length xs) <> " elements"
+
 ------------------------------------------------------------------------------
 -- Generators
 ------------------------------------------------------------------------------
@@ -631,7 +697,7 @@ genTestConfig = do
   dsp <- Gen.element [Dsp48E1, Dsp48E2]
   let
     cfg0 = X.defConfig{dspSlice = dsp}
-    full = mkParams cfg0 tcCoefficients tcDataWidth tcDataSigned tcCoefWidth tcCoefSigned 0
+    full = mkParams cfg0 tcCoefficients tcDataWidth tcDataSigned tcCoefWidth tcCoefSigned 0 1
   -- The IP turns Hilbert transformers into a filter with two outputs
   structure0 <- Gen.element [Inferred, Inferred, Inferred, NonSymmetric]
   let
@@ -701,5 +767,8 @@ tests :: TestTree
 tests =
   testGroup "Xilinx FIR Compiler"
     [ withResource loadFir unloadFir $ \getModel ->
-        testPropertyNamed "vs. C model" (fromString "prop_cmodel") (prop_cmodel getModel)
+        testGroup "vs. C model"
+          [ testPropertyNamed "firWith" (fromString "prop_cmodel") (prop_cmodel getModel)
+          , testPropertyNamed "firValidWith" (fromString "prop_cmodelValid") (prop_cmodelValid getModel)
+          ]
     ]

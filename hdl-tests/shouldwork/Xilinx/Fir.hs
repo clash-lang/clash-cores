@@ -180,3 +180,126 @@ firSymHalfBand = firSymHalfBand'
 firSymHalfBandTB :: Signal XilinxSystem Bool
 firSymHalfBandTB = firTB firSymHalfBand $(memBlobTH (Just 0) (samples firSymHalfBand' (stimuli 14)))
 {-# ANN firSymHalfBandTB (TestBench 'firSymHalfBand) #-}
+
+-- | Like 'firTB', for functions with valid-qualified samples: compares the
+-- ready signal and the output in every cycle
+validFirTB ::
+  forall n d x y.
+  ( KnownNat n
+  , KnownNat d
+  , 1 <= n
+  , BitPack x
+  , BitPack y
+  , Eq y
+  , ShowX y
+  ) =>
+  ValidFirFun x d y ->
+  MemBlob n (BitSize (ValidSample x y)) ->
+  Signal XilinxSystem Bool
+validFirTB dut content = done
+ where
+  cnt :: Signal XilinxSystem (Index n)
+  cnt = delay clk enableGen 0 (satSucc SatBound <$> cnt)
+  (en, x, expectedReady, expected) = unbundle (unpack . asyncRomBlob content <$> cnt)
+
+  (ready, out) = dut clk (toEnable en) (D.unsafeFromSignal x)
+
+  done0 = delay clk enableGen False ((== maxBound) <$> cnt)
+  done =
+    mux done0 done0
+      (assert clk rst "validFirTB ready" (D.toSignal ready) expectedReady
+        (assert clk rst "validFirTB output" (D.toSignal out) expected done0))
+
+  clk = tbClockGen (not <$> done)
+  rst = resetGen
+{-# INLINE validFirTB #-}
+
+firPeriod4 :: ValidFirFun (Signed 16) 12 (Signed 26)
+firPeriod4 = firPeriod4'
+{-# OPAQUE firPeriod4 #-}
+{-# ANN firPeriod4 (topAnn "firPeriod4") #-}
+
+firPeriod4TB :: Signal XilinxSystem Bool
+firPeriod4TB = validFirTB firPeriod4 $(memBlobTH (Just 0) (validSamples firPeriod4' (validStimuli 4 20)))
+{-# ANN firPeriod4TB (TestBench 'firPeriod4) #-}
+
+firPeriod3Sym :: ValidFirFun (Signed 16) 12 (Signed 16)
+firPeriod3Sym = firPeriod3Sym'
+{-# OPAQUE firPeriod3Sym #-}
+{-# ANN firPeriod3Sym (topAnn "firPeriod3Sym") #-}
+
+firPeriod3SymTB :: Signal XilinxSystem Bool
+firPeriod3SymTB = validFirTB firPeriod3Sym $(memBlobTH (Just 0) (validSamples firPeriod3Sym' (validStimuli 3 21)))
+{-# ANN firPeriod3SymTB (TestBench 'firPeriod3Sym) #-}
+
+firPeriod2HalfBand :: ValidFirFun (Signed 16) 11 (Signed 18)
+firPeriod2HalfBand = firPeriod2HalfBand'
+{-# OPAQUE firPeriod2HalfBand #-}
+{-# ANN firPeriod2HalfBand (topAnn "firPeriod2HalfBand") #-}
+
+firPeriod2HalfBandTB :: Signal XilinxSystem Bool
+firPeriod2HalfBandTB = validFirTB firPeriod2HalfBand $(memBlobTH (Just 0) (validSamples firPeriod2HalfBand' (validStimuli 2 22)))
+{-# ANN firPeriod2HalfBandTB (TestBench 'firPeriod2HalfBand) #-}
+
+firPeriod1 :: ValidFirFun (Signed 12) 13 (Signed 16)
+firPeriod1 = firPeriod1'
+{-# OPAQUE firPeriod1 #-}
+{-# ANN firPeriod1 (topAnn "firPeriod1") #-}
+
+firPeriod1TB :: Signal XilinxSystem Bool
+firPeriod1TB = validFirTB firPeriod1 $(memBlobTH (Just 0) (validSamples firPeriod1' (validStimuli 1 23)))
+{-# ANN firPeriod1TB (TestBench 'firPeriod1) #-}
+
+firPeriod8Wide :: ValidFirFun (Unsigned 24) 16 (Signed 30)
+firPeriod8Wide = firPeriod8Wide'
+{-# OPAQUE firPeriod8Wide #-}
+{-# ANN firPeriod8Wide (topAnn "firPeriod8Wide") #-}
+
+firPeriod8WideTB :: Signal XilinxSystem Bool
+firPeriod8WideTB = validFirTB firPeriod8Wide $(memBlobTH (Just 0) (validSamples firPeriod8Wide' (validStimuli 8 24)))
+{-# ANN firPeriod8WideTB (TestBench 'firPeriod8Wide) #-}
+
+firPeriod16Long :: ValidFirFun (Signed 14) 23 (Signed 32)
+firPeriod16Long = firPeriod16Long'
+{-# OPAQUE firPeriod16Long #-}
+{-# ANN firPeriod16Long (topAnn "firPeriod16Long") #-}
+
+firPeriod16LongTB :: Signal XilinxSystem Bool
+firPeriod16LongTB = validFirTB firPeriod16Long $(memBlobTH (Just 0) (validSamples firPeriod16Long' (validStimuli 16 25)))
+{-# ANN firPeriod16LongTB (TestBench 'firPeriod16Long) #-}
+
+firPeriod2SymPad :: ValidFirFun (Signed 16) 12 (Signed 30)
+firPeriod2SymPad = firPeriod2SymPad'
+{-# OPAQUE firPeriod2SymPad #-}
+{-# ANN firPeriod2SymPad (topAnn "firPeriod2SymPad") #-}
+
+firPeriod2SymPadTB :: Signal XilinxSystem Bool
+firPeriod2SymPadTB = validFirTB firPeriod2SymPad $(memBlobTH (Just 0) (validSamples firPeriod2SymPad' (validStimuli 2 30)))
+{-# ANN firPeriod2SymPadTB (TestBench 'firPeriod2SymPad) #-}
+
+firPeriod3HalfBandPad :: ValidFirFun (Signed 16) 13 (Signed 31)
+firPeriod3HalfBandPad = firPeriod3HalfBandPad'
+{-# OPAQUE firPeriod3HalfBandPad #-}
+{-# ANN firPeriod3HalfBandPad (topAnn "firPeriod3HalfBandPad") #-}
+
+firPeriod3HalfBandPadTB :: Signal XilinxSystem Bool
+firPeriod3HalfBandPadTB = validFirTB firPeriod3HalfBandPad $(memBlobTH (Just 0) (validSamples firPeriod3HalfBandPad' (validStimuli 3 31)))
+{-# ANN firPeriod3HalfBandPadTB (TestBench 'firPeriod3HalfBandPad) #-}
+
+firPeriod8SymRound :: ValidFirFun (Signed 16) 14 (Signed 16)
+firPeriod8SymRound = firPeriod8SymRound'
+{-# OPAQUE firPeriod8SymRound #-}
+{-# ANN firPeriod8SymRound (topAnn "firPeriod8SymRound") #-}
+
+firPeriod8SymRoundTB :: Signal XilinxSystem Bool
+firPeriod8SymRoundTB = validFirTB firPeriod8SymRound $(memBlobTH (Just 0) (validSamples firPeriod8SymRound' (validStimuli 8 32)))
+{-# ANN firPeriod8SymRoundTB (TestBench 'firPeriod8SymRound) #-}
+
+firPeriod4Accumulator :: ValidFirFun (Signed 18) 37 (Signed 24)
+firPeriod4Accumulator = firPeriod4Accumulator'
+{-# OPAQUE firPeriod4Accumulator #-}
+{-# ANN firPeriod4Accumulator (topAnn "firPeriod4Accumulator") #-}
+
+firPeriod4AccumulatorTB :: Signal XilinxSystem Bool
+firPeriod4AccumulatorTB = validFirTB firPeriod4Accumulator $(memBlobTH (Just 0) (validSamples firPeriod4Accumulator' (validStimuli 4 33)))
+{-# ANN firPeriod4AccumulatorTB (TestBench 'firPeriod4Accumulator) #-}

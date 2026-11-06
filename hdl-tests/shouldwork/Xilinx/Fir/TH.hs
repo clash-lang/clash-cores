@@ -85,7 +85,7 @@ stimuli seed = P.take nSamples ((False, 0) : (True, maxBound) : go (mkStdGen see
     (runLen, g2) = uniformR (1 :: Int, 16) g1
     (ens, g3) = enables runLen g2
     (e, g1') = enable g1
-    (x, g4) = sample g1'
+    (x, g4) = genSample g1'
 
   enables :: Int -> StdGen -> ([Bool], StdGen)
   enables 0 g = ([], g)
@@ -94,8 +94,8 @@ stimuli seed = P.take nSamples ((False, 0) : (True, maxBound) : go (mkStdGen see
   enable :: StdGen -> (Bool, StdGen)
   enable g = let (r, g') = uniformR (0 :: Int, 9) g in (r /= 0, g')
 
-  sample :: StdGen -> (x, StdGen)
-  sample g0 =
+  genSample :: StdGen -> (x, StdGen)
+  genSample g0 =
     case k of
       0 -> pick [0, 1, 2, minBound, minBound + 1, maxBound, maxBound - 1] g1
       1 -> pick [0] g1
@@ -113,6 +113,49 @@ stimuli seed = P.take nSamples ((False, 0) : (True, maxBound) : go (mkStdGen see
       let (i, g') = uniformR (0, P.length vs - 1) g
       in (vs P.!! i, g')
 
+-- | One clock cycle of a test of a function with valid-qualified samples:
+-- enable, sample, and the expected ready and output
+type ValidSample x y = (Bool, Maybe x, Bool, Maybe y)
+
+-- | Like 'samples', for functions with valid-qualified samples. Their outputs
+-- are always defined.
+validSamples ::
+  forall d x y.
+  (KnownNat d, NFDataX x, NFDataX y) =>
+  ValidFirFun x d y ->
+  [(Bool, Maybe x)] ->
+  [ValidSample x y]
+validSamples f inputs =
+  P.zipWith3
+    (\(e, x) r y -> (e, x, r, y))
+    inputs
+    (sampleN (P.length inputs) (D.toSignal ready))
+    (sampleN (P.length inputs) (D.toSignal out))
+ where
+  (ens, xs) = P.unzip inputs
+  (ready, out) = f clockGen (toEnable (fromList ens)) (D.unsafeFromSignal (fromList xs))
+
+-- | Random valid-qualified stimuli: the samples of 'stimuli', in stretches in
+-- which a sample is valid with a probability of @1/p@ for a sample period of
+-- @p@, and in bursts in which every sample is valid, so that the IP has to
+-- refuse some.
+validStimuli :: forall x. (Bounded x, Integral x) => Int -> Int -> [(Bool, Maybe x)]
+validStimuli p seed = go (mkStdGen (seed + 1000)) (stimuli seed)
+ where
+  go _ [] = []
+  go g0 xs = P.zipWith (\v (e, x) -> (e, if v then Just x else Nothing)) valids now <> go g3 later
+   where
+    (burst, g1) = uniformR (0 :: Int, 5) g0
+    (len, g2) = uniformR (4 :: Int, 40) g1
+    (now, later) = P.splitAt len xs
+    (valids, g3) = validBits (P.length now) g2
+    validBits 0 g = ([], g)
+    validBits k g =
+      let
+        (r, g') = uniformR (1 :: Int, p) g
+        (vs, g'') = validBits (k - 1) g'
+      in ((burst == 0 || r == 1) : vs, g'')
+
 ------------------------------------------------------------------------------
 -- Functions under test, wrapped in top entities in "Fir"
 ------------------------------------------------------------------------------
@@ -126,6 +169,12 @@ type FirFun x d y =
   Enable XilinxSystem ->
   DSignal XilinxSystem 0 x ->
   DSignal XilinxSystem d y
+
+type ValidFirFun x d y =
+  Clock XilinxSystem ->
+  Enable XilinxSystem ->
+  DSignal XilinxSystem 0 (Maybe x) ->
+  (DSignal XilinxSystem 0 Bool, DSignal XilinxSystem d (Maybe y))
 
 -- | Symmetric low-pass filter, full precision
 firSym' :: FirFun (Signed 16) 12 (Signed 31)
@@ -217,3 +266,86 @@ firUnsignedSym' :: FirFun (Unsigned 16) 9 (Unsigned 34)
 firUnsignedSym' = Fir.fir @9
   (65535 :> 1 :> 40000 :> 40000 :> 1 :> 65535 :> Nil :: Vec 6 (Unsigned 16))
 {-# INLINE firUnsignedSym' #-}
+
+------------------------------------------------------------------------------
+-- Filters with valid-qualified samples and longer sample periods
+------------------------------------------------------------------------------
+
+-- | Sample period 4: three multiply-add units of three coefficients each
+firPeriod4' :: ValidFirFun (Signed 16) 12 (Signed 26)
+firPeriod4' = Fir.firValidWith @12 k7 d4
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firPeriod4' #-}
+
+-- | Sample period 3, symmetric, rounding
+firPeriod3Sym' :: ValidFirFun (Signed 16) 12 (Signed 16)
+firPeriod3Sym' = Fir.firValidWith @12 k7{rounding = SymmetricRoundingToZero} d3
+  (300 :> (-500) :> 700 :> 11000 :> 700 :> (-500) :> 300 :> Nil :: Vec 7 (Signed 16))
+{-# INLINE firPeriod3Sym' #-}
+
+-- | Sample period 2, half-band filter
+firPeriod2HalfBand' :: ValidFirFun (Signed 16) 11 (Signed 18)
+firPeriod2HalfBand' = Fir.firValidWith @11 k7{rounding = ConvergentRoundingToEven} d2
+  ((-300) :> 0 :> 1200 :> 0 :> (-5000) :> 16384 :> (-5000) :> 0 :> 1200 :> 0 :> (-300) :> Nil
+    :: Vec 11 (Signed 16))
+{-# INLINE firPeriod2HalfBand' #-}
+
+-- | Sample period 1, valid-qualified samples
+firPeriod1' :: ValidFirFun (Signed 12) 13 (Signed 16)
+firPeriod1' = Fir.firValidWith @13 k7{rounding = NonSymmetricRoundingUp} d1
+  (131071 :> (-131072) :> 5000 :> (-77777) :> 12345 :> 1 :> (-1) :> 99999 :> Nil
+    :: Vec 8 (Signed 18))
+{-# INLINE firPeriod1' #-}
+
+-- | Sample period 8, unsigned data, wide coefficients: two DSP slices per
+-- multiplication
+firPeriod8Wide' :: ValidFirFun (Unsigned 24) 16 (Signed 30)
+firPeriod8Wide' = Fir.firValidWith @16 k7{rounding = TruncateLsbs} d8
+  (  1000000 :> (-8388608) :> 8388607 :> 3 :> (-7) :> 250 :> 1 :> 0 :> 77 :> 4000000
+  :> 12 :> (-12) :> Nil :: Vec 12 (Signed 24))
+{-# INLINE firPeriod8Wide' #-}
+
+-- | Sample period 16, 32 symmetric coefficients: a single multiply-add unit,
+-- so the latency is the same on all devices, and the default configuration
+-- applies
+firPeriod16Long' :: ValidFirFun (Signed 14) 23 (Signed 32)
+firPeriod16Long' = Fir.firValid @23 d16
+  (  (-7) :> 13 :> 0 :> (-29) :> 51 :> 80 :> (-128) :> 255 :> 512 :> (-1000) :> 2000 :> 4000
+  :> (-8000) :> 16000 :> 32767 :> (-32768)
+  :> (-32768) :> 32767 :> 16000 :> (-8000) :> 4000 :> 2000 :> (-1000) :> 512 :> 255 :> (-128)
+  :> 80 :> 51 :> (-29) :> 0 :> 13 :> (-7) :> Nil :: Vec 32 (Signed 16))
+{-# INLINE firPeriod16Long' #-}
+
+-- | Sample period 2, ten symmetric coefficients in three multiply-add units of
+-- two pairs: the IP pads the coefficients with a zero at both ends, which
+-- delays the output by a sample
+firPeriod2SymPad' :: ValidFirFun (Signed 16) 12 (Signed 30)
+firPeriod2SymPad' = Fir.firValidWith @12 k7 d2
+  ((-2168) :> (-615) :> (-1321) :> 2523 :> (-1163) :> (-1163) :> 2523 :> (-1321) :>
+   (-615) :> (-2168) :> Nil :: Vec 10 (Signed 16))
+{-# INLINE firPeriod2SymPad' #-}
+
+-- | Sample period 3, a half-band filter of 27 coefficients in three
+-- multiply-add units of three: the IP pads the coefficients with two zeros at
+-- both ends, which delays the output by four samples
+firPeriod3HalfBandPad' :: ValidFirFun (Signed 16) 13 (Signed 31)
+firPeriod3HalfBandPad' = Fir.firValidWith @13 k7 d3
+  (792 :> 0 :> 2023 :> 0 :> 58 :> 0 :> (-812) :> 0 :> (-1866) :> 0 :> (-1476) :> 0 :>
+   2543 :> 12345 :> 2543 :> 0 :> (-1476) :> 0 :> (-1866) :> 0 :> (-812) :> 0 :> 58 :>
+   0 :> 2023 :> 0 :> 792 :> Nil :: Vec 27 (Signed 16))
+{-# INLINE firPeriod3HalfBandPad' #-}
+
+-- | Sample period 8, symmetric rounding: the IP needs a cycle more per
+-- sample (six instead of five), but still less than the sample period
+firPeriod8SymRound' :: ValidFirFun (Signed 16) 14 (Signed 16)
+firPeriod8SymRound' = Fir.firValidWith @14 k7{rounding = SymmetricRoundingToZero} d8
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firPeriod8SymRound' #-}
+
+-- | Sample period 4, 100 large coefficients made with 'listToVecTH': the full
+-- precision result exceeds the 48 bits of a DSP slice's accumulator, so the
+-- IP uses two DSP slices per multiplication
+firPeriod4Accumulator' :: ValidFirFun (Signed 18) 37 (Signed 24)
+firPeriod4Accumulator' = Fir.firValidWith @37 k7{rounding = ConvergentRoundingToOdd} d4
+  $(listToVecTH (P.take 100 (P.cycle [16777215, -16777216, 16000000, 12345, -16777000 :: Signed 25])))
+{-# INLINE firPeriod4Accumulator' #-}
