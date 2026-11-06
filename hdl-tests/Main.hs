@@ -337,6 +337,22 @@ runClashTest = defaultMain $ clashTestRoot
           }
         , runTest "T2549" def{hdlTargets=[Verilog],hdlSim=[]}
         , runTest "T2781" def{hdlLoad=[],hdlSim=[],hdlTargets=[VHDL]}
+        , runTest "Dds" def
+          { hdlTargets = [VHDL, Verilog]
+          , hdlLoad = [Vivado]
+          , hdlSim = [Vivado]
+          , buildTargets = BuildSpecific
+              [ "ddsFixedTB"
+              , "ddsStreamingTB"
+              , "ddsProgrammableTB"
+              , "ddsMixedTB"
+              , "ddsWideTB"
+              , "phaseGenTB"
+              , "phaseGenFixedTB"
+              , "lutWideTB"
+              , "lutSmallTB"
+              ]
+          }
         ]
       ] -- end shouldwork
     ]
