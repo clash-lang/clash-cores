@@ -7,6 +7,11 @@ Access to the 32-bit @USR_ACCESS@ register of UltraScale and UltraScale+
 devices, which is loaded from the bitstream. For more information see
 [UG974](https://docs.xilinx.com/r/en-US/ug974-vivado-ultrascale-libraries/USR_ACCESSE2)
 and the /UltraScale Architecture Configuration/ user guide (UG570).
+
+7 series devices have the same primitive, with the same ports, so
+'usrAccessE2' works for them too. See
+[UG953](https://docs.xilinx.com/r/en-US/ug953-vivado-7series-libraries/USR_ACCESSE2)
+and the /7 Series FPGAs Configuration/ user guide (UG470).
 -}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE QuasiQuotes #-}

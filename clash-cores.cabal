@@ -178,6 +178,7 @@ library
     Clash.Cores.Xilinx.Unisim.UsrAccessE2
     Clash.Cores.Xilinx.Unisim.Series7
     Clash.Cores.Xilinx.Unisim.Series7.ClockBuffer
+    Clash.Cores.Xilinx.Unisim.Series7.Config
     Clash.Cores.Xilinx.Vio
     Clash.Cores.Xilinx.Vio.Internal.BlackBoxes
     Clash.Cores.Xilinx.Xpm

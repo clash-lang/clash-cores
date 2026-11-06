@@ -18,12 +18,15 @@ and are not repeated here:
   * 'Clash.Cores.Xilinx.Unisim.ClockBuffer.bufg' (@BUFG@)
   * 'Clash.Cores.Xilinx.Unisim.IoBuffer.ibufds' and
     'Clash.Cores.Xilinx.Unisim.IoBuffer.obufds' (@IBUFDS@ and @OBUFDS@)
+  * 'Clash.Cores.Xilinx.Unisim.UsrAccessE2.usrAccessE2' (@USR_ACCESSE2@)
 -}
 module Clash.Cores.Xilinx.Unisim.Series7
   ( module Clash.Cores.Xilinx.Unisim.Series7.ClockBuffer
+  , module Clash.Cores.Xilinx.Unisim.Series7.Config
   -- The 7 series I/O primitives (Clash.Cores.Xilinx.Unisim.Series7.Serdes and
   -- Clash.Cores.Xilinx.Unisim.Series7.Delay) are re-exported here too, once
   -- they are merged.
   ) where
 
 import Clash.Cores.Xilinx.Unisim.Series7.ClockBuffer
+import Clash.Cores.Xilinx.Unisim.Series7.Config

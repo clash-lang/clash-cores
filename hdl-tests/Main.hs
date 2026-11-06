@@ -370,6 +370,13 @@ runClashTest = defaultMain $ clashTestRoot
                   , "tbBufrDiv8", "tbBufmrceBufrDiv"
                   ]
               }
+          , runTest "Series7Config" def
+              { hdlTargets=[VHDL, Verilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              , buildTargets=BuildSpecific
+                  ["tbStartupE2", "tbIcapE2", "tbReadDnaPort", "tbDnaPort"]
+              }
           ]
         , clashTestGroup "DcFifo"
           [ let _opts =

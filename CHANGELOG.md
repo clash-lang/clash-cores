@@ -23,3 +23,4 @@
 * Add `startupE3`, `usrAccessE2` and `icapE3`, wrappers for Xilinx's `STARTUPE3`, `USR_ACCESSE2` and `ICAPE3` configuration primitives
 * Add `Clash.Cores.Xilinx.Unisim.Series7`, re-exporting the UNISIM primitives of 7 series devices
 * Add `bufio`, `bufr`, `bufrDiv`, `bufh`, `bufhce`, `bufmr` and `bufmrce`, wrappers for the 7 series clock buffers `BUFIO`, `BUFR`, `BUFH`, `BUFHCE`, `BUFMR` and `BUFMRCE`. Gated and divided clocks are simulated cycle-accurately, including clears of `BUFR` while its input clock is stopped.
+* Add `startupE2`, `icapE2`, `dnaPort` and `readDnaPort`, wrappers for the 7 series configuration primitives `STARTUPE2`, `ICAPE2` and `DNA_PORT`. `usrAccessE2` works for 7 series devices too.
