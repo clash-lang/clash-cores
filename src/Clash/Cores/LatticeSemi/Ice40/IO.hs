@@ -34,6 +34,7 @@ module Clash.Cores.LatticeSemi.Ice40.IO
   ( -- * SB_IO
     sbio
   , sbioDdr
+  , sbioOd
   , spiConfig
   , PinOutputConfig(..)
   , PinInputConfig(..)
@@ -52,6 +53,7 @@ import           Clash.Annotations.BitRepresentation.Deriving (deriveBitPack)
 import           Clash.Explicit.Prelude
 import           Clash.Signal.Internal (Signal((:-)))
 import qualified Clash.Signal as Hidden
+import           Clash.Signal.BiSignal (HasBiSignalDefault)
 
 import           Clash.Cores.Xilinx.Xpm.Cdc.Internal
   ( BitBiSignalInPort(..), BiSignalOutPort(..), BitVectorParam(..)
@@ -191,7 +193,7 @@ sbio pinConf pkgPin latchInput dOut0 dOut1 outputEnable
   clk = Hidden.hasClock
   en = Hidden.hasEnable
   (_driveFirst, driveSecond, dIn0, dIn1) =
-    sbioModel clk en pinConf padFirst (readFromBiSignal pkgPin) latchInput
+    sbioModel SbIo clk en pinConf padFirst (readFromBiSignal pkgPin) latchInput
       dOut0 dOut1 outputEnable
   padFirst =
     pure (errorX "sbio: the pad is only sampled once per clock cycle. Use sbioDdr.")
@@ -262,8 +264,91 @@ sbioDdr clk en pinConf pkgPin latchInput dOut0 dOut1 outputEnable
  where
   (padFirst, padSecond) = deinterleaveSignals (readFromBiSignal pkgPin)
   (driveFirst, driveSecond, dIn0, dIn1) =
-    sbioModel clk en pinConf padFirst padSecond latchInput dOut0 dOut1
+    sbioModel SbIo clk en pinConf padFirst padSecond latchInput dOut0 dOut1
       outputEnable
+
+{- | Open-drain I/O cell @SB_IO_OD@ of the iCE40 UltraPlus devices, see the
+/iCE40 UltraPlus Family Data Sheet/ (FPGA-DS-02008) and the /iCE40 Technology
+Library/. Like 'sbio', but the output drives the pad low for a 0 and releases
+it for a 1: it never drives the pad high. The pad needs a pull-up resistor,
+which is not part of the cell: use a pad with a v'PullUp' default to simulate
+an external one, as I2C does.
+
+Simulation: like 'sbio'. Note that in Yosys' simulation model the registers at
+the inactive edge of the clock (for @DIN1@ and @DOUT1@) are enabled by
+@CLOCKENABLE@ directly, while in its model of @SB_IO@ they are enabled by
+@CLOCK_ENABLE@ registered at the preceding active edge. 'sbioOd' follows the
+model of @SB_IO_OD@.
+-}
+sbioOd
+  :: forall ds dom
+   . ( HasCallStack
+     , HasBiSignalDefault ds
+     , Hidden.HiddenClock dom  -- INPUTCLK, OUTPUTCLK
+     , Hidden.HiddenEnable dom -- CLOCKENABLE
+     )
+  => BitVector 6
+  -- ^ Config, see 'spiConfig'
+  -> BiSignalIn ds dom 1
+  -- ^ PACKAGEPIN
+  -> Signal dom Bit
+  -- ^ LATCHINPUTVALUE
+  -> Signal dom Bit
+  -- ^ DOUT0
+  -> Signal dom Bit
+  -- ^ DOUT1. Only used by the @PIN_OUTPUT_DDR*@ modes.
+  -> Signal dom Bool
+  -- ^ OUTPUTENABLE
+  -> ( BiSignalOut ds dom 1  -- PACKAGEPIN
+     , Signal dom Bit        -- DIN0
+     , Signal dom Bit        -- DIN1
+     )
+sbioOd pinConf pkgPin latchInput dOut0 dOut1 outputEnable
+  | clashSimulation = (writeToBiSignal pkgPin driveSecond, dIn0Sim, dIn1Sim)
+  | otherwise = (pkgPinOut, unPort dIn0, unPort dIn1)
+ where
+  clk = Hidden.hasClock
+  en = Hidden.hasEnable
+  (_driveFirst, driveSecond, dIn0Sim, dIn1Sim) =
+    sbioModel SbIoOd clk en pinConf padFirst (readFromBiSignal pkgPin) latchInput
+      dOut0 dOut1 outputEnable
+  padFirst =
+    pure (errorX "sbioOd: the pad is only sampled once per clock cycle")
+
+  (BiSignalOutPort pkgPinOut, dIn0, dIn1) = go
+
+  go ::
+    ( BiSignalOutPort "PACKAGEPIN" ds dom 1
+    , Port "DIN0" dom Bit
+    , Port "DIN1" dom Bit )
+  go = case activeEdge @dom of
+    SRising -> ports (inst config pinTypeParam)
+    SFalling -> ports (inst config pinTypeParam (Param @"NEG_TRIGGER" @Bit 1))
+
+  config = ice40Prim "SB_IO_OD"
+  pinTypeParam = BitVectorParam @"PIN_TYPE" pinConf
+
+  ports ::
+    ( BitBiSignalInPort "PACKAGEPIN" ds dom ->
+      Port "LATCHINPUTVALUE" dom Bit ->
+      Port "CLOCKENABLE" dom Bit ->
+      ClockPort "INPUTCLK" dom ->
+      ClockPort "OUTPUTCLK" dom ->
+      Port "OUTPUTENABLE" dom Bit ->
+      Port "DOUT0" dom Bit ->
+      Port "DOUT1" dom Bit ->
+      r ) ->
+    r
+  ports f =
+    f
+      (BitBiSignalInPort pkgPin)
+      (Port @"LATCHINPUTVALUE" latchInput)
+      (Port @"CLOCKENABLE" (boolToBit <$> fromEnable en))
+      (ClockPort @"INPUTCLK" clk)
+      (ClockPort @"OUTPUTCLK" clk)
+      (Port @"OUTPUTENABLE" (boolToBit <$> outputEnable))
+      (Port @"DOUT0" dOut0)
+      (Port @"DOUT1" dOut1)
 
 {- Note [Samples of the pad of sbioDdr]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -299,6 +384,7 @@ and one for the second half.
 sbioModel ::
   forall dom.
   KnownDomain dom =>
+  SbioFlavor ->
   Clock dom ->
   Enable dom ->
   -- | PIN_TYPE
@@ -320,19 +406,27 @@ sbioModel ::
   , Signal dom (Maybe Bit)
   , Signal dom Bit
   , Signal dom Bit )
-sbioModel clk en pinType padFirst padSecond latchInput dOut0 dOut1 outputEnable =
+sbioModel flavor clk en pinType padFirst padSecond latchInput dOut0 dOut1 outputEnable =
   (drive <$> oe <*> doutFirst, drive <$> oe <*> doutSecond, dIn0, dIn1)
  where
   reg :: NFDataX a => String -> Signal dom a -> Signal dom a
   reg nm = delay clk en (deepErrorX ("sbio: " <> nm <> " undefined"))
 
-  -- The registers at the inactive edge are enabled by the enable registered at
-  -- the preceding active edge.
-  enRegistered =
-    delay clk enableGen (errorX "sbio: clock enable undefined") (fromEnable en)
+  -- The registers at the inactive edge of SB_IO are enabled by the enable
+  -- registered at the preceding active edge. Those of SB_IO_OD by the enable
+  -- itself.
+  --
+  -- Before the first active edge there may or may not be an inactive edge,
+  -- depending on the simulator: a clock that starts out undefined in Verilog
+  -- has a falling edge when it becomes low. So the registers at the inactive
+  -- edge are undefined until the first active edge.
+  enInactive = case flavor of
+    SbIo -> delay clk enableGen enUndefined (fromEnable en)
+    SbIoOd -> let ~(_ :- ens) = fromEnable en in enUndefined :- ens
+  enUndefined = errorX "sbio: clock enable undefined"
   regInactive nm d = q
    where
-    q = mux enRegistered d (delay clk enableGen (errorX ("sbio: " <> nm <> " undefined")) q)
+    q = mux enInactive d (delay clk enableGen (errorX ("sbio: " <> nm <> " undefined")) q)
 
   -- Input
   dInQ0 = reg "D_IN_0" padSecond
@@ -360,7 +454,17 @@ sbioModel clk en pinType padFirst padSecond latchInput dOut0 dOut1 outputEnable 
       0b10 -> outputEnable
       _ -> reg "OUTPUT_ENABLE" outputEnable
 
-  drive enable d = if enable then Just d else Nothing
+  drive enable d = case flavor of
+    SbIo -> if enable then Just d else Nothing
+    -- Open drain: drive the pad low, or release it
+    SbIoOd -> if enable && d == 0 then Just 0 else Nothing
+
+-- | Which primitive 'sbioModel' models
+data SbioFlavor
+  = SbIo
+  -- ^ SB_IO, SB_GB_IO
+  | SbIoOd
+  -- ^ SB_IO_OD
 
 -- | Instantiate SB_IO
 sbioInst ::

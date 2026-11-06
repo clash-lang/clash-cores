@@ -87,6 +87,32 @@ $( do
       ]
  )
 
+-- * Pull-up resistor
+
+{- | Pull-up resistor on a pad. Clash simulates pads with a v'PullUp' default,
+but doesn't add a pull-up in HDL.
+-}
+pullUp :: BiSignalIn 'PullUp dom 1 -> BiSignalOut 'PullUp dom 1
+pullUp pad = writeToBiSignal pad (pure (Nothing :: Maybe Bit))
+{-# OPAQUE pullUp #-}
+{-# ANN pullUp hasBlackBox #-}
+{-# ANN pullUp (InlineYamlPrimitive [Verilog, SystemVerilog] [__i|
+  BlackBox:
+    name: Ice40TestCommon.pullUp
+    kind: Declaration
+    renderVoid: RenderVoid
+    template: |-
+      pullup (~ARG[0]);
+  |]) #-}
+{-# ANN pullUp (InlineYamlPrimitive [VHDL] [__i|
+  BlackBox:
+    name: Ice40TestCommon.pullUp
+    kind: Declaration
+    renderVoid: RenderVoid
+    template: |-
+      ~ARG[0] <= (others => 'H');
+  |]) #-}
+
 -- * Random generation
 
 -- | Minimal state monad threading a (xorshift64*) random generator
