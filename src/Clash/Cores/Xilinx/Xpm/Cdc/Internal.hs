@@ -11,6 +11,7 @@ eventually made public.
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -81,7 +82,9 @@ import Clash.Annotations.Primitive
 import Clash.Backend (Backend, hdlKind)
 import Clash.Core.DataCon ( DataCon(MkData, dcName) )
 import Clash.Core.Name ( Name(Name, nameOcc) )
-import Clash.Core.Term ( Term(Data), collectArgs )
+import qualified Clash.Core.Literal as Core
+import Clash.Core.Term ( Term(Data, Prim), PrimInfo (primName), collectArgs )
+import qualified Clash.Core.Term as Core
 import Clash.Core.TermLiteral (TermLiteral(..), deriveTermLiteral)
 import Clash.Core.TermLiteral.TH (deriveTermToData)
 import Clash.Core.TyCon(isTupleTyConLike)
@@ -284,10 +287,57 @@ getPolarity nm ty = error ("Could not determine ResetPolarity for ResetPort @\""
 
 type OptionName = String
 
+-- | A 'Vec' of integers for an 'IntegerVecOpt'. The elements should be of type
+-- @Integer@, @Signed@ or @Unsigned@.
+--
+-- Clash evaluates wizard options when it generates HDL. It cannot evaluate a
+-- @String@ built from the elements, and unrolling a 'toList' gets very slow for
+-- long vectors. Instead, it reads the elements straight from the 'Vec', so the
+-- 'Vec' should be made of constants, such as a literal or the result of
+-- 'listToVecTH'. Clash does not evaluate functions on it such as 'map' here.
+data IntegerVec = forall n a. Integral a => IntegerVec (Vec n a)
+
+instance Show IntegerVec where
+  showsPrec d (IntegerVec v) =
+    showParen (d > 10) $
+      showString "IntegerVec " . showsPrec 11 (P.map toInteger (toList v))
+
+instance TermLiteral IntegerVec where
+  -- The arguments are the 'Integral' dictionary and the vector
+  TERM_TO_DATA (collectDataArgs -> Just (constrName, lefts -> [_, v]))
+    | constrName == show 'IntegerVec =
+        P.foldr cons (IntegerVec (Nil @Integer)) <$> integerList v
+   where
+    cons :: Integer -> IntegerVec -> IntegerVec
+    cons i (IntegerVec is) = IntegerVec (i :> map toInteger is)
+    -- Constructors of 'Vec' have a coercion as their first term argument
+    integerList (collectDataArgs -> Just (nm, lefts -> xs))
+      | nm == show 'Nil = Right []
+      | nm == show 'Cons, [_, x, rest] <- xs =
+          (:) <$> integerElement x <*> integerList rest
+    integerList other = Left other
+    -- Clash represents constants of type Signed and Unsigned as
+    -- applications of their @fromInteger#@ to the width and an integer
+    integerElement e = case collectArgs e of
+      (Prim p, lefts -> [Core.Literal (Core.NaturalLiteral w), Core.Literal (Core.IntegerLiteral i)])
+        | primName p == "Clash.Sized.Internal.Signed.fromInteger#" ->
+            Right (wrapSigned w i)
+        | primName p == "Clash.Sized.Internal.Unsigned.fromInteger#" ->
+            Right (i `mod` (2 P.^ w))
+      _ -> Compat.termToData e
+    wrapSigned w i
+      | w == 0 = 0
+      | otherwise = ((i + half) `mod` (2 * half)) - half
+     where
+      half = 2 P.^ (w - 1)
+  TERM_TO_DATA t = Left t
+
 data XilinxWizardOption
   = StrOpt String
   | IntegerOpt Integer
   | BoolOpt Bool
+  | IntegerVecOpt IntegerVec
+  -- ^ A comma-separated list of integers, such as @{1,-2,3}@, see t'IntegerVec'
   deriving (Show)
 deriveTermLiteral ''XilinxWizardOption
 
@@ -297,6 +347,8 @@ xilinxWizardOptionToTcl = \case
   IntegerOpt i -> Text.pack $ show i
   BoolOpt True -> "true"
   BoolOpt False -> "false"
+  IntegerVecOpt (IntegerVec v) ->
+    '{' `Text.cons` Text.intercalate "," (P.map (Text.pack . show . toInteger) (toList v)) <> "}"
 
 data XilinxWizard n = XilinxWizard
   { wiz_name :: String
