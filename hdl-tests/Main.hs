@@ -199,6 +199,14 @@ runClashTest = defaultMain $ clashTestRoot
                 , "tbUncheckedNormal", "tbUncheckedShowAhead"
                 ]
             }
+        , runTest "Altsyncram" intelOpts
+            { buildTargets=BuildSpecific
+                [ "tbSpCycloneV", "tbSpCycloneVReg", "tbSpCycloneIVOld"
+                , "tbSpCycloneIVNbe", "tbSdpCycloneVOld", "tbSdpCycloneVDontCare"
+                , "tbSdpCycloneIVOld"
+                , "tbTdpCycloneV", "tbTdpCycloneIV"
+                ]
+            }
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"

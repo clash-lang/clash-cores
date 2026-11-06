@@ -133,6 +133,7 @@ library
     Clash.Cores.Intel.DDR
     Clash.Cores.Intel.Fifo
     Clash.Cores.Intel.IO
+    Clash.Cores.Intel.Memory
     Clash.Cores.Intel.Primitive.Internal
     Clash.Cores.LatticeSemi.Ecp5.Blackboxes.IO
     Clash.Cores.LatticeSemi.Ecp5.IO

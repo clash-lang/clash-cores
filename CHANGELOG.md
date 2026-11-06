@@ -21,3 +21,4 @@
 * Add `Clash.Cores.Intel.Cdc` with `stdSynchronizer` and `stdSynchronizerBundle`, wrappers for `altera_std_synchronizer` and `altera_std_synchronizer_bundle`
 * Add `Clash.Cores.Intel.Fifo` with `scfifo`, a wrapper for Intel's single-clock FIFO `scfifo`
 * Add `dcfifo` to `Clash.Cores.Intel.Fifo`, a wrapper for Intel's dual-clock FIFO `dcfifo`
+* Add `Clash.Cores.Intel.Memory` with `altsyncramSinglePort`, `altsyncramSimpleDualPort` and `altsyncramTrueDualPort`, wrappers for Intel's block RAM `altsyncram`, and functions to write and read Memory Initialization Files
