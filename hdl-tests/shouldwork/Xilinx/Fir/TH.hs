@@ -349,3 +349,77 @@ firPeriod4Accumulator' :: ValidFirFun (Signed 18) 37 (Signed 24)
 firPeriod4Accumulator' = Fir.firValidWith @37 k7{rounding = ConvergentRoundingToOdd} d4
   $(listToVecTH (P.take 100 (P.cycle [16777215, -16777216, 16000000, 12345, -16777000 :: Signed 25])))
 {-# INLINE firPeriod4Accumulator' #-}
+
+------------------------------------------------------------------------------
+-- Decimators
+------------------------------------------------------------------------------
+
+-- | Decimation by 2, sample period 1
+firDecim2' :: ValidFirFun (Signed 16) 12 (Signed 26)
+firDecim2' = Fir.firDecimateWith @12 k7 d2 d1
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firDecim2' #-}
+
+-- | Decimation by 3, sample period 2, convergent rounding
+firDecim3P2' :: ValidFirFun (Signed 16) 10 (Signed 16)
+firDecim3P2' = Fir.firDecimateWith @10 k7{rounding = ConvergentRoundingToEven} d3 d2
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+{-# INLINE firDecim3P2' #-}
+
+-- | A symmetric decimator by 2
+firDecim2Sym' :: ValidFirFun (Signed 16) 9 (Signed 22)
+firDecim2Sym' = Fir.firDecimateWith @9 k7 d2 d1
+  (3 :> (-5) :> 7 :> 11 :> 11 :> 7 :> (-5) :> 3 :> Nil :: Vec 8 (Signed 16))
+{-# INLINE firDecim2Sym' #-}
+
+-- | A symmetric decimator by 2 with sample period 2: two pairs of padding, so the output is delayed by two samples
+firDecim2P2SymPad' :: ValidFirFun (Signed 16) 11 (Signed 27)
+firDecim2P2SymPad' = Fir.firDecimateWith @11 k7 d2 d2
+  (30 :> (-50) :> 70 :> 110 :> (-130) :> 1000 :> (-130) :> 110 :> 70 :> (-50) :> 30 :> Nil :: Vec 11 (Signed 16))
+{-# INLINE firDecim2P2SymPad' #-}
+
+-- | A symmetric decimator by 3 of seven coefficients: two pairs of padding
+firDecim3Sym7' :: ValidFirFun (Signed 16) 9 (Signed 18)
+firDecim3Sym7' = Fir.firDecimateWith @9 k7{rounding = NonSymmetricRoundingUp} d3 d1
+  (300 :> (-500) :> 700 :> 11000 :> 700 :> (-500) :> 300 :> Nil :: Vec 7 (Signed 16))
+{-# INLINE firDecim3Sym7' #-}
+
+-- | Decimation by 4, sample period 3, symmetric rounding: three cycles per sample
+firDecim4P3SymRound' :: ValidFirFun (Signed 16) 11 (Signed 16)
+firDecim4P3SymRound' = Fir.firDecimateWith @11 k7{rounding = SymmetricRoundingToZero} d4 d3
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> 1 :> 2 :> 3 :> 4 :>
+   5 :> 6 :> 7 :> Nil :: Vec 16 (Signed 16))
+{-# INLINE firDecim4P3SymRound' #-}
+
+-- | Half-band coefficients decimated by 2 as a symmetric filter
+firDecim2HalfBandSym' :: ValidFirFun (Signed 16) 11 (Signed 31)
+firDecim2HalfBandSym' = Fir.firDecimateWith @11 k7{coefficientStructure = Symmetric} d2 d2
+  (2102 :> 0 :> (-908) :> 0 :> (-63) :> 0 :> 2656 :> 12345 :> 2656 :> 0 :> (-63) :> 0 :>
+   (-908) :> 0 :> 2102 :> Nil :: Vec 15 (Signed 16))
+{-# INLINE firDecim2HalfBandSym' #-}
+
+-- | Half-band coefficients decimated by 5: a symmetric decimator with four pairs of padding
+firDecim5HalfBand' :: ValidFirFun (Signed 16) 9 (Signed 20)
+firDecim5HalfBand' = Fir.firDecimateWith @9 k7{rounding = TruncateLsbs} d5 d1
+  ((-300) :> 0 :> 1200 :> 0 :> (-5000) :> 16384 :> (-5000) :> 0 :> 1200 :> 0 :> (-300) :> Nil :: Vec 11 (Signed 16))
+{-# INLINE firDecim5HalfBand' #-}
+
+-- | Decimation by 8, unsigned data, wide coefficients
+firDecim8Wide' :: ValidFirFun (Unsigned 24) 9 (Signed 30)
+firDecim8Wide' = Fir.firDecimateWith @9 k7{rounding = ConvergentRoundingToOdd} d8 d1
+  (131071 :> (-131072) :> 5000 :> (-77777) :> 12345 :> 1 :> (-1) :> 99999 :> 7 :> 7 :>
+   (-9) :> 1000 :> Nil :: Vec 12 (Signed 18))
+{-# INLINE firDecim8Wide' #-}
+
+-- | Decimation by 2 with a long sample period: the IP needs three of the eight cycles per sample, and does not pad
+firDecim2P8Sym11' :: ValidFirFun (Signed 16) 11 (Signed 27)
+firDecim2P8Sym11' = Fir.firDecimateWith @11 k7 d2 d8
+  (30 :> (-50) :> 70 :> 110 :> (-130) :> 1000 :> (-130) :> 110 :> 70 :> (-50) :> 30 :> Nil :: Vec 11 (Signed 16))
+{-# INLINE firDecim2P8Sym11' #-}
+
+-- | Decimation by 4 with the default configuration: a single multiply-add
+-- unit, so the latency is the same on all devices
+firDecimate4' :: ValidFirFun (Signed 14) 8 (Signed 24)
+firDecimate4' = Fir.firDecimate @8 d4 d2
+  (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> Nil :: Vec 8 (Signed 16))
+{-# INLINE firDecimate4' #-}

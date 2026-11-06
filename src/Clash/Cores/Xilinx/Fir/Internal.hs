@@ -37,7 +37,8 @@ against the IP in Vivado's simulator:
 
 * For a sample period of more than one clock cycle, each multiply-add unit
   handles several coefficients, one per clock cycle, and the latency also
-  includes that number of cycles. See 'latency' and t'Params' for the details.
+  includes that number of cycles. A decimator by @r@ has @r@ times as many
+  cycles per output. See 'latency' and t'Params' for the details.
 
 __NB__: None of the functions in this module are synthesizable.
 -}
@@ -63,6 +64,7 @@ module Clash.Cores.Xilinx.Fir.Internal
   , FirOutput
   , ByteWidth
     -- * Structure of the IP
+  , Rate(..)
   , Structure(..)
   , Params(..)
   , mkParams
@@ -377,6 +379,13 @@ fullPrecisionWidth dw dSigned cs =
     | x <= 1 = 0
     | otherwise = 1 + clog2 ((x + 1) `div` 2)
 
+-- | The rate change of a filter
+data Rate
+  = SingleRate
+  | Decimation Int
+    -- ^ Decimation by an integer factor of at least 2
+  deriving (Eq, Show)
+
 -- | All properties of a filter that follow from its configuration and
 -- coefficients
 data Params = Params
@@ -391,6 +400,7 @@ data Params = Params
   , outputWidth :: Int
   , samplePeriod :: Int
     -- ^ The number of clock cycles per input sample the IP is configured for
+  , rate :: Rate
   , structure :: Structure
     -- ^ The structure of the IP. 'NonSymmetricStructure' if the coefficients
     -- do not have the structure the configuration demands, see 'checkParams'.
@@ -439,27 +449,40 @@ mkParams ::
   Int ->
   -- | Sample period
   Int ->
+  Rate ->
   Params
-mkParams config coefficients dataWidth dataSigned coefficientWidth coefficientTypeSigned outputWidth samplePeriod =
+mkParams config coefficients dataWidth dataSigned coefficientWidth coefficientTypeSigned outputWidth samplePeriod rate =
   Params{..}
  where
   inferred = inferStructure (coefficientStructure config) coefficients
-  structure = fromMaybe NonSymmetricStructure inferred
+  -- A decimator only exploits the zeros of a half-band filter when it
+  -- decimates by two
+  structure = case fromMaybe NonSymmetricStructure inferred of
+    s | decimation /= 1 && decimation /= 2 && s `P.elem` [HalfBandStructure, HilbertStructure] ->
+      SymmetricStructure
+    s -> s
   structureOk = isJust inferred
+  decimation = case rate of
+    Decimation r -> r
+    SingleRate -> 1
   coefficientsSigned = P.any (< 0) coefficients
   fullWidth = fullPrecisionWidth dataWidth dataSigned coefficients
   -- With a sample period of p clock cycles, each multiply-add unit can handle
-  -- up to p coefficients (or pairs). The IP uses as few multiply-add units as
-  -- that allows, and spreads the coefficients over them evenly.
+  -- up to p coefficients (or pairs) per sample; a decimator by r has r * p
+  -- cycles per output. The IP uses as few multiply-add units as that allows,
+  -- and spreads the coefficients over them evenly: 'slots' each.
   maddsP1 = multiplyAdds structure (P.length coefficients)
-  madds = divRU maddsP1 (max 1 samplePeriod)
-  oversampling = divRU maddsP1 (max 1 madds)
+  madds = divRU maddsP1 (max 1 (decimation * samplePeriod))
+  slots = divRU maddsP1 (max 1 madds)
+  oversampling = divRU slots decimation
   divRU a b = (a + b - 1) `div` b
   symmetricRounding =
     rounding config `P.elem` [SymmetricRoundingToZero, SymmetricRoundingToInfinity]
   cyclesPerSample =
     min (max 1 samplePeriod) (oversampling + (if symmetricRounding then 1 else 0))
-  padding = madds * oversampling - maddsP1
+  -- The multiply-add units have 'oversampling' cycles per input sample, so
+  -- @decimation * oversampling@ per output
+  padding = madds * decimation * oversampling - maddsP1
   frontPadding = case structure of
     NonSymmetricStructure -> 0
     SymmetricStructure -> padding
@@ -473,28 +496,43 @@ mkParams config coefficients dataWidth dataSigned coefficientWidth coefficientTy
     d -> d
 
 -- | Latency of the IP in clock cycles, as reported by Vivado (@C_LATENCY@):
--- from accepting a sample to giving the output for it
+-- from accepting a sample to giving the output for it. For a decimator, the
+-- latency counts from the last sample of a group of samples that gives an
+-- output.
 latency :: Params -> Int
 latency Params{..} =
     madds
-  + 5
-  + (if structure == NonSymmetricStructure then 0 else 1)
   + (case dsps of { 1 -> 0; 2 -> 2; _ -> 6 })
   + (if rounding config `P.elem` [SymmetricRoundingToZero, SymmetricRoundingToInfinity] then 1 else 0)
   + 4 * (columns - 1)
-  + (if samplePeriod <= 1 then singleCycle else multiCycle)
+  + core
  where
+  preAdd = if structure == NonSymmetricStructure then 0 else 1
+  series7 = dspSlice config == Dsp48E1
+  bool b = if b then 1 else 0
+  core = case rate of
+    Decimation _ -> decimating
+    SingleRate
+      | samplePeriod <= 1 -> 5 + preAdd + singleCycle
+      | otherwise -> 5 + preAdd + multiCycle
   -- The fully parallel filter, which takes a sample every clock cycle
-  singleCycle = if halfBandCentre then 1 else 0
+  singleCycle = bool halfBandCentre
   halfBandCentre = structure == HalfBandStructure && not centreIsShift
   -- A filter of which every multiply-add unit handles several coefficients,
-  -- one per clock cycle, and accumulates their products
-  -- A half-band filter (unless its centre tap is a shift), and a filter with
-  -- several multiply-add units on a 7 series device, take a cycle more (but
-  -- not two for both).
+  -- one per clock cycle, and accumulates their products. A half-band filter
+  -- (unless its centre tap is a shift), and a filter with several multiply-add
+  -- units on a 7 series device, take a cycle more (but not two for both).
   multiCycle =
-      oversampling
-    + (if halfBandCentre || (dspSlice config == Dsp48E1 && madds > 1) then 1 else 0)
+    oversampling + bool (halfBandCentre || (series7 && madds > 1))
+  -- A decimator. Its multiply-add units handle 'slots' coefficients in a
+  -- group of 'oversampling' cycles per input sample.
+  decimating = case structure of
+    NonSymmetricStructure ->
+      oversampling + 5 + bool (series7 && (madds > 1 || oversampling == 1))
+    _ | oversampling == 1 ->
+          6 + bool series7 + bool (madds == 1 && P.odd (P.length coefficients))
+      | otherwise ->
+          oversampling + 6 + bool (series7 || madds == 1)
   -- On UltraScale devices, the IP implements a centre tap that is a positive
   -- power of two as a shift, which takes a cycle less
   centre = coefficients P.!! (P.length coefficients `div` 2)
@@ -512,6 +550,8 @@ checkParams params@Params{..}
       err "the IP needs at least two coefficients"
   | samplePeriod < 1 =
       err "the sample period should be at least 1"
+  | Decimation r <- rate, r < 2 =
+      err "the decimation factor should be at least 2"
   | not structureOk =
       err $
            "the coefficients are not " <> show (coefficientStructure config)
@@ -520,6 +560,11 @@ checkParams params@Params{..}
            "the coefficients form a Hilbert transformer, which the IP gives two "
         <> "outputs: that is not supported. Use coefficientStructure = "
         <> "NegativeSymmetric instead."
+  | structure == HalfBandStructure && rate == Decimation 2 =
+      err $
+           "the coefficients form a half-band filter, which the IP decimates by "
+        <> "two with a dedicated half-band decimator: that is not supported. "
+        <> "Use coefficientStructure = Symmetric instead."
   | not dataSigned && coefficientTypeSigned && not coefficientsSigned =
       err $
            "with unsigned data, signed coefficients need at least one negative "
@@ -589,7 +634,9 @@ firOutputModel Params{..} samples =
 --   after it accepts a sample;
 --
 -- * gives the output for an accepted sample 'latency' enabled clock cycles
---   later, for a single clock cycle (or as long as the IP is disabled).
+--   later, for a single clock cycle (or as long as the IP is disabled). A
+--   decimator by @r@ only gives the output for every @r@-th accepted sample,
+--   counting from the first: the last sample of every group of @r@.
 --
 -- The history of the filter starts out as all zeros. The output includes the
 -- delay of the 'frontPadding'.
@@ -618,7 +665,16 @@ firValidModel params clk en x = (ready, delayChain (latency params) y)
     Just s | acc -> s : P.init h
     _ -> h
 
-  y = (\acc h -> if acc then Just (firOutputModel params h) else Nothing) <$> accepted <*> history1
+  -- The number of accepted samples, modulo the decimation factor
+  phase :: Signal dom Int
+  phase = delay clk en 0 phase1
+  phase1 = (\acc ph -> if acc then (ph + 1) `mod` decimationFactor else ph) <$> accepted <*> phase
+  decimationFactor = case rate params of
+    Decimation r -> r
+    SingleRate -> 1
+  givesOutput = (\acc ph -> acc && ph == decimationFactor - 1) <$> accepted <*> phase
+
+  y = (\out h -> if out then Just (firOutputModel params h) else Nothing) <$> givesOutput <*> history1
 
   delayChain :: Int -> Signal dom (Maybe Integer) -> Signal dom (Maybe Integer)
   delayChain 0 s = s
@@ -659,15 +715,16 @@ firOptions ::
   , KnownNat n
   ) =>
   Config ->
+  Rate ->
   -- | Sample period
   Integer ->
   Vec n (c wc) ->
   Vec 30 (OptionName, XilinxWizardOption)
-firOptions cfg samplePeriod coefs =
-     ("CONFIG.Filter_Type",                  StrOpt "Single_Rate")
+firOptions cfg rate samplePeriod coefs =
+     ("CONFIG.Filter_Type",                  StrOpt filterType)
   :> ("CONFIG.Rate_Change_Type",             StrOpt "Integer")
   :> ("CONFIG.Interpolation_Rate",           IntegerOpt 1)
-  :> ("CONFIG.Decimation_Rate",              IntegerOpt 1)
+  :> ("CONFIG.Decimation_Rate",              IntegerOpt decimationRate)
   :> ("CONFIG.Number_Channels",              IntegerOpt 1)
   :> ("CONFIG.Number_Paths",                 IntegerOpt 1)
   :> ("CONFIG.RateSpecification",            StrOpt "Input_Sample_Period")
@@ -696,11 +753,15 @@ firOptions cfg samplePeriod coefs =
   :> ("CONFIG.S_DATA_Has_TUSER",             StrOpt "Not_Required")
   :> ("CONFIG.M_DATA_Has_TUSER",             StrOpt "Not_Required")
   :> Nil
+ where
+  (filterType, decimationRate) = case rate of
+    SingleRate -> ("Single_Rate", 1)
+    Decimation r -> ("Decimation", toInteger r)
 {-# INLINE firOptions #-}
 
 -- | Instantiate the FIR Compiler. It is always configured as:
 --
--- * A single rate, single channel filter
+-- * A single rate or decimating, single channel filter
 -- * Non-blocking AXI4-Stream interfaces: no FIFO on the input, no @TREADY@ on
 --   the output
 -- * A clock enable (@aclken@), no reset
@@ -719,6 +780,7 @@ firInst ::
   , HasCallStack
   ) =>
   Config ->
+  Rate ->
   -- | Sample period
   Integer ->
   Vec n (c wc) ->
@@ -730,7 +792,7 @@ firInst ::
   Signal dom (a wd) ->
   -- | Input @TREADY@, output @TVALID@ and @TDATA@
   (Signal dom Bool, Signal dom Bool, Signal dom (BitVector (ByteWidth wo)))
-firInst cfg samplePeriod coefs clk en valid x =
+firInst cfg rate samplePeriod coefs clk en valid x =
   (bitToBool <$> unPort tready, bitToBool <$> unPort tvalid, unPort tdata)
  where
   (tready, tvalid, tdata) = go
@@ -748,7 +810,7 @@ firInst cfg samplePeriod coefs clk en valid x =
         , wiz_vendor = "xilinx.com"
         , wiz_library = "ip"
         , wiz_version = "7.2"
-        , wiz_options = firOptions @a @c @wd @wc @wo cfg samplePeriod coefs
+        , wiz_options = firOptions @a @c @wd @wc @wo cfg rate samplePeriod coefs
         }
       (ClockPort @"aclk" clk)
       (Port @"aclken" (boolToBit <$> fromEnable en))

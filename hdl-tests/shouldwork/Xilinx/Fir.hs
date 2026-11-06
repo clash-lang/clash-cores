@@ -303,3 +303,102 @@ firPeriod4Accumulator = firPeriod4Accumulator'
 firPeriod4AccumulatorTB :: Signal XilinxSystem Bool
 firPeriod4AccumulatorTB = validFirTB firPeriod4Accumulator $(memBlobTH (Just 0) (validSamples firPeriod4Accumulator' (validStimuli 4 33)))
 {-# ANN firPeriod4AccumulatorTB (TestBench 'firPeriod4Accumulator) #-}
+
+firDecim2 :: ValidFirFun (Signed 16) 12 (Signed 26)
+firDecim2 = firDecim2'
+{-# OPAQUE firDecim2 #-}
+{-# ANN firDecim2 (topAnn "firDecim2") #-}
+
+firDecim2TB :: Signal XilinxSystem Bool
+firDecim2TB = validFirTB firDecim2 $(memBlobTH (Just 0) (validSamples firDecim2' (validStimuli 1 40)))
+{-# ANN firDecim2TB (TestBench 'firDecim2) #-}
+
+firDecim3P2 :: ValidFirFun (Signed 16) 10 (Signed 16)
+firDecim3P2 = firDecim3P2'
+{-# OPAQUE firDecim3P2 #-}
+{-# ANN firDecim3P2 (topAnn "firDecim3P2") #-}
+
+firDecim3P2TB :: Signal XilinxSystem Bool
+firDecim3P2TB = validFirTB firDecim3P2 $(memBlobTH (Just 0) (validSamples firDecim3P2' (validStimuli 2 41)))
+{-# ANN firDecim3P2TB (TestBench 'firDecim3P2) #-}
+
+firDecim2Sym :: ValidFirFun (Signed 16) 9 (Signed 22)
+firDecim2Sym = firDecim2Sym'
+{-# OPAQUE firDecim2Sym #-}
+{-# ANN firDecim2Sym (topAnn "firDecim2Sym") #-}
+
+firDecim2SymTB :: Signal XilinxSystem Bool
+firDecim2SymTB = validFirTB firDecim2Sym $(memBlobTH (Just 0) (validSamples firDecim2Sym' (validStimuli 1 42)))
+{-# ANN firDecim2SymTB (TestBench 'firDecim2Sym) #-}
+
+firDecim2P2SymPad :: ValidFirFun (Signed 16) 11 (Signed 27)
+firDecim2P2SymPad = firDecim2P2SymPad'
+{-# OPAQUE firDecim2P2SymPad #-}
+{-# ANN firDecim2P2SymPad (topAnn "firDecim2P2SymPad") #-}
+
+firDecim2P2SymPadTB :: Signal XilinxSystem Bool
+firDecim2P2SymPadTB = validFirTB firDecim2P2SymPad $(memBlobTH (Just 0) (validSamples firDecim2P2SymPad' (validStimuli 2 43)))
+{-# ANN firDecim2P2SymPadTB (TestBench 'firDecim2P2SymPad) #-}
+
+firDecim3Sym7 :: ValidFirFun (Signed 16) 9 (Signed 18)
+firDecim3Sym7 = firDecim3Sym7'
+{-# OPAQUE firDecim3Sym7 #-}
+{-# ANN firDecim3Sym7 (topAnn "firDecim3Sym7") #-}
+
+firDecim3Sym7TB :: Signal XilinxSystem Bool
+firDecim3Sym7TB = validFirTB firDecim3Sym7 $(memBlobTH (Just 0) (validSamples firDecim3Sym7' (validStimuli 1 44)))
+{-# ANN firDecim3Sym7TB (TestBench 'firDecim3Sym7) #-}
+
+firDecim4P3SymRound :: ValidFirFun (Signed 16) 11 (Signed 16)
+firDecim4P3SymRound = firDecim4P3SymRound'
+{-# OPAQUE firDecim4P3SymRound #-}
+{-# ANN firDecim4P3SymRound (topAnn "firDecim4P3SymRound") #-}
+
+firDecim4P3SymRoundTB :: Signal XilinxSystem Bool
+firDecim4P3SymRoundTB = validFirTB firDecim4P3SymRound $(memBlobTH (Just 0) (validSamples firDecim4P3SymRound' (validStimuli 3 45)))
+{-# ANN firDecim4P3SymRoundTB (TestBench 'firDecim4P3SymRound) #-}
+
+firDecim2HalfBandSym :: ValidFirFun (Signed 16) 11 (Signed 31)
+firDecim2HalfBandSym = firDecim2HalfBandSym'
+{-# OPAQUE firDecim2HalfBandSym #-}
+{-# ANN firDecim2HalfBandSym (topAnn "firDecim2HalfBandSym") #-}
+
+firDecim2HalfBandSymTB :: Signal XilinxSystem Bool
+firDecim2HalfBandSymTB = validFirTB firDecim2HalfBandSym $(memBlobTH (Just 0) (validSamples firDecim2HalfBandSym' (validStimuli 2 46)))
+{-# ANN firDecim2HalfBandSymTB (TestBench 'firDecim2HalfBandSym) #-}
+
+firDecim5HalfBand :: ValidFirFun (Signed 16) 9 (Signed 20)
+firDecim5HalfBand = firDecim5HalfBand'
+{-# OPAQUE firDecim5HalfBand #-}
+{-# ANN firDecim5HalfBand (topAnn "firDecim5HalfBand") #-}
+
+firDecim5HalfBandTB :: Signal XilinxSystem Bool
+firDecim5HalfBandTB = validFirTB firDecim5HalfBand $(memBlobTH (Just 0) (validSamples firDecim5HalfBand' (validStimuli 1 47)))
+{-# ANN firDecim5HalfBandTB (TestBench 'firDecim5HalfBand) #-}
+
+firDecim8Wide :: ValidFirFun (Unsigned 24) 9 (Signed 30)
+firDecim8Wide = firDecim8Wide'
+{-# OPAQUE firDecim8Wide #-}
+{-# ANN firDecim8Wide (topAnn "firDecim8Wide") #-}
+
+firDecim8WideTB :: Signal XilinxSystem Bool
+firDecim8WideTB = validFirTB firDecim8Wide $(memBlobTH (Just 0) (validSamples firDecim8Wide' (validStimuli 1 48)))
+{-# ANN firDecim8WideTB (TestBench 'firDecim8Wide) #-}
+
+firDecim2P8Sym11 :: ValidFirFun (Signed 16) 11 (Signed 27)
+firDecim2P8Sym11 = firDecim2P8Sym11'
+{-# OPAQUE firDecim2P8Sym11 #-}
+{-# ANN firDecim2P8Sym11 (topAnn "firDecim2P8Sym11") #-}
+
+firDecim2P8Sym11TB :: Signal XilinxSystem Bool
+firDecim2P8Sym11TB = validFirTB firDecim2P8Sym11 $(memBlobTH (Just 0) (validSamples firDecim2P8Sym11' (validStimuli 8 49)))
+{-# ANN firDecim2P8Sym11TB (TestBench 'firDecim2P8Sym11) #-}
+
+firDecimate4 :: ValidFirFun (Signed 14) 8 (Signed 24)
+firDecimate4 = firDecimate4'
+{-# OPAQUE firDecimate4 #-}
+{-# ANN firDecimate4 (topAnn "firDecimate4") #-}
+
+firDecimate4TB :: Signal XilinxSystem Bool
+firDecimate4TB = validFirTB firDecimate4 $(memBlobTH (Just 0) (validSamples firDecimate4' (validStimuli 2 50)))
+{-# ANN firDecimate4TB (TestBench 'firDecimate4) #-}

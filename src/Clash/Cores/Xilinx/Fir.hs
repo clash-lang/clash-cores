@@ -39,6 +39,8 @@ module Clash.Cores.Xilinx.Fir
   , fir
   , firValidWith
   , firValid
+  , firDecimateWith
+  , firDecimate
     -- * Numbers
   , E.FirNumber(..)
   , E.FirOutput
@@ -51,6 +53,7 @@ module Clash.Cores.Xilinx.Fir
     -- * Latency and output width
   , E.firLatency
   , E.firValidLatency
+  , E.firDecimateLatency
   , E.fullPrecisionWidth
   ) where
 
@@ -168,3 +171,66 @@ firValid ::
   (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
 firValid p coefs = withFrozenCallStack $ hideEnable $ hideClock $ E.firValid @d p coefs
 {-# INLINE firValid #-}
+
+-- | Customizable decimating FIR filter for valid-qualified samples, at most one
+-- every @p@ clock cycles. See 'E.firDecimateWith'.
+firDecimateWith ::
+  forall d r p a c wd wc wo n dom k.
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= r
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  E.Config ->
+  -- | Decimation factor @r@
+  SNat r ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, decimated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firDecimateWith cfg r p coefs =
+  withFrozenCallStack $ hideEnable $ hideClock $ E.firDecimateWith @d cfg r p coefs
+{-# INLINE firDecimateWith #-}
+
+-- | Decimating FIR filter with full precision output. See 'E.firDecimate'.
+firDecimate ::
+  forall d r p a c wd wc wo n dom k.
+  ( HiddenClock dom
+  , HiddenEnable dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= r
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  -- | Decimation factor @r@
+  SNat r ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, decimated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firDecimate r p coefs = withFrozenCallStack $ hideEnable $ hideClock $ E.firDecimate @d r p coefs
+{-# INLINE firDecimate #-}

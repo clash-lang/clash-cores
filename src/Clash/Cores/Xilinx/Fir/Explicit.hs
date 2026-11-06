@@ -36,6 +36,9 @@ There are two kinds of filters:
   valid-qualified outputs, and the IP's @TREADY@. A longer sample period lets
   the IP use fewer DSP slices.
 
+* 'firDecimateWith' and 'firDecimate' are like 'firValidWith', but decimate by
+  an integer factor @r@: they give an output for every @r@ samples.
+
 The data and the coefficients are integers. The output is the exact sum of
 products, so for fixed point data and coefficients the output has as many
 fractional bits as the data and coefficients together, minus the bits the
@@ -66,7 +69,7 @@ rounding discards.
 
 All IP instantiated by this module has the following properties:
 
-* Single rate, single channel filter
+* Single rate or decimating, single channel filter
 * The systolic multiply-accumulate architecture
 * Non-blocking AXI4-Stream interfaces without an input FIFO, a clock enable, no
   reset input, no @TLAST@ or @TUSER@. For 'firWith', @TVALID@ on the input is
@@ -77,13 +80,13 @@ the latency of the CORDIC IP, and unlike that of the Floating-Point IP, it
 cannot be configured: it depends on the coefficients and the configuration.
 The delay must therefore equal the IP's latency. Simulation checks this, and
 fails with an error message stating the correct latency if it does not. HDL
-generation does not check it. Functions 'firLatency' and 'firValidLatency'
-compute the latency, which is also the latency Vivado reports for the IP. It
-depends on:
+generation does not check it. Functions 'firLatency', 'firValidLatency' and
+'firDecimateLatency' compute the latency, which is also the latency Vivado
+reports for the IP. It depends on:
 
 * the number of coefficients and their structure: symmetric coefficients
   halve the number of multiplications, see 'CoefficientStructure';
-* the sample period;
+* the sample period and the decimation factor;
 * the widths of the data and coefficients, if a multiplication needs several
   DSP slices, which depends on the family of the device ('dspSlice'), and on
   the width of the full precision result, if it exceeds the 48 bits of the
@@ -101,7 +104,10 @@ outputs of the first cycles, until the latency has passed, are undefined.
 
 = Not supported
 
-* Interpolation and decimation, fractional rate changes
+* Interpolation and fractional rate changes
+* Half-band decimators: the IP decimates half-band coefficients by two with a
+  dedicated half-band decimator. Simulation reports an error for those; use
+  'Symmetric' for such coefficients.
 * Hilbert transformers with the IP's two outputs: the IP gives coefficients
   that form a Hilbert transformer a second output, the delayed input. Use
   'NegativeSymmetric' for such coefficients.
@@ -124,6 +130,8 @@ module Clash.Cores.Xilinx.Fir.Explicit
   , fir
   , firValidWith
   , firValid
+  , firDecimateWith
+  , firDecimate
     -- * Numbers
   , FirNumber(..)
   , FirOutput
@@ -136,6 +144,7 @@ module Clash.Cores.Xilinx.Fir.Explicit
     -- * Latency and output width
   , firLatency
   , firValidLatency
+  , firDecimateLatency
   , fullPrecisionWidth
   ) where
 
@@ -198,6 +207,7 @@ firWith cfg coefs clk en x
   params =
     mkParams cfg (P.map toInteger (toList coefs))
       (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) (natToNum @wo) 1
+      SingleRate
 
   sim =
     withFrozenCallStack (checkParams @d params) `seq`
@@ -208,7 +218,7 @@ firWith cfg coefs clk en x
   synth = D.unsafeFromSignal (numberFromPaddedBitVector @(FirOutput a c) @wo <$> tdata)
    where
     (_tready, _tvalid, tdata) =
-      firInst @a @c @wd @wc @wo cfg 1 coefs clk en (pure True) (D.toSignal x)
+      firInst @a @c @wd @wc @wo cfg SingleRate 1 coefs clk en (pure True) (D.toSignal x)
 {-# INLINE firWith #-}
 
 -- | FIR filter with the default configuration, 'defConfig': full precision
@@ -255,7 +265,7 @@ firLatency ::
 firLatency cfg coefs =
   latency $
     mkParams cfg (P.map toInteger (toList coefs))
-      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 1
+      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 1 SingleRate
 
 -- | Customizable FIR filter for samples that arrive at most once every @p@
 -- clock cycles: the IP's /sample period/. With a longer sample period, the IP
@@ -313,14 +323,40 @@ firValidWith ::
   DSignal dom k (Maybe (a wd)) ->
   -- | Ready (@TREADY@), and the filtered data
   (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
-firValidWith cfg p@SNat coefs clk en x
+firValidWith cfg p@SNat = firRate @d cfg SingleRate (snatToNum p)
+{-# INLINE firValidWith #-}
+
+-- | Worker of 'firValidWith' and 'firDecimateWith'
+firRate ::
+  forall d a c wd wc wo n dom k.
+  ( KnownDomain dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , HasCallStack
+  ) =>
+  Config ->
+  Rate ->
+  -- | Sample period
+  Int ->
+  Vec n (c wc) ->
+  Clock dom ->
+  Enable dom ->
+  DSignal dom k (Maybe (a wd)) ->
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firRate cfg rt p coefs clk en x
   | clashSimulation = sim
   | otherwise = synth
  where
   params =
     mkParams cfg (P.map toInteger (toList coefs))
       (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) (natToNum @wo)
-      (snatToNum p)
+      p rt
 
   sim =
     withFrozenCallStack (checkParams @d params) `seq`
@@ -334,13 +370,13 @@ firValidWith cfg p@SNat coefs clk en x
     , D.unsafeFromSignal (toOutput <$> tvalid <*> tdata) )
    where
     (tready, tvalid, tdata) =
-      firInst @a @c @wd @wc @wo cfg (snatToNum p) coefs clk en
+      firInst @a @c @wd @wc @wo cfg rt (toInteger p) coefs clk en
         (isJust <$> D.toSignal x)
         (fromMaybe 0 <$> D.toSignal x)
     toOutput valid dat
       | valid = Just (numberFromPaddedBitVector @(FirOutput a c) @wo dat)
       | otherwise = Nothing
-{-# INLINE firValidWith #-}
+{-# INLINE firRate #-}
 
 -- | FIR filter for samples that arrive at most once every @p@ clock cycles,
 -- with the default configuration, 'defConfig': full precision output. See
@@ -390,6 +426,110 @@ firValidLatency cfg p@SNat coefs =
   latency $
     mkParams cfg (P.map toInteger (toList coefs))
       (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 (snatToNum p)
+      SingleRate
+
+-- | Customizable decimating FIR filter: it filters valid-qualified samples, at
+-- most one every @p@ clock cycles, and gives one output for every @r@ samples
+-- it accepts. The output is the output of the filter for the last of every
+-- group of @r@ accepted samples, counting from the first sample the IP
+-- accepts, and comes out @d@ (enabled) clock cycles after the IP accepted
+-- that sample: the IP's latency, see 'firDecimateLatency'.
+--
+-- The decimator has @r * p@ clock cycles to compute an output. A longer
+-- sample period, or a larger decimation factor, lets the IP use fewer DSP
+-- slices. Like 'firValidWith', the IP may pad symmetric coefficients with
+-- zeros at both ends to fill its multiply-add units, which delays the output
+-- by a sample per padded pair (two for a half-band filter); the simulation
+-- model does the same.
+--
+-- The IP only exploits the zeros of half-band coefficients when it decimates
+-- by two; for other decimation factors it treats them as symmetric
+-- coefficients.
+--
+-- Everything else, including the ready signal, is as for 'firValidWith'.
+firDecimateWith ::
+  forall d r p a c wd wc wo n dom k.
+  ( KnownDomain dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= r
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  Config ->
+  -- | Decimation factor @r@
+  SNat r ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, decimated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firDecimateWith cfg r@SNat p@SNat =
+  firRate @d cfg (Decimation (snatToNum r)) (snatToNum p)
+{-# INLINE firDecimateWith #-}
+
+-- | Decimating FIR filter with the default configuration, 'defConfig': full
+-- precision output. See 'firDecimateWith'.
+firDecimate ::
+  forall d r p a c wd wc wo n dom k.
+  ( KnownDomain dom
+  , FirNumber a
+  , FirNumber c
+  , FirNumber (FirOutput a c)
+  , KnownNat d
+  , KnownNat wd
+  , KnownNat wc
+  , KnownNat wo
+  , KnownNat n
+  , 2 <= r
+  , 1 <= p
+  , HasCallStack
+  ) =>
+  -- | Decimation factor @r@
+  SNat r ->
+  -- | Sample period @p@: the number of clock cycles per input sample
+  SNat p ->
+  -- | Coefficients
+  Vec n (c wc) ->
+  Clock dom ->
+  Enable dom ->
+  -- | Data
+  DSignal dom k (Maybe (a wd)) ->
+  -- | Ready (@TREADY@), and the filtered, decimated data
+  (DSignal dom k Bool, DSignal dom (k + d) (Maybe (FirOutput a c wo)))
+firDecimate = withFrozenCallStack $ firDecimateWith @d defConfig
+{-# INLINE firDecimate #-}
+
+-- | Latency of the IP for 'firDecimateWith', for a configuration, decimation
+-- factor, sample period, set of coefficients and data type @a wd@.
+--
+-- >>> import Clash.Prelude
+-- >>> firDecimateLatency @Signed @16 defConfig{dspSlice = Dsp48E1} d2 d1 (3 :> (-5) :> 7 :> 11 :> (-13) :> 100 :> 200 :> (-300) :> 17 :> Nil :: Vec 9 (Signed 16))
+-- 12
+firDecimateLatency ::
+  forall a wd c wc n r p.
+  (FirNumber a, FirNumber c, KnownNat wd, KnownNat wc) =>
+  Config ->
+  SNat r ->
+  SNat p ->
+  Vec n (c wc) ->
+  Int
+firDecimateLatency cfg r@SNat p@SNat coefs =
+  latency $
+    mkParams cfg (P.map toInteger (toList coefs))
+      (natToNum @wd) (numberIsSigned @a) (natToNum @wc) (numberIsSigned @c) 0 (snatToNum p)
+      (Decimation (snatToNum r))
 
 -- | Width of the exact output of a filter with data of type @a wd@ and the
 -- given coefficients: the data width plus @ceil (log2 (sum |c_i|))@, plus one

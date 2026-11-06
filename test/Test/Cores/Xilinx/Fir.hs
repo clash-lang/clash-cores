@@ -107,7 +107,7 @@ import qualified Clash.Signal.Delayed as D
 import Clash.Cores.Xilinx.Fir.Explicit
   (Config (..), CoefficientStructure (..), DspSlice (..), Rounding (..), FirNumber, FirOutput)
 import qualified Clash.Cores.Xilinx.Fir.Explicit as X
-import Clash.Cores.Xilinx.Fir.Internal (Structure (..), Params (..), mkParams, latency)
+import Clash.Cores.Xilinx.Fir.Internal (Rate (..), Structure (..), Params (..), mkParams, latency)
 import Data.Maybe (catMaybes)
 
 import Hedgehog (Gen, Property, (===))
@@ -347,11 +347,12 @@ offDim = 24
 offDimSize = 32
 
 -- | Byte offsets in @xip_fir_v7_2_config@
-offName, offFilterType, offCoeff, offNumCoeffs, offCoeffSets, offQuantization,
+offName, offFilterType, offDecimRate, offCoeff, offNumCoeffs, offCoeffSets, offQuantization,
   offCoeffWidth, offNumChannels, offNumPaths, offDataWidth, offRounding,
   offOutputWidth :: Int
 offName = 0
 offFilterType = 8
+offDecimRate = 20
 offCoeff = 32
 offNumCoeffs = 44
 offCoeffSets = 48
@@ -395,16 +396,22 @@ peekMpz p = do
 -- 'Nothing' if the C model cannot discard the same bits as the IP (see the
 -- module documentation).
 runCModel :: FirCModel -> TestConfig -> [Integer] -> IO (Maybe [Integer])
-runCModel model@FirCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} xs =
+runCModel model tc = runCModelRate model tc 1 0
+
+-- | Like 'runCModel', for a decimator by @r@ (or a single rate filter, for
+-- @r = 1@), and with zeros in front of the coefficients
+runCModelRate :: FirCModel -> TestConfig -> Int -> Int -> [Integer] -> IO (Maybe [Integer])
+runCModelRate model@FirCModel{loaded = LoadedCModel{lock}} tc@TestConfig{..} decimation padding xs =
   withMVar lock $ \() ->
   allocaBytes configSize $ \cfgPtr ->
   withCString "clash-cores" $ \name ->
-  withArrayLen (map fromInteger tcCoefficients :: [CDouble]) $ \nCoefs coefPtr -> do
+  withArrayLen (map fromInteger (replicate padding 0 <> tcCoefficients) :: [CDouble]) $ \nCoefs coefPtr -> do
     let
       pokeConfig rnd outputWidth = do
         checkStatus "default_config" =<< defaultConfig model cfgPtr
         pokeByteOff cfgPtr offName name
-        pokeByteOff cfgPtr offFilterType (0 :: Word32)
+        pokeByteOff cfgPtr offFilterType (if decimation > 1 then 2 else 0 :: Word32)
+        pokeByteOff cfgPtr offDecimRate (fromIntegral (max 1 decimation) :: Word32)
         pokeByteOff cfgPtr offCoeff coefPtr
         pokeByteOff cfgPtr offNumCoeffs (fromIntegral nCoefs :: Word32)
         pokeByteOff cfgPtr offCoeffSets (1 :: Word32)
@@ -488,7 +495,7 @@ data TestConfig = TestConfig
 tcParams :: TestConfig -> Params
 tcParams TestConfig{..} =
   mkParams tcConfig{rounding = tcRounding} tcCoefficients tcDataWidth tcDataSigned
-    tcCoefWidth tcCoefSigned tcOutputWidth 1
+    tcCoefWidth tcCoefSigned tcOutputWidth 1 SingleRate
 
 withNat :: Int -> (forall n. KnownNat n => Proxy n -> r) -> r
 withNat i f
@@ -580,10 +587,53 @@ runClashValid tc@TestConfig{..} p xs =
     outs = C.sampleN nCycles (D.toSignal out)
     accepted = [ x | (r, Just x) <- zip readys xs, r ]
 
+-- | Run 'X.firDecimateWith' for a configuration, decimation factor and sample
+-- period on a list of valid-qualified samples. Gives the samples the IP
+-- accepted, and the valid outputs.
+runClashDecimate :: TestConfig -> Int -> Int -> [Maybe Integer] -> ([Integer], [Integer])
+runClashDecimate tc@TestConfig{..} r p xs =
+  withNat (latency (tcParamsRate tc p (Decimation r))) $ \(Proxy :: Proxy d) ->
+  withNat r $ \(Proxy :: Proxy r) ->
+  withNat p $ \(Proxy :: Proxy p) ->
+  withNat tcDataWidth $ \(Proxy :: Proxy wd) ->
+  withNat tcCoefWidth $ \(Proxy :: Proxy wc) ->
+  withNat tcOutputWidth $ \(Proxy :: Proxy wo) ->
+  withNat (length tcCoefficients) $ \(Proxy :: Proxy n) ->
+    case (C.compareSNat (C.SNat @1) (C.SNat @p), C.compareSNat (C.SNat @2) (C.SNat @r)) of
+      (C.SNatLE, C.SNatLE) -> case (tcDataSigned, tcCoefSigned) of
+        (True, True) -> go @d @r @p @Signed @Signed @wd @wc @wo @n
+        (True, False) -> go @d @r @p @Signed @Unsigned @wd @wc @wo @n
+        (False, True) -> go @d @r @p @Unsigned @Signed @wd @wc @wo @n
+        (False, False) -> go @d @r @p @Unsigned @Unsigned @wd @wc @wo @n
+      _ -> error "runClashDecimate: bad factor or sample period"
+ where
+  go ::
+    forall d r p a c wd wc wo n.
+    ( KnownNat d, KnownNat r, 2 C.<= r, KnownNat p, 1 C.<= p, KnownNat wd, KnownNat wc, KnownNat wo, KnownNat n
+    , FirNumber a, FirNumber c, FirNumber (FirOutput a c)
+    , C.NFDataX (a wd), C.NFDataX (FirOutput a c wo) ) =>
+    ([Integer], [Integer])
+  go = (accepted, map toInteger (catMaybes outs))
+   where
+    coefs = V.unsafeFromList (map fromInteger tcCoefficients) :: Vec n (c wc)
+    nCycles = length xs + natToNum @d + 1
+    ins = map (fmap fromInteger) xs <> repeat Nothing :: [Maybe (a wd)]
+    (ready, out) =
+      X.firDecimateWith @d @r @p @a @c @wd @wc @wo tcConfig{rounding = tcRounding} C.SNat C.SNat coefs clk en
+        (D.fromSignal (C.fromList ins))
+    readys = C.sampleN nCycles (D.toSignal ready)
+    outs = C.sampleN nCycles (D.toSignal out)
+    accepted = [ x | (rd, Just x) <- zip readys xs, rd ]
+
+tcParamsRate :: TestConfig -> Int -> Rate -> Params
+tcParamsRate TestConfig{..} p rt =
+  mkParams tcConfig{rounding = tcRounding} tcCoefficients tcDataWidth tcDataSigned
+    tcCoefWidth tcCoefSigned tcOutputWidth p rt
+
 tcParamsP :: TestConfig -> Int -> Params
 tcParamsP TestConfig{..} p =
   mkParams tcConfig{rounding = tcRounding} tcCoefficients tcDataWidth tcDataSigned
-    tcCoefWidth tcCoefSigned tcOutputWidth p
+    tcCoefWidth tcCoefSigned tcOutputWidth p SingleRate
 
 -- | Wrap a C model output to the output width and signedness of the IP
 wrapOutput :: TestConfig -> Integer -> Integer
@@ -654,6 +704,36 @@ prop_cmodelValid getModel = H.withTests (nTests `div` 3) $ H.property $ do
  where
   showBatch xs = show (length xs) <> " elements"
 
+-- | 'X.firDecimateWith' with random decimation factors, sample periods and
+-- valid-qualified samples: its outputs are the outputs of the C model of the
+-- decimator for the samples it accepted, with the 'frontPadding' of the IP in
+-- front of the coefficients
+prop_cmodelDecimate :: IO FirCModel -> Property
+prop_cmodelDecimate getModel = H.withTests (nTests `div` 3) $ H.property $ do
+  model <- H.evalIO getModel
+  tc0 <- H.forAll genTestConfig
+  r <- H.forAll (Gen.frequency [(3, pure 2), (2, Gen.int (Range.constant 3 8))])
+  p <- H.forAll (Gen.frequency [(2, pure 1), (3, Gen.int (Range.constant 2 8))])
+  let
+    -- The IP has a dedicated half-band decimator, which is not supported
+    tc
+      | structure (tcParamsRate tc0 p (Decimation r)) == HalfBandStructure =
+          tc0{tcConfig = (tcConfig tc0){coefficientStructure = Symmetric}}
+      | otherwise = tc0
+    params = tcParamsRate tc p (Decimation r)
+  xs <- H.forAllWith showBatch (genSamples tc)
+  valids <- H.forAllWith showBatch (Gen.list (Range.singleton (length xs)) (Gen.frequency [(1, pure True), (p - 1, pure False)]))
+  let
+    (accepted, hOut) = runClashDecimate tc r p (zipWith (\v x -> if v then Just x else Nothing) valids xs)
+  cOut <- H.evalIO (runCModelRate model tc r (frontPadding params) accepted) >>= maybe H.discard pure
+  let expected = take (length accepted `div` r) (map (wrapOutput tc) cOut)
+  H.annotateShow (structure params, madds params, oversampling params, frontPadding params, latency params)
+  H.label (fromString ("padding " <> show (min 2 (frontPadding params))))
+  length hOut === length accepted `div` r
+  hOut === expected
+ where
+  showBatch xs = show (length xs) <> " elements"
+
 ------------------------------------------------------------------------------
 -- Generators
 ------------------------------------------------------------------------------
@@ -697,7 +777,7 @@ genTestConfig = do
   dsp <- Gen.element [Dsp48E1, Dsp48E2]
   let
     cfg0 = X.defConfig{dspSlice = dsp}
-    full = mkParams cfg0 tcCoefficients tcDataWidth tcDataSigned tcCoefWidth tcCoefSigned 0 1
+    full = mkParams cfg0 tcCoefficients tcDataWidth tcDataSigned tcCoefWidth tcCoefSigned 0 1 SingleRate
   -- The IP turns Hilbert transformers into a filter with two outputs
   structure0 <- Gen.element [Inferred, Inferred, Inferred, NonSymmetric]
   let
@@ -770,5 +850,6 @@ tests =
         testGroup "vs. C model"
           [ testPropertyNamed "firWith" (fromString "prop_cmodel") (prop_cmodel getModel)
           , testPropertyNamed "firValidWith" (fromString "prop_cmodelValid") (prop_cmodelValid getModel)
+          , testPropertyNamed "firDecimateWith" (fromString "prop_cmodelDecimate") (prop_cmodelDecimate getModel)
           ]
     ]
