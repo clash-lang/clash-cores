@@ -223,7 +223,7 @@ output pin of the design, not to a bidirectional one, so the output is a
 can't represent high impedance, so it simulates the output as undefined for
 'Nothing'. Use 'iobuf' for a pin that other devices drive too.
 
-Uses all fields of 'IoBufferConfig'. The primitive can enable the weak pull-up
+Uses all fields of t'IoBufferConfig'. The primitive can enable the weak pull-up
 resistor of the pin, but 'outbufTri' leaves that to the Quartus settings
 (@WEAK_PULL_UP_RESISTOR@).
 
@@ -261,7 +261,7 @@ pad, whether the buffer drives it or not. Sets the weak pull-up resistor of
 'PullUp' pads, see [Tristate and bidirectional
 pads]("Clash.Cores.Intel.IO#pads").
 
-Uses all fields of 'IoBufferConfig'.
+Uses all fields of t'IoBufferConfig'.
 
 Simulation: 'writeToBiSignal' and 'readFromBiSignal'. Like reading a
 'BiSignalIn', the returned level is undefined when no one drives a v'Floating'
@@ -380,7 +380,7 @@ inbufDiff cfg p n
 {- | Differential output buffer (@ALT_OUTBUF_DIFF@). Returns the positive and
 negative output: the input and its complement.
 
-Uses all fields of 'IoBufferConfig'.
+Uses all fields of t'IoBufferConfig'.
 -}
 outbufDiff ::
   forall dom.
@@ -416,7 +416,7 @@ pads have different levels, undefined otherwise.
 The pads are v'Floating': a pull resistor on a differential pair would pull
 both pads to the same level, which the receiver can't interpret.
 
-Uses all fields of 'IoBufferConfig'.
+Uses all fields of t'IoBufferConfig'.
 
 Simulation: 'writeToBiSignal' and 'readFromBiSignal'.
 -}

@@ -90,10 +90,10 @@ like the hardware does. 'altddioIn' (through 'Clash.Explicit.DDR.ddrIn#')
 applies those of the previous clock cycle, so the two differ in the clock cycle
 after a reset or a disabled clock cycle.
 
-The device family is passed as an 'SSymbol' like for 'altddioIn', but also
-needs a 'KnownSymbol' constraint (which an 'SSymbol' literal satisfies): Clash
+The device family is passed as an t'SSymbol' like for 'altddioIn', but also
+needs a 'KnownSymbol' constraint (which an t'SSymbol' literal satisfies): Clash
 can't reduce the device family to a literal parameter by pattern matching on
-the 'SSymbol'.
+the t'SSymbol'.
 -}
 altddioBidir ::
   forall deviceFamily ds a dom domDDR.
