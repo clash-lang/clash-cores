@@ -207,6 +207,11 @@ runClashTest = defaultMain $ clashTestRoot
               , hdlLoad=[Vivado]
               , hdlSim=[Vivado]
               }
+          , runTest "BitBiSignal" def
+              { hdlTargets=[VHDL, Verilog, SystemVerilog]
+              , hdlLoad=[Vivado]
+              , hdlSim=[Vivado]
+              }
           ]
         , runTest "TdpBlockRam" def
           { -- Compiling with VHDL gives:
