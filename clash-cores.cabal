@@ -185,6 +185,9 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+    Clash.Cores.Xilinx.ComplexMultiplier
+    Clash.Cores.Xilinx.ComplexMultiplier.Explicit
+    Clash.Cores.Xilinx.ComplexMultiplier.Internal
 
   other-modules:
     Clash.Core.TermLiteral.Compat

@@ -7,3 +7,4 @@
 * Add UART core
 * Add CRC core
 * Add I2C controller core, ported from the `clash-compiler` examples
+* Add `Clash.Cores.Xilinx.ComplexMultiplier`, a wrapper for Xilinx's Complex Multiplier LogiCORE IP
