@@ -193,6 +193,12 @@ runClashTest = defaultMain $ clashTestRoot
                 , "tbUncheckedShowAhead"
                 ]
             }
+        , runTest "DcFifo" intelOpts
+            { buildTargets=BuildSpecific
+                [ "tbNormalFast", "tbShowAheadSlow", "tbShowAheadSame"
+                , "tbUncheckedNormal", "tbUncheckedShowAhead"
+                ]
+            }
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"

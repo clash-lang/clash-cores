@@ -3,7 +3,8 @@
   License     :  BSD2 (see the file LICENSE)
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-FIFOs of Intel FPGAs: the single-clock FIFO @scfifo@. For more information
+FIFOs of Intel FPGAs: the single-clock FIFO @scfifo@ and the dual-clock FIFO
+@dcfifo@. For more information
 see the /FIFO Intel FPGA IP User Guide/
 (<https://www.intel.com/content/www/us/en/docs/programmable/683522/current/fifo-intel-fpga-ip-user-guide.html>).
 
@@ -20,17 +21,23 @@ module Clash.Cores.Intel.Fifo
   , ScFifoConfig (..)
   , defScFifoConfig
   , ScFifoOut (..)
+    -- * Dual-clock FIFO
+  , dcfifo
+  , DcFifoConfig (..)
+  , defDcFifoConfig
+  , DcFifoOut (..)
     -- * Configuration
   , ReadMode (..)
   ) where
 
 import Clash.Explicit.Prelude
 
-import Clash.Signal.Internal (Signal ((:-)))
+import Clash.Signal.Internal (ClockAB (..), Signal ((:-)), clockTicks)
 import Data.Maybe (isJust)
 import Data.Proxy (Proxy (..))
 import GHC.Stack (HasCallStack)
 
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Sequence as Seq
 import qualified Prelude as P
 
@@ -410,3 +417,371 @@ scfifoModel ScFifoConfig{..} rst wr rd =
     s'
       | r = resetState
       | otherwise = step s0 w rq
+
+-- | Configuration of 'dcfifo'
+data DcFifoConfig = DcFifoConfig
+  { dcReadMode :: ReadMode
+  -- ^ Read mode (@lpm_showahead@)
+  , dcOverflowChecking :: Bool
+  -- ^ Ignore write requests while 'isWriteFull' (@overflow_checking@). If
+  -- this is disabled, you must not write to a full FIFO: the simulation model
+  -- becomes undefined until the next reset if you do.
+  , dcUnderflowChecking :: Bool
+  -- ^ Ignore read requests while 'isReadEmpty' (@underflow_checking@). If
+  -- this is disabled, you must not read from an empty FIFO: the simulation
+  -- model becomes undefined until the next reset if you do.
+  , dcReadSyncStages :: Natural
+  -- ^ Number of synchronizer registers, at least 1, in the read domain for
+  -- the write pointer (@rdsync_delaypipe@ minus 2). Use at least 2 for clocks
+  -- that aren't related.
+  , dcWriteSyncStages :: Natural
+  -- ^ Number of synchronizer registers, at least 1, in the write domain for
+  -- the read pointer (@wrsync_delaypipe@ minus 2). Use at least 2 for clocks
+  -- that aren't related.
+  }
+  deriving (Show, Eq, Generic, NFDataX)
+
+-- | Default configuration of 'dcfifo': normal read mode, overflow and
+-- underflow checking, and two synchronizer registers in both directions,
+-- like Intel's default for unrelated clocks.
+defDcFifoConfig :: DcFifoConfig
+defDcFifoConfig =
+  DcFifoConfig
+    { dcReadMode = Normal
+    , dcOverflowChecking = True
+    , dcUnderflowChecking = True
+    , dcReadSyncStages = 2
+    , dcWriteSyncStages = 2
+    }
+
+-- | Outputs of 'dcfifo'
+data DcFifoOut write read depth a = DcFifoOut
+  { readData :: Signal read a
+  -- ^ Read data (@q@)
+  , isReadEmpty :: Signal read Bool
+  -- ^ There is no word to read (@rdempty@)
+  , isReadFull :: Signal read Bool
+  -- ^ The FIFO is full, as seen from the read domain (@rdfull@)
+  , readUsedWords :: Signal read (Unsigned depth)
+  -- ^ Number of words in the FIFO, as seen from the read domain (@rdusedw@).
+  -- It wraps to 0 when the FIFO is full.
+  , isWriteFull :: Signal write Bool
+  -- ^ The FIFO is full (@wrfull@)
+  , isWriteEmpty :: Signal write Bool
+  -- ^ The FIFO is empty, as seen from the write domain (@wrempty@)
+  , writeUsedWords :: Signal write (Unsigned depth)
+  -- ^ Number of words in the FIFO, as seen from the write domain
+  -- (@wrusedw@). It wraps to 0 when the FIFO is full.
+  }
+
+{- | Dual-clock FIFO (@dcfifo@) holding @2^depth@ words of type @a@, mapped to
+block RAM.
+
+The write side keeps a write pointer, the read side a read pointer, and each
+side sees the pointer of the other side through a synchronizer. The flags and
+counts of a side are derived from its own pointer and the synchronized pointer
+of the other side, so they are pessimistic: the write side sees reads late,
+and the read side sees writes late.
+
+__Writing__: a write request (@'Just' a@) is accepted when the FIFO isn't
+'isWriteFull' (or always, if 'dcOverflowChecking' is disabled).
+'isWriteFull' and 'isWriteEmpty' follow accepted writes in the next write
+cycle, 'writeUsedWords' a cycle later.
+
+__Reading__: a read request ('True') is accepted when the FIFO isn't
+'isReadEmpty' (or always, if 'dcUnderflowChecking' is disabled). In 'Normal'
+mode, the word appears on 'readData' in the read cycle after the request, and
+stays there until the next accepted read. In 'ShowAhead' mode, 'readData'
+shows the word at the head of the FIFO while it isn't 'isReadEmpty', and is
+undefined while it is. 'isReadEmpty' and 'isReadFull' follow accepted reads in
+the next read cycle, 'readUsedWords' a cycle later.
+
+__Crossing__: a write reaches the read side one write cycle plus
+'dcReadSyncStages' read cycles later; a read reaches the write side after
+'dcWriteSyncStages' write cycles.
+
+__Reset__: the reset (@aclr@) is asynchronous, and empties the FIFO on both
+sides at once. Although it is a reset of the write domain, it also applies to
+the read side. Intel recommends asserting it for at least a few cycles of both
+clocks. In 'Normal' mode, 'readData' resets to 0.
+
+Not supported: @add_usedw_msb_bit@, @read_aclr_synch@, @write_aclr_synch@,
+@delay_rdusedw@ and @delay_wrusedw@ (fixed to 1).
+
+The simulation model matches Intel's simulation model (@altera_mf@) cycle by
+cycle, for all device families Quartus Prime Lite supports.
+-}
+dcfifo ::
+  forall depth a write read deviceFamily.
+  ( HasCallStack
+  , KnownDomain write
+  , KnownDomain read
+  , HasAsynchronousReset write
+  , KnownNat depth
+  , 2 <= depth
+  , BitPack a
+  , NFDataX a
+  , KnownSymbol deviceFamily
+  ) =>
+  -- | The FPGA family (@intended_device_family@), for example
+  -- @SSymbol \@\"Cyclone V\"@
+  SSymbol deviceFamily ->
+  DcFifoConfig ->
+  -- | Two-logarithm of the number of words (@lpm_widthu@)
+  SNat depth ->
+  -- | Write clock (@wrclk@)
+  Clock write ->
+  -- | Asynchronous reset (@aclr@)
+  Reset write ->
+  -- | Read clock (@rdclk@)
+  Clock read ->
+  -- | Write request: @wrreq@ and @data@
+  Signal write (Maybe a) ->
+  -- | Read request: @rdreq@
+  Signal read Bool ->
+  DcFifoOut write read depth a
+dcfifo _devFam cfg@DcFifoConfig{..} SNat wClk rst rClk wr rd
+  | clashSimulation = dcfifoModel @depth cfg wClk rst rClk wr rd
+  | otherwise =
+      DcFifoOut
+        { readData = unpack <$> unPort q
+        , isReadEmpty = bitToBool <$> unPort rdempty
+        , isReadFull = bitToBool <$> unPort rdfull
+        , readUsedWords = unpack <$> unPort rdusedw
+        , isWriteFull = bitToBool <$> unPort wrfull
+        , isWriteEmpty = bitToBool <$> unPort wrempty
+        , writeUsedWords = unpack <$> unPort wrusedw
+        }
+ where
+  onOff b = if b then "ON" else "OFF"
+
+  (q, rdempty, rdfull, rdusedw, wrfull, wrempty, wrusedw) = ports
+  ports ::
+    ( Port "q" read (BitVector (BitSize a))
+    , Port "rdempty" read Bit
+    , Port "rdfull" read Bit
+    , Port "rdusedw" read (BitVector depth)
+    , Port "wrfull" write Bit
+    , Port "wrempty" write Bit
+    , Port "wrusedw" write (BitVector depth)
+    )
+  ports =
+    inst
+      (alteraMf "dcfifo")
+      (Param @"lpm_width" @Integer (natToNum @(BitSize a)))
+      (Param @"lpm_widthu" @Integer (natToNum @depth))
+      (Param @"lpm_numwords" @Integer (natToNum @(2 ^ depth)))
+      (Param @"lpm_showahead" @String (if dcReadMode == ShowAhead then "ON" else "OFF"))
+      (Param @"lpm_type" @String "dcfifo")
+      (Param @"intended_device_family" @String (symbolVal (Proxy @deviceFamily)))
+      (Param @"underflow_checking" @String (onOff dcUnderflowChecking))
+      (Param @"overflow_checking" @String (onOff dcOverflowChecking))
+      (Param @"rdsync_delaypipe" @Integer (toInteger dcReadSyncStages + 2))
+      (Param @"wrsync_delaypipe" @Integer (toInteger dcWriteSyncStages + 2))
+      (Param @"clocks_are_synchronized" @String "FALSE")
+      (Param @"use_eab" @String "ON")
+      (Param @"add_usedw_msb_bit" @String "OFF")
+      (Param @"read_aclr_synch" @String "OFF")
+      (Param @"write_aclr_synch" @String "OFF")
+      (Param @"delay_rdusedw" @Integer 1)
+      (Param @"delay_wrusedw" @Integer 1)
+      (ClockPort @"wrclk" wClk)
+      (ClockPort @"rdclk" rClk)
+      (ResetPort @"aclr" @'ActiveHigh rst)
+      (Port @"data" (pack . fromJustX <$> wr))
+      (Port @"wrreq" (boolToBit . isJust <$> wr))
+      (Port @"rdreq" (boolToBit <$> rd))
+
+-- | State of the simulation model of 'dcfifo'
+data DcFifoState a = DcFifoState
+  { dMem :: IntMap.IntMap a
+  -- ^ The RAM, indexed by pointer. It keeps its contents on a reset.
+  , dWrPtr :: Int
+  , dDelayedWrPtr :: Int
+  -- ^ The write pointer, delayed by a write cycle. This is what the read side
+  -- synchronizes.
+  , dWrSync :: [Int]
+  -- ^ Synchronizer for the read pointer in the write domain, first register
+  -- first
+  , dWrUsed :: Int
+  -- ^ Register for @wrusedw@
+  , dRdPtr :: Int
+  , dRdSync :: [Int]
+  -- ^ Synchronizer for the (delayed) write pointer in the read domain, first
+  -- register first
+  , dRdUsed :: Int
+  -- ^ Register for @rdusedw@
+  , dQ :: a
+  -- ^ Output register in normal mode
+  , dBroken :: Bool
+  -- ^ An overflow or underflow happened without checking
+  }
+
+{- | Simulation model of 'dcfifo'. It walks through the active edges of both
+clocks in the order in which they happen. Edges that coincide see each other's
+state from before the edges, like registers do.
+-}
+dcfifoModel ::
+  forall depth a write read.
+  ( KnownDomain write
+  , KnownDomain read
+  , KnownNat depth
+  , BitPack a
+  , NFDataX a
+  ) =>
+  DcFifoConfig ->
+  Clock write ->
+  Reset write ->
+  Clock read ->
+  Signal write (Maybe a) ->
+  Signal read Bool ->
+  DcFifoOut write read depth a
+dcfifoModel DcFifoConfig{..} wClk rst rClk wr rd =
+  DcFifoOut
+    { readData = (\(q, _, _, _) -> q) <$> rOuts
+    , isReadEmpty = (\(_, e, _, _) -> e) <$> rOuts
+    , isReadFull = (\(_, _, f, _) -> f) <$> rOuts
+    , readUsedWords = (\(_, _, _, u) -> u) <$> rOuts
+    , isWriteFull = (\(f, _, _) -> f) <$> wOuts
+    , isWriteEmpty = (\(_, e, _) -> e) <$> wOuts
+    , writeUsedWords = (\(_, _, u) -> u) <$> wOuts
+    }
+ where
+  -- The pointers count modulo the number of words plus one, so that a full
+  -- FIFO can be told apart from an empty one
+  cnt = natToNum @(2 ^ depth) + 1 :: Int
+  rdStages = P.max 1 (fromIntegral dcReadSyncStages) :: Int
+  wrStages = P.max 1 (fromIntegral dcWriteSyncStages) :: Int
+  inc p = (p + 1) `mod` cnt
+
+  resetState :: IntMap.IntMap a -> DcFifoState a
+  resetState mem =
+    DcFifoState
+      { dMem = mem
+      , dWrPtr = 0
+      , dDelayedWrPtr = 0
+      , dWrSync = P.replicate wrStages 0
+      , dWrUsed = 0
+      , dRdPtr = 0
+      , dRdSync = P.replicate rdStages 0
+      , dRdUsed = 0
+      , dQ = unpack 0
+      , dBroken = False
+      }
+
+  -- Before the first write, the RAM holds zeroes in Intel's simulation model.
+  -- The model leaves it undefined.
+  readMem :: IntMap.IntMap a -> Int -> a
+  readMem mem p = IntMap.findWithDefault (deepErrorX "dcfifo: uninitialized word") p mem
+
+  broken :: String
+  broken = "dcfifo: overflow or underflow"
+
+  wOutputs :: DcFifoState a -> (Bool, Bool, Unsigned depth)
+  wOutputs DcFifoState{..}
+    | dBroken = (errorX broken, errorX broken, errorX broken)
+    | otherwise =
+        ( inc dWrPtr == P.last dWrSync
+        , dWrPtr == P.last dWrSync
+        , fromIntegral dWrUsed )
+
+  rOutputs :: DcFifoState a -> (a, Bool, Bool, Unsigned depth)
+  rOutputs DcFifoState{..}
+    | dBroken = (deepErrorX broken, errorX broken, errorX broken, errorX broken)
+    | otherwise =
+        ( case dcReadMode of
+            Normal -> dQ
+            ShowAhead
+              | empty_ -> deepErrorX "dcfifo: empty"
+              | otherwise -> readMem dMem dRdPtr
+        , empty_
+        , dRdPtr == inc (P.last dRdSync)
+        , fromIntegral dRdUsed )
+   where
+    empty_ = dRdPtr == P.last dRdSync
+
+  -- An active edge of the write clock, given the state before the edge(s)
+  -- happening at this time
+  wEdge :: DcFifoState a -> Maybe a -> DcFifoState a
+  wEdge s@DcFifoState{..} w =
+    s
+      { dMem = case w of
+          Just a | valid -> IntMap.insert dWrPtr a dMem
+          _ -> dMem
+      , dWrPtr = if valid then inc dWrPtr else dWrPtr
+      , dDelayedWrPtr = dWrPtr
+      , dWrSync = dRdPtr : P.init dWrSync
+      , dWrUsed = (dWrPtr - P.last dWrSync) `mod` cnt
+      , dBroken = dBroken || overflow
+      }
+   where
+    full = inc dWrPtr == P.last dWrSync
+    overflow = isJust w && full && not dcOverflowChecking
+    valid = isJust w && not full
+
+  -- An active edge of the read clock, given the state before the edge(s)
+  -- happening at this time
+  rEdge :: DcFifoState a -> Bool -> DcFifoState a
+  rEdge s@DcFifoState{..} r =
+    s
+      { dRdPtr = if valid then inc dRdPtr else dRdPtr
+      , dRdSync = dDelayedWrPtr : P.init dRdSync
+      , dRdUsed = (P.last dRdSync - dRdPtr) `mod` cnt
+      , dQ = if valid then readMem dMem dRdPtr else dQ
+      , dBroken = dBroken || underflow
+      }
+   where
+    empty_ = dRdPtr == P.last dRdSync
+    underflow = r && empty_ && not dcUnderflowChecking
+    valid = r && not empty_
+
+  -- Both clocks have an active edge at the same time
+  bothEdges :: DcFifoState a -> Maybe a -> Bool -> DcFifoState a
+  bothEdges s w r =
+    sW
+      { dRdPtr = dRdPtr sR
+      , dRdSync = dRdSync sR
+      , dRdUsed = dRdUsed sR
+      , dQ = dQ sR
+      , dBroken = dBroken sW || dBroken sR
+      }
+   where
+    sW = wEdge s w
+    sR = rEdge s r
+
+  -- Apply the asynchronous reset if it is asserted
+  withReset :: Bool -> DcFifoState a -> DcFifoState a
+  withReset r s = if r then resetState (dMem s) else s
+
+  (wOuts, rOuts) = case unsafeToActiveHigh rst of
+    r0 :- rs -> go (clockTicks wClk rClk) (withReset r0 (resetState IntMap.empty)) r0 rs wr rd
+
+  -- The reset is a signal of the write domain: reset sample /j/ is present
+  -- from write edge /j-1/ up to and including write edge /j/. While it is
+  -- asserted, edges don't change the state.
+  go ::
+    [ClockAB] ->
+    DcFifoState a ->
+    -- Reset present now
+    Bool ->
+    -- Upcoming reset samples
+    Signal write Bool ->
+    Signal write (Maybe a) ->
+    Signal read Bool ->
+    ( Signal write (Bool, Bool, Unsigned depth)
+    , Signal read (a, Bool, Bool, Unsigned depth) )
+  go [] _ _ _ _ _ = error "dcfifo: clockTicks should be infinite"
+  go (tick : ticks) s rNow rsNext@(~(rNext :- rsNext1)) ws@(~(w :- ws1)) rds@(~(r :- rds1)) =
+    case tick of
+      ClockA -> (wOutputs s :- wRest, rRest)
+       where
+        s' = withReset rNext (if rNow then s else wEdge s w)
+        (wRest, rRest) = go ticks s' rNext rsNext1 ws1 rds
+      ClockB -> (wRest, rOutputs s :- rRest)
+       where
+        s' = if rNow then s else rEdge s r
+        (wRest, rRest) = go ticks s' rNow rsNext ws rds1
+      ClockAB -> (wOutputs s :- wRest, rOutputs s :- rRest)
+       where
+        s' = withReset rNext (if rNow then s else bothEdges s w r)
+        (wRest, rRest) = go ticks s' rNext rsNext1 ws1 rds1

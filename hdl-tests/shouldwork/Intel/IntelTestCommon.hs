@@ -243,3 +243,100 @@ tb circuit (stimBlob, expectedBlob, maskBlob) = withIntelSim done
       ((.&.) <$> expectedVal <*> mask)
       ((== maxBound) <$> cnt)
 {-# INLINE tb #-}
+
+-- * Test benches with two domains
+
+-- | A circuit with inputs and outputs in two domains
+type Circuit2 a b ia ib oa ob =
+  Clock a -> Clock b -> Signal a ia -> Signal b ib -> (Signal a oa, Signal b ob)
+
+-- | Like 'expected', for a 'Circuit2'
+expected2 ::
+  forall a b ia ib oa ob.
+  ( KnownDomain a, KnownDomain b, BitPack oa, BitPack ob
+  , NFDataX ia, NFDataX ib ) =>
+  Circuit2 a b ia ib oa ob ->
+  [ia] ->
+  [ib] ->
+  ( [(BitVector (BitSize oa), BitVector (BitSize oa))]
+  , [(BitVector (BitSize ob), BitVector (BitSize ob))] )
+expected2 circuit isA isB =
+  ( P.map withMask (sampleN_lazy (P.length isA) oA)
+  , P.map withMask (sampleN_lazy (P.length isB) oB) )
+ where
+  -- The test bench repeats the last stimulus of a domain until the other
+  -- domain is done as well
+  (oA, oB) = circuit clockGen clockGen (fromList (padded isA)) (fromList (padded isB))
+  padded xs = xs <> P.repeat (P.last xs)
+
+-- | Like 'blobs', for a 'Circuit2'
+blobs2 ::
+  forall a b ia ib oa ob.
+  ( KnownDomain a, KnownDomain b
+  , BitPack ia, BitPack ib, BitPack oa, BitPack ob
+  , NFDataX ia, NFDataX ib ) =>
+  Circuit2 a b ia ib oa ob ->
+  [ia] ->
+  [ib] ->
+  ExpQ
+blobs2 circuit isA isB =
+  tupE
+    [ memBlobTH Nothing (P.map definedBits isA)
+    , memBlobTH Nothing (P.map fst esA)
+    , memBlobTH Nothing (P.map snd esA)
+    , memBlobTH Nothing (P.map definedBits isB)
+    , memBlobTH Nothing (P.map fst esB)
+    , memBlobTH Nothing (P.map snd esB)
+    ]
+ where
+  (esA, esB) = expected2 circuit isA isB
+
+{- | Like 'tb', for a 'Circuit2'. Both clocks keep running until both domains
+have played all their stimuli, after which the last stimulus of a domain is
+repeated (and its last expected value checked), so the stimuli should end
+with enough idle cycles.
+-}
+tb2 ::
+  forall a b nA nB ia ib oa ob.
+  ( KnownDomain a, KnownDomain b
+  , KnownNat nA, 1 <= nA, KnownNat nB, 1 <= nB
+  , BitPack ia, BitPack ib, BitPack oa, BitPack ob ) =>
+  Circuit2 a b ia ib oa ob ->
+  ( MemBlob nA (BitSize ia)
+  , MemBlob nA (BitSize oa)
+  , MemBlob nA (BitSize oa)
+  , MemBlob nB (BitSize ib)
+  , MemBlob nB (BitSize ob)
+  , MemBlob nB (BitSize ob) ) ->
+  Signal a Bool
+tb2 circuit (stimA, expA, maskA, stimB, expB, maskB) = withIntelSim done
+ where
+  clkA = tbClockGen (not <$> done)
+  clkB = tbClockGen (not <$> unsafeSynchronizer clkA clkB done)
+
+  cntA :: Signal a (Index nA)
+  cntA = register clkA noReset enableGen 0 (satSucc SatBound <$> cntA)
+  cntB :: Signal b (Index nB)
+  cntB = register clkB noReset enableGen 0 (satSucc SatBound <$> cntB)
+
+  (oA, oB) =
+    circuit clkA clkB
+      (unpack . asyncRomBlob stimA <$> cntA)
+      (unpack . asyncRomBlob stimB <$> cntB)
+
+  mA = asyncRomBlob maskA <$> cntA
+  mB = asyncRomBlob maskB <$> cntB
+
+  doneA =
+    assert clkA noReset "outputs (domain A)"
+      ((.&.) <$> (pack <$> oA) <*> mA)
+      ((.&.) <$> (asyncRomBlob expA <$> cntA) <*> mA)
+      ((== maxBound) <$> cntA)
+  doneB =
+    assert clkB noReset "outputs (domain B)"
+      ((.&.) <$> (pack <$> oB) <*> mB)
+      ((.&.) <$> (asyncRomBlob expB <$> cntB) <*> mB)
+      ((== maxBound) <$> cntB)
+
+  done = (&&) <$> doneA <*> unsafeSynchronizer clkB clkA doneB
+{-# INLINE tb2 #-}
