@@ -177,6 +177,7 @@ library
     Clash.Cores.Xilinx.Xpm.Cdc.Pulse
     Clash.Cores.Xilinx.Xpm.Cdc.Single
     Clash.Cores.Xilinx.Xpm.Cdc.SyncRst
+    Clash.Cores.Intel.Internal
 
   other-modules:
     Clash.Core.TermLiteral.Compat
@@ -201,6 +202,11 @@ library
     reducers                >= 3.12.2 && < 4.0,
     text                    >= 1.2.2 && < 2.2,
     unordered-containers,
+    directory,
+    filepath,
+    process,
+    temporary,
+    bytestring,
 
 test-suite unit-tests
   import: basic-config

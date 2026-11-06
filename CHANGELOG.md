@@ -14,3 +14,4 @@
 * Add support for differential clock outputs (`DiffClockPort` and `NamedDiffClockPort`) to `inst` ([#33](https://github.com/clash-lang/clash-cores/issues/33))
 * Add `BitVectorParam` to `inst`, for parameters that are a `bit_vector` in VHDL, such as the `INIT` generic of `LUT6` ([#81](https://github.com/clash-lang/clash-cores/issues/81))
 * Add `BoolStringParam` to `inst`, for boolean parameters that are a `boolean` in VHDL but a `"TRUE"`/`"FALSE"` string in Verilog, such as the `IBUF_LOW_PWR` parameter of `IBUF` ([#82](https://github.com/clash-lang/clash-cores/issues/82))
+* Add `Clash.Cores.Intel.Internal.instWithIntelIp`, the Intel counterpart of `instWithXilinxWizard`: it instantiates Intel IP and writes a Platform Designer system (`.qsys` file) that generates it. If `CLASH_INTEL_SIM_FAMILY` is set, Clash also runs `qsys-generate` and adds the IP's simulation model to its output.
