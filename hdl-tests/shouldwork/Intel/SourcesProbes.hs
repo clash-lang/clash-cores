@@ -32,7 +32,10 @@ sourcesProbesTB = simLibraries <$> done
   sources1 = sourcesProbes "" high clk cnt
   sources2 :: Signal System (Vec 2 (Signed 9))
   sources2 = sourcesProbes "" (-1 :> 100 :> Nil) clk (pure ())
+  -- Probes computed from the sources
+  sources3 :: Signal System (Unsigned 4)
+  sources3 = sourcesProbes "FB" 7 clk ((+ 1) <$> sources3)
   -- Make sure Clash doesn't remove the instances
   done0 = register clk noReset enableGen False ((== maxBound) <$> cnt)
-  done = (sources0, sources1, sources2) `hwSeqX` done0
+  done = (sources0, sources1, sources2, sources3) `hwSeqX` done0
 {-# ANN sourcesProbesTB (Synthesize "sourcesProbesTB" [] (PortName "done")) #-}

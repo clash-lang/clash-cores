@@ -127,7 +127,9 @@ sourcesProbes# ::
   Clock dom ->
   Signal dom i ->
   Signal dom o
-sourcesProbes# !_instanceId initial !_clk !_probes = pure initial
+-- Note that the primitive must not be strict in its inputs: the probes can be
+-- computed from the sources.
+sourcesProbes# _instanceId initial _clk _probes = pure initial
 {-# OPAQUE sourcesProbes# #-}
 {-# ANN sourcesProbes# (
   let

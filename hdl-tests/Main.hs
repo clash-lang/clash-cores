@@ -420,6 +420,24 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
             , hdlSim=[Vivado, IVerilog]
             , buildTargets=BuildSpecific ["sourcesProbesTB"]
             }
+          -- The simulation models of Virtual JTAG simulate a JTAG host. The
+          -- Verilog model prints a message at the start of the simulation,
+          -- which makes the test harness fail a simulation with Icarus.
+        , runTest "VirtualJtag" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado, IVerilog]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "virtualJtag4TB", "virtualJtag1TB", "virtualJtag7TB"
+                , "virtualJtag24TB" ]
+            }
+          -- Intel's VHDL model can't be elaborated without scans
+        , runTest "VirtualJtagNoScans" def
+            { hdlTargets=[Verilog]
+            , hdlLoad=[Vivado, IVerilog]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific ["virtualJtagNoScansTB"]
+            }
         ]
       ] -- end shouldwork
     ]
