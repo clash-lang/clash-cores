@@ -411,6 +411,15 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
             , hdlSim=[Vivado, IVerilog]
             , buildTargets=BuildSpecific ["divideUnsignedTB", "divideSignedTB", "sqrtTB"]
             }
+          -- The simulation models of In-System Sources and Probes don't
+          -- simulate anything: this only checks that simulators elaborate the
+          -- instances with Intel's models.
+        , runTest "SourcesProbes" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado, IVerilog]
+            , hdlSim=[Vivado, IVerilog]
+            , buildTargets=BuildSpecific ["sourcesProbesTB"]
+            }
         ]
       ] -- end shouldwork
     ]

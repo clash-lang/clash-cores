@@ -183,6 +183,8 @@ library
     Clash.Cores.Intel.Floating.Internal
     Clash.Cores.Intel.Divide
     Clash.Cores.Intel.Sqrt
+    Clash.Cores.Intel.Debug
+    Clash.Cores.Intel.Debug.SourcesProbes
 
   other-modules:
     Clash.Core.TermLiteral.Compat
