@@ -64,8 +64,8 @@ dutDpRom fam mixed cfgA cfgB clkA clkB stimA stimB =
     clkB (toEnable (fst <$> stimB)) (fst . snd <$> stimB)
 
 -- | A simple dual-port RAM with two clocks, writing with the operation of port
--- A and reading the address of port B. Port A has no output: it returns a
--- constant.
+-- A and reading the address of port B, unless port B's operation is a write.
+-- Port A has no output: it returns a constant.
 dutSdp ::
   (KnownSymbol fam, KnownDomain b) =>
   SSymbol fam ->
@@ -76,9 +76,10 @@ dutSdp fam cfg cfgB clkA clkB stimA stimB =
   ( pure 0
   , altsyncramSimpleDualPortDualClock fam cfg cfgB
       clkA (toEnable (fst <$> stimA)) (toWrite . snd <$> stimA)
-      clkB (toEnable (fst <$> stimB)) (fst . snd <$> stimB) )
+      clkB (toEnable (fst <$> stimB)) (toRead . snd <$> stimB) )
  where
   toWrite (a, w) = (\(be, d) -> (a, be, d)) <$> w
+  toRead (a, w) = maybe (Just a) (const Nothing) w
 
 -- | A true dual-port RAM with two clocks
 dutTdp ::

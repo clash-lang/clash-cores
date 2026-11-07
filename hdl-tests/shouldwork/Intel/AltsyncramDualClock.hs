@@ -50,21 +50,21 @@ tbSdpCycloneV :: Signal System Bool
 tbSdpCycloneV =
   tb2 (dutSdp @_ @B7 (SSymbol @"Cyclone V") withInit (PortConfig False NewData))
     $(uncurry (blobs2 (dutSdp @_ @B7 (SSymbol @"Cyclone V") withInit (PortConfig False NewData)))
-        (genStimuli True False 7 5))
+        (genStimuli True True 7 5))
 {-# ANN tbSdpCycloneV (TestBench 'topEntity) #-}
 
 tbSdpCycloneIVReg :: Signal System Bool
 tbSdpCycloneIVReg =
   tb2 (dutSdp @_ @B25 (SSymbol @"Cyclone IV E") oldMixed (PortConfig True NewData))
     $(uncurry (blobs2 (dutSdp @_ @B25 (SSymbol @"Cyclone IV E") oldMixed (PortConfig True NewData)))
-        (genStimuli True False 25 6))
+        (genStimuli True True 25 6))
 {-# ANN tbSdpCycloneIVReg (TestBench 'topEntity) #-}
 
 tbSdpMax10Same :: Signal System Bool
 tbSdpMax10Same =
   tb2 (dutSdp @_ @System (SSymbol @"MAX 10") oldMixed (PortConfig False NewData))
     $(uncurry (blobs2 (dutSdp @_ @System (SSymbol @"MAX 10") oldMixed (PortConfig False NewData)))
-        (genStimuli True False 10 7))
+        (genStimuli True True 10 7))
 {-# ANN tbSdpMax10Same (TestBench 'topEntity) #-}
 
 tbTdpCycloneV :: Signal System Bool

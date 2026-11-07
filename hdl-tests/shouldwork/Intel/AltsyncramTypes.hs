@@ -62,7 +62,7 @@ dutSp fam cfg cfgA clk stim = altsyncramSinglePort fam cfg cfgA clk (toEnable en
   (addr, wr) = unbundle opA
 
 -- | A simple dual-port RAM, writing with the operation of port A and reading
--- the address of port B
+-- the address of port B, unless port B's operation is a write
 dutSdp ::
   (KnownSymbol fam) =>
   SSymbol fam ->
@@ -72,10 +72,11 @@ dutSdp ::
   Signal System Stimuli ->
   Signal System Dat
 dutSdp fam cfg cfgB clk stim =
-  altsyncramSimpleDualPort fam cfg cfgB clk (toEnable en) (toWrite <$> opA) (fst <$> opB)
+  altsyncramSimpleDualPort fam cfg cfgB clk (toEnable en) (toWrite <$> opA) (toRead <$> opB)
  where
   (en, opA, opB) = unbundle stim
   toWrite (a, w) = (\(be, d) -> (a, be, d)) <$> w
+  toRead (a, w) = maybe (Just a) (const Nothing) w
 
 -- | A true dual-port RAM
 dutTdp ::

@@ -21,7 +21,8 @@ to write whole words. Which byte widths a device supports depends on its
 memory blocks; 8 and 9 are supported by all of them.
 
 A port reads the word at its address in every enabled clock cycle, whether it
-writes or not. The read data appears on the output in the next clock cycle, or
+writes or not, except for the read port of a simple dual-port RAM, which only
+reads when its address is a 'Just' (@rden_b@). The read data appears on the output in the next clock cycle, or
 a cycle later with an output register. While the enable is deasserted, the
 memory doesn't read or write, and its outputs keep their values.
 
@@ -67,8 +68,9 @@ in the Quartus settings file.
 
 The ports of a RAM or ROM either share a clock and clock enable (@clock0@,
 @clocken0@), or each have their own (@clock0@, @clocken0@ and @clock1@,
-@clocken1@). Separate input and output clocks or clock enables, read enables
-(@rden_a@, @rden_b@), address stalls, clearing the output registers (@aclr0@,
+@clocken1@). The read port of a simple dual-port RAM has a read enable
+(@rden_b@). Separate input and output clocks or clock enables, other read
+enables (@rden_a@), address stalls, clearing the output registers (@aclr0@,
 @aclr1@), ECC and ports of different widths are not supported. Neither is the
 error correction code megafunction @altecc@: Quartus ships no simulation model
 of it.
@@ -274,7 +276,7 @@ altsyncramSinglePort _ cfg cfgA clk en addr wr
         <$> bundle
           ( model @n @(BitSize a) @nBytes cfg cfgA defPortConfig clk en
               (bundle (addr, fmap (fmap pack) <$> wr))
-              (pure (0, Nothing)) )
+              (pure (0, Nothing)) (pure True) )
   | otherwise = unpack <$> unPort qA
  where
   qA :: Port "q_a" dom (BitVector (BitSize a))
@@ -338,8 +340,9 @@ altsyncramSimpleDualPort ::
   -- | Write: address (@address_a@), byte enable (@byteena_a@) and data
   -- (@data_a@), or 'Nothing' (@wren_a@)
   Signal dom (Maybe (Index n, BitVector nBytes, a)) ->
-  -- | Read address (@address_b@)
-  Signal dom (Index n) ->
+  -- | Read address (@address_b@), or 'Nothing' to not read (@rden_b@): then
+  -- the read data keeps its value
+  Signal dom (Maybe (Index n)) ->
   -- | Read data (@q_b@)
   Signal dom a
 altsyncramSimpleDualPort _ cfg cfgB clk en wr rdAddr
@@ -350,7 +353,7 @@ altsyncramSimpleDualPort _ cfg cfgB clk en wr rdAddr
               ((\w -> case w of
                   Just (a, be, d) -> (a, Just (be, pack d))
                   Nothing -> (0, Nothing)) <$> wr)
-              ((\a -> (a, Nothing)) <$> rdAddr) )
+              ((\a -> (fromMaybe 0 a, Nothing)) <$> rdAddr) (isJust <$> rdAddr) )
   | otherwise = unpack <$> unPort qB
  where
   qB :: Port "q_b" dom (BitVector (BitSize a))
@@ -367,6 +370,7 @@ altsyncramSimpleDualPort _ cfg cfgB clk en wr rdAddr
       (Param @"widthad_b" @Integer (natToNum @(CLog 2 n)))
       (Param @"numwords_b" @Integer (natToNum @n))
       (Param @"address_reg_b" @String "CLOCK0")
+      (Param @"rdcontrol_reg_b" @String "CLOCK0")
       (Param @"outdata_reg_b" @String (outdataRegParam cfgB))
       (Param @"outdata_aclr_b" @String "NONE")
       (Param @"address_aclr_b" @String "NONE")
@@ -385,7 +389,8 @@ altsyncramSimpleDualPort _ cfg cfgB clk en wr rdAddr
       (Port @"wren_a" (boolToBit . isJust <$> wr))
       (Port @"byteena_a" (maybe 0 (\(_, be, _) -> be) <$> wr))
       (Port @"data_a" (pack . (\(_, _, d) -> d) . fromJustX <$> wr))
-      (Port @"address_b" (pack <$> rdAddr))
+      (Port @"address_b" (pack . fromMaybe 0 <$> rdAddr))
+      (Port @"rden_b" (boolToBit . isJust <$> rdAddr))
 
 {- | True dual-port RAM (@altsyncram@ with @operation_mode =
 \"BIDIR_DUAL_PORT\"@) holding @n@ words of type @a@, with two ports that read
@@ -432,7 +437,7 @@ altsyncramTrueDualPort _ cfg cfgA cfgB clk en portA portB
         (oA, oB) =
           model @n @(BitSize a) @nBytes cfg cfgA cfgB clk en
             (fmap (fmap (fmap pack)) <$> portA)
-            (fmap (fmap (fmap pack)) <$> portB)
+            (fmap (fmap (fmap pack)) <$> portB) (pure True)
       in (unpack <$> oA, unpack <$> oB)
   | otherwise = (unpack <$> unPort qA, unpack <$> unPort qB)
  where
@@ -525,7 +530,7 @@ altsyncramRom _ cfg cfgA clk en addr
         <$> bundle
           ( model @n @(BitSize a) @1 (romConfig cfg) cfgA defPortConfig clk en
               ((\a -> (a, Nothing)) <$> addr)
-              (pure (0, Nothing)) )
+              (pure (0, Nothing)) (pure True) )
   | otherwise = unpack <$> unPort qA
  where
   qA :: Port "q_a" dom (BitVector (BitSize a))
@@ -600,7 +605,7 @@ altsyncramDualPortRom _ cfg cfgA cfgB clkA enA addrA clkB enB addrB
         (oA, oB) =
           model2 @n @(BitSize a) @1 (romConfig cfg) cfgA cfgB
             clkA enA ((\a -> (a, Nothing)) <$> addrA)
-            clkB enB ((\a -> (a, Nothing)) <$> addrB)
+            clkB enB ((\a -> (a, Nothing)) <$> addrB) (pure True)
       in (unpack <$> oA, unpack <$> oB)
   | otherwise = (unpack <$> unPort qA, unpack <$> unPort qB)
  where
@@ -700,8 +705,9 @@ altsyncramSimpleDualPortDualClock ::
   Clock domB ->
   -- | @clocken1@
   Enable domB ->
-  -- | Read address (@address_b@)
-  Signal domB (Index n) ->
+  -- | Read address (@address_b@), or 'Nothing' to not read (@rden_b@): then
+  -- the read data keeps its value
+  Signal domB (Maybe (Index n)) ->
   -- | Read data (@q_b@)
   Signal domB a
 altsyncramSimpleDualPortDualClock _ cfg cfgB clkA enA wr clkB enB rdAddr
@@ -713,7 +719,7 @@ altsyncramSimpleDualPortDualClock _ cfg cfgB clkA enA wr clkB enB rdAddr
                 Just (a, be, d) -> (a, Just (be, pack d))
                 Nothing -> (0, Nothing)) <$> wr)
             clkB enB
-            ((\a -> (a, Nothing)) <$> rdAddr)
+            ((\a -> (fromMaybe 0 a, Nothing)) <$> rdAddr) (isJust <$> rdAddr)
   | otherwise = unpack <$> unPort qB
  where
   qB :: Port "q_b" domB (BitVector (BitSize a))
@@ -730,6 +736,7 @@ altsyncramSimpleDualPortDualClock _ cfg cfgB clkA enA wr clkB enB rdAddr
       (Param @"widthad_b" @Integer (natToNum @(CLog 2 n)))
       (Param @"numwords_b" @Integer (natToNum @n))
       (Param @"address_reg_b" @String "CLOCK1")
+      (Param @"rdcontrol_reg_b" @String "CLOCK1")
       (Param @"outdata_reg_b" @String (outdataRegParamB cfgB))
       (Param @"outdata_aclr_b" @String "NONE")
       (Param @"address_aclr_b" @String "NONE")
@@ -750,7 +757,8 @@ altsyncramSimpleDualPortDualClock _ cfg cfgB clkA enA wr clkB enB rdAddr
       (Port @"data_a" (pack . (\(_, _, d) -> d) . fromJustX <$> wr))
       (ClockPort @"clock1" clkB)
       (Port @"clocken1" (boolToBit <$> fromEnable enB))
-      (Port @"address_b" (pack <$> rdAddr))
+      (Port @"address_b" (pack . fromMaybe 0 <$> rdAddr))
+      (Port @"rden_b" (boolToBit . isJust <$> rdAddr))
 
 {- | True dual-port RAM (@altsyncram@ with @operation_mode =
 \"BIDIR_DUAL_PORT\"@) holding @n@ words of type @a@, with two ports that read
@@ -810,7 +818,7 @@ altsyncramTrueDualPortDualClock _ cfg cfgA cfgB clkA enA portA clkB enB portB
         (oA, oB) =
           model2 @n @(BitSize a) @nBytes cfg cfgA cfgB
             clkA enA (fmap (fmap (fmap pack)) <$> portA)
-            clkB enB (fmap (fmap (fmap pack)) <$> portB)
+            clkB enB (fmap (fmap (fmap pack)) <$> portB) (pure True)
       in (unpack <$> oA, unpack <$> oB)
   | otherwise = (unpack <$> unPort qA, unpack <$> unPort qB)
  where
@@ -1117,8 +1125,10 @@ model ::
   Signal dom (Index n, Maybe (BitVector nBytes, BitVector w)) ->
   -- | Port B: address and write
   Signal dom (Index n, Maybe (BitVector nBytes, BitVector w)) ->
+  -- | Read enable of port B
+  Signal dom Bool ->
   (Signal dom (BitVector w), Signal dom (BitVector w))
-model AltsyncramConfig{..} cfgA cfgB clk en portA portB =
+model AltsyncramConfig{..} cfgA cfgB clk en portA portB rdenB =
   ( outReg cfgA (fst <$> latches)
   , outReg cfgB (snd <$> latches) )
  where
@@ -1184,13 +1194,13 @@ model AltsyncramConfig{..} cfgA cfgB clk en portA portB =
 
   -- The output latches of both ports: the read results of the last enabled
   -- cycle
-  latches = go initMem (0, 0) (fromEnable en) portA portB
+  latches = go initMem (0, 0) (fromEnable en) portA portB rdenB
    where
-    go mem out ~(e :- es) ~(a :- as) ~(b :- bs) =
-      out :- (e `seq` go mem' out' es as bs)
+    go mem out ~(e :- es) ~(a :- as) ~(b :- bs) ~(r :- rs) =
+      out :- (e `seq` go mem' out' es as bs rs)
      where
       (mem', out')
-        | e = ramCycle mem a b
+        | e = let (m, (oA, oB)) = ramCycle mem a b in (m, (oA, if r then oB else snd out))
         | otherwise = (mem, out)
 
   outReg cfg l
@@ -1223,8 +1233,10 @@ model2 ::
   Enable b ->
   -- | Port B: address and write
   Signal b (Index n, Maybe (BitVector nBytes, BitVector w)) ->
+  -- | Read enable of port B
+  Signal b Bool ->
   (Signal a (BitVector w), Signal b (BitVector w))
-model2 cfg cfgA cfgB clkA enA portA clkB enB portB =
+model2 cfg cfgA cfgB clkA enA portA clkB enB portB rdenB =
   (outReg clkA enA cfgA latchA, outReg clkB enB cfgB latchB)
  where
   undef = undefWord @w
@@ -1233,7 +1245,8 @@ model2 cfg cfgA cfgB clkA enA portA clkB enB portB =
 
   (latchA, latchB) =
     go (clockTicks clkA clkB) (initialContents @n @w (initFile cfg)) (0, 0)
-      (Nothing, Nothing) (fromEnable enA) portA (fromEnable enB) portB
+      (Nothing, Nothing) (fromEnable enA) portA ((&&) <$> fromEnable enB <*> rdenB)
+      (fromEnable enB) portB
 
   -- The writes in flight of both ports: address and bits written
   go ::
@@ -1243,20 +1256,23 @@ model2 cfg cfgA cfgB clkA enA portA clkB enB portB =
     (Maybe (Int, BitVector w), Maybe (Int, BitVector w)) ->
     Signal a Bool ->
     Signal a (Index n, Maybe (BitVector nBytes, BitVector w)) ->
+    -- Enable and read enable of port B
+    Signal b Bool ->
     Signal b Bool ->
     Signal b (Index n, Maybe (BitVector nBytes, BitVector w)) ->
     (Signal a (BitVector w), Signal b (BitVector w))
-  go [] _ _ _ _ _ _ _ = error "altsyncram: clockTicks should be infinite"
-  go (tick : ticks) mem (oA, oB) (fA, fB) eas@(~(eA :- eas1)) as@(~(opA :- as1)) ebs@(~(eB :- ebs1)) bs@(~(opB :- bs1)) =
+  go [] _ _ _ _ _ _ _ _ = error "altsyncram: clockTicks should be infinite"
+  go (tick : ticks) mem (oA, oB) (fA, fB) eas@(~(eA :- eas1)) as@(~(opA :- as1)) rbs@(~(rB :- rbs1)) ebs@(~(eB :- ebs1)) bs@(~(opB :- bs1)) =
     case tick of
       ClockA -> (oA :- restA, restB)
        where
         (mem', oA', fA') = edge cfgA mem oA fA fB eA opA
-        (restA, restB) = go ticks mem' (oA', oB) (fA', fB) eas1 as1 ebs bs
+        (restA, restB) = go ticks mem' (oA', oB) (fA', fB) eas1 as1 rbs ebs bs
       ClockB -> (restA, oB :- restB)
        where
-        (mem', oB', fB') = edge cfgB mem oB fB fA eB opB
-        (restA, restB) = go ticks mem' (oA, oB') (fA, fB') eas as ebs1 bs1
+        (mem', oB1, fB') = edge cfgB mem oB fB fA eB opB
+        oB' = if rB then oB1 else oB
+        (restA, restB) = go ticks mem' (oA, oB') (fA, fB') eas as rbs1 ebs1 bs1
       ClockAB -> (oA :- restA, oB :- restB)
        where
         -- Both ports see the other's write of this edge, and read the
@@ -1264,11 +1280,12 @@ model2 cfg cfgA cfgB clkA enA portA clkB enB portB =
         fA1 = if eA then writeOf opA else fA
         fB1 = if eB then writeOf opB else fB
         (memA, oA', _) = edge cfgA mem oA fA fB1 eA opA
-        (_, oB', _) = edge cfgB mem oB fB fA1 eB opB
+        (_, oB1, _) = edge cfgB mem oB fB fA1 eB opB
+        oB' = if rB then oB1 else oB
         mem' = case opB of
           (addrB, Just _) | eB -> writeAt memA fA1 addrB opB
           _ -> memA
-        (restA, restB) = go ticks mem' (oA', oB') (fA1, fB1) eas1 as1 ebs1 bs1
+        (restA, restB) = go ticks mem' (oA', oB') (fA1, fB1) eas1 as1 rbs1 ebs1 bs1
 
   writeOf (addr, wr) = case (maybeIsX addr, wr) of
     (Just a, Just (be, _)) -> Just (fromIntegral a, byteMask be)
