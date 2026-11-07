@@ -212,6 +212,14 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 , "tbTdpCycloneV", "tbTdpCycloneIV"
                 ]
             }
+        , runTest "AltsyncramDualClock" intelOpts
+            { buildTargets=BuildSpecific
+                [ "tbRomCycloneV", "tbRomMax10Reg", "tbDpRomCycloneIV"
+                , "tbDpRomCycloneV", "tbSdpCycloneV", "tbSdpCycloneIVReg"
+                , "tbSdpMax10Same", "tbTdpCycloneV", "tbTdpCycloneIV"
+                , "tbTdpMax10Same"
+                ]
+            }
         , runTest "ShiftTaps" intelOpts
             { buildTargets=BuildSpecific ["tbThreeTaps", "tbTwoTaps", "tbSingleTap"]
             }

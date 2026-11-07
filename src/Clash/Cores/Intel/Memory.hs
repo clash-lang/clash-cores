@@ -4,7 +4,8 @@
   Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Block RAM of Intel FPGAs (@altsyncram@) in single-port, simple dual-port and
-true dual-port mode, and the RAM-based shift register @altshift_taps@. For more
+true dual-port mode, with one or two clocks, single-port and dual-port ROM,
+and the RAM-based shift register @altshift_taps@. For more
 information see the /Embedded Memory User Guide/
 (<https://www.intel.com/content/www/us/en/docs/programmable/683240/current/embedded-memory-user-guide.html>)
 and the /Shift Register (RAM-based) IP Core User Guide/
@@ -33,6 +34,15 @@ read-during-write, and returns the old contents ('MixedOldData') or undefined
 data ('MixedDontCare'). When both ports write the same address, the bytes they
 both write become undefined, and so do the read results of both ports.
 
+When the ports have different clocks (e.g. 'altsyncramTrueDualPortDualClock'),
+the relation between the clocks is unknown, and so is the result of a
+mixed-port read-during-write. The simulation models consider a write of a port
+to be in progress from the clock edge that writes until the next clock edge at
+which the port is enabled: Intel's VHDL simulation model only completes a write
+then. A read of the other port in that time returns undefined data in the
+bytes written. When both ports write the same address in overlapping cycles,
+the bytes they both write become undefined.
+
 Not every memory block supports every mode, see the user guide:
 
   * 'OldData' isn't supported by M10K (Cyclone V) and M20K blocks in
@@ -46,16 +56,25 @@ Without an initialization file, the memory starts with all zeroes. An
 initialization file is a Memory Initialization File (@.mif@), see
 'writeMifFile'. Quartus and the simulators look for it relative to the
 directory they run in, so use an absolute path, or a path relative to your
-Quartus project.
+Quartus project. ROMs need one.
+
+MAX 10 devices only support initialized memories (including ROMs) in an
+internal configuration mode with memory initialization, e.g.
+@set_global_assignment -name INTERNAL_FLASH_UPDATE_MODE \"SINGLE IMAGE WITH ERAM\"@
+in the Quartus settings file.
 
 = Unsupported features
 
-All ports share a single clock and clock enable (@clock0@, @clocken0@).
-Different clocks for different ports, read enables (@rden_a@, @rden_b@),
-address stalls, clearing the output registers (@aclr0@, @aclr1@), ECC, ROM
-mode and ports of different widths are not supported.
+The ports of a RAM or ROM either share a clock and clock enable (@clock0@,
+@clocken0@), or each have their own (@clock0@, @clocken0@ and @clock1@,
+@clocken1@). Separate input and output clocks or clock enables, read enables
+(@rden_a@, @rden_b@), address stalls, clearing the output registers (@aclr0@,
+@aclr1@), ECC and ports of different widths are not supported. Neither is the
+error correction code megafunction @altecc@: Quartus ships no simulation model
+of it.
 -}
 
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -64,6 +83,12 @@ module Clash.Cores.Intel.Memory
     altsyncramSinglePort
   , altsyncramSimpleDualPort
   , altsyncramTrueDualPort
+    -- * RAM with two clocks
+  , altsyncramSimpleDualPortDualClock
+  , altsyncramTrueDualPortDualClock
+    -- * ROM
+  , altsyncramRom
+  , altsyncramDualPortRom
     -- * Shift register
   , altshiftTaps
     -- * Configuration
@@ -82,7 +107,7 @@ module Clash.Cores.Intel.Memory
 
 import Clash.Explicit.Prelude
 
-import Clash.Signal.Internal (Signal ((:-)))
+import Clash.Signal.Internal (ClockAB (..), Signal ((:-)), clockTicks)
 import Clash.Sized.Internal.BitVector (BitVector (BV))
 import Control.Exception (evaluate)
 import Data.Char (isDigit, isHexDigit, isSpace, toUpper, digitToInt)
@@ -198,6 +223,10 @@ mixedRdwParam = \case
 
 outdataRegParam :: PortConfig -> String
 outdataRegParam p = if outputRegister p then "CLOCK0" else "UNREGISTERED"
+
+-- | 'outdataRegParam' for port B of a RAM with two clocks
+outdataRegParamB :: PortConfig -> String
+outdataRegParamB p = if outputRegister p then "CLOCK1" else "UNREGISTERED"
 
 initFileParam :: AltsyncramConfig -> String
 initFileParam cfg = fromMaybe "UNUSED" (initFile cfg)
@@ -456,6 +485,386 @@ altsyncramTrueDualPort _ cfg cfgA cfgB clk en portA portB
       (Port @"byteena_b" (maybe 0 fst <$> wrB))
       (Port @"data_b" (pack . snd . fromJustX <$> wrB))
 
+-- * ROM
+
+{- | Single-port ROM (@altsyncram@ with @operation_mode = \"ROM\"@) holding @n@
+words of type @a@, with the contents of the initialization file
+('initFile', required). See "Clash.Cores.Intel.Memory" for the behavior of the
+port. The 'mixedReadDuringWrite' of the configuration and the
+'readDuringWrite' of the port are ignored.
+
+The simulation model matches Intel's simulation model (@altera_mf@) for
+Cyclone IV E, Cyclone V and MAX 10.
+-}
+altsyncramRom ::
+  forall n a dom deviceFamily.
+  ( HasCallStack
+  , KnownDomain dom
+  , KnownNat n
+  , 2 <= n
+  , BitPack a
+  , NFDataX a
+  , KnownSymbol deviceFamily
+  ) =>
+  -- | The FPGA family (@intended_device_family@), for example
+  -- @SSymbol \@\"Cyclone V\"@
+  SSymbol deviceFamily ->
+  AltsyncramConfig ->
+  PortConfig ->
+  -- | @clock0@
+  Clock dom ->
+  -- | @clocken0@
+  Enable dom ->
+  -- | Address (@address_a@)
+  Signal dom (Index n) ->
+  -- | Read data (@q_a@)
+  Signal dom a
+altsyncramRom _ cfg cfgA clk en addr
+  | clashSimulation =
+      unpack . fst
+        <$> bundle
+          ( model @n @(BitSize a) @1 (romConfig cfg) cfgA defPortConfig clk en
+              ((\a -> (a, Nothing)) <$> addr)
+              (pure (0, Nothing)) )
+  | otherwise = unpack <$> unPort qA
+ where
+  qA :: Port "q_a" dom (BitVector (BitSize a))
+  qA =
+    inst
+      (alteraMf "altsyncram")
+      (Param @"operation_mode" @String "ROM")
+      (Param @"width_a" @Integer (natToNum @(BitSize a)))
+      (Param @"widthad_a" @Integer (natToNum @(CLog 2 n)))
+      (Param @"numwords_a" @Integer (natToNum @n))
+      (Param @"outdata_reg_a" @String (outdataRegParam cfgA))
+      (Param @"address_aclr_a" @String "NONE")
+      (Param @"outdata_aclr_a" @String "NONE")
+      (Param @"clock_enable_input_a" @String "NORMAL")
+      (Param @"clock_enable_output_a" @String "NORMAL")
+      (Param @"ram_block_type" @String (ramBlockTypeParam (ramBlockType cfg)))
+      (Param @"init_file" @String (initFileParam (romConfig cfg)))
+      (Param @"intended_device_family" @String (symbolVal (Proxy @deviceFamily)))
+      (Param @"lpm_type" @String "altsyncram")
+      (ClockPort @"clock0" clk)
+      (Port @"clocken0" (boolToBit <$> fromEnable en))
+      (Port @"address_a" (pack <$> addr))
+
+{- | Dual-port ROM (@altsyncram@ with @operation_mode = \"BIDIR_DUAL_PORT\"@
+and no writes) holding @n@ words of type @a@, with the contents of the
+initialization file ('initFile', required). The ports have their own clocks
+(@clock0@ and @clock1@), which can be the same. See
+"Clash.Cores.Intel.Memory" for the behavior of the ports. The
+'readDuringWrite' of the ports is ignored. Use 'MixedOldData' for M9K blocks
+(Cyclone IV, Cyclone 10 LP and MAX 10), for which Intel's simulation model
+warns that it doesn't support anything else, and 'MixedDontCare' otherwise.
+
+The simulation model matches Intel's simulation model (@altera_mf@) for
+Cyclone IV E, Cyclone V and MAX 10.
+-}
+altsyncramDualPortRom ::
+  forall n a domA domB deviceFamily.
+  ( HasCallStack
+  , KnownDomain domA
+  , KnownDomain domB
+  , KnownNat n
+  , 2 <= n
+  , BitPack a
+  , NFDataX a
+  , KnownSymbol deviceFamily
+  ) =>
+  -- | The FPGA family (@intended_device_family@), for example
+  -- @SSymbol \@\"Cyclone V\"@
+  SSymbol deviceFamily ->
+  AltsyncramConfig ->
+  -- | Configuration of port A
+  PortConfig ->
+  -- | Configuration of port B
+  PortConfig ->
+  -- | @clock0@
+  Clock domA ->
+  -- | @clocken0@
+  Enable domA ->
+  -- | Address of port A (@address_a@)
+  Signal domA (Index n) ->
+  -- | @clock1@
+  Clock domB ->
+  -- | @clocken1@
+  Enable domB ->
+  -- | Address of port B (@address_b@)
+  Signal domB (Index n) ->
+  -- | Read data of port A (@q_a@) and port B (@q_b@)
+  (Signal domA a, Signal domB a)
+altsyncramDualPortRom _ cfg cfgA cfgB clkA enA addrA clkB enB addrB
+  | clashSimulation =
+      let
+        (oA, oB) =
+          model2 @n @(BitSize a) @1 (romConfig cfg) cfgA cfgB
+            clkA enA ((\a -> (a, Nothing)) <$> addrA)
+            clkB enB ((\a -> (a, Nothing)) <$> addrB)
+      in (unpack <$> oA, unpack <$> oB)
+  | otherwise = (unpack <$> unPort qA, unpack <$> unPort qB)
+ where
+  (qA, qB) = ports
+  ports :: (Port "q_a" domA (BitVector (BitSize a)), Port "q_b" domB (BitVector (BitSize a)))
+  ports =
+    inst
+      (alteraMf "altsyncram")
+      (Param @"operation_mode" @String "BIDIR_DUAL_PORT")
+      (Param @"width_a" @Integer (natToNum @(BitSize a)))
+      (Param @"widthad_a" @Integer (natToNum @(CLog 2 n)))
+      (Param @"numwords_a" @Integer (natToNum @n))
+      (Param @"outdata_reg_a" @String (outdataRegParam cfgA))
+      (Param @"outdata_aclr_a" @String "NONE")
+      (Param @"address_aclr_a" @String "NONE")
+      (Param @"width_b" @Integer (natToNum @(BitSize a)))
+      (Param @"widthad_b" @Integer (natToNum @(CLog 2 n)))
+      (Param @"numwords_b" @Integer (natToNum @n))
+      (Param @"address_reg_b" @String "CLOCK1")
+      (Param @"indata_reg_b" @String "CLOCK1")
+      (Param @"wrcontrol_wraddress_reg_b" @String "CLOCK1")
+      (Param @"outdata_reg_b" @String (outdataRegParamB cfgB))
+      (Param @"outdata_aclr_b" @String "NONE")
+      (Param @"address_aclr_b" @String "NONE")
+      (Param @"read_during_write_mode_mixed_ports" @String (mixedRdwParam (mixedReadDuringWrite cfg)))
+      (Param @"clock_enable_input_a" @String "NORMAL")
+      (Param @"clock_enable_output_a" @String "NORMAL")
+      (Param @"clock_enable_input_b" @String "NORMAL")
+      (Param @"clock_enable_output_b" @String "NORMAL")
+      (Param @"ram_block_type" @String (ramBlockTypeParam (ramBlockType cfg)))
+      (Param @"init_file" @String (initFileParam (romConfig cfg)))
+      (Param @"power_up_uninitialized" @String "FALSE")
+      (Param @"intended_device_family" @String (symbolVal (Proxy @deviceFamily)))
+      (Param @"lpm_type" @String "altsyncram")
+      (ClockPort @"clock0" clkA)
+      (Port @"clocken0" (boolToBit <$> fromEnable enA))
+      (Port @"address_a" (pack <$> addrA))
+      (Port @"wren_a" (pure 0 :: Signal domA Bit))
+      (ClockPort @"clock1" clkB)
+      (Port @"clocken1" (boolToBit <$> fromEnable enB))
+      (Port @"address_b" (pack <$> addrB))
+      (Port @"wren_b" (pure 0 :: Signal domB Bit))
+
+-- | Check that a ROM has an initialization file
+romConfig :: HasCallStack => AltsyncramConfig -> AltsyncramConfig
+romConfig cfg = case initFile cfg of
+  Just _ -> cfg
+  Nothing -> error "altsyncram: a ROM needs an initialization file (initFile)"
+
+-- * Dual-clock RAM
+
+{- | Simple dual-port RAM (@altsyncram@ with @operation_mode =
+\"DUAL_PORT\"@) holding @n@ words of type @a@, with a write port (A) and a read
+port (B) with their own clocks (@clock0@ and @clock1@). See
+"Clash.Cores.Intel.Memory" for the behavior of the ports, and
+'altsyncramSimpleDualPort' for a RAM with a single clock.
+
+The relation between the clocks is unknown, so the result of reading an
+address that is being written is undefined, see "Read during write" in
+"Clash.Cores.Intel.Memory". The simulation model ignores the
+'mixedReadDuringWrite' of the configuration, but it does end up in the HDL:
+use 'MixedDontCare' for M10K and M20K blocks (Quartus doesn't support
+'MixedOldData' with two clocks), and 'MixedOldData' for M9K blocks (Cyclone IV,
+Cyclone 10 LP and MAX 10), for which Intel's simulation model warns that it
+doesn't support anything else.
+
+The simulation model matches Intel's simulation model (@altera_mf@) for
+Cyclone IV E, Cyclone V and MAX 10.
+-}
+altsyncramSimpleDualPortDualClock ::
+  forall n nBytes a domA domB deviceFamily.
+  ( HasCallStack
+  , KnownDomain domA
+  , KnownDomain domB
+  , KnownNat n
+  , 2 <= n
+  , KnownNat nBytes
+  , 1 <= nBytes
+  , BitPack a
+  , NFDataX a
+  , KnownSymbol deviceFamily
+  ) =>
+  -- | The FPGA family (@intended_device_family@), for example
+  -- @SSymbol \@\"Cyclone V\"@
+  SSymbol deviceFamily ->
+  AltsyncramConfig ->
+  -- | Configuration of the read port. Its 'readDuringWrite' is ignored.
+  PortConfig ->
+  -- | @clock0@
+  Clock domA ->
+  -- | @clocken0@
+  Enable domA ->
+  -- | Write: address (@address_a@), byte enable (@byteena_a@) and data
+  -- (@data_a@), or 'Nothing' (@wren_a@)
+  Signal domA (Maybe (Index n, BitVector nBytes, a)) ->
+  -- | @clock1@
+  Clock domB ->
+  -- | @clocken1@
+  Enable domB ->
+  -- | Read address (@address_b@)
+  Signal domB (Index n) ->
+  -- | Read data (@q_b@)
+  Signal domB a
+altsyncramSimpleDualPortDualClock _ cfg cfgB clkA enA wr clkB enB rdAddr
+  | clashSimulation =
+      fmap unpack . snd
+        $ model2 @n @(BitSize a) @nBytes cfg defPortConfig cfgB
+            clkA enA
+            ((\w -> case w of
+                Just (a, be, d) -> (a, Just (be, pack d))
+                Nothing -> (0, Nothing)) <$> wr)
+            clkB enB
+            ((\a -> (a, Nothing)) <$> rdAddr)
+  | otherwise = unpack <$> unPort qB
+ where
+  qB :: Port "q_b" domB (BitVector (BitSize a))
+  qB =
+    inst
+      (alteraMf "altsyncram")
+      (Param @"operation_mode" @String "DUAL_PORT")
+      (Param @"width_a" @Integer (natToNum @(BitSize a)))
+      (Param @"widthad_a" @Integer (natToNum @(CLog 2 n)))
+      (Param @"numwords_a" @Integer (natToNum @n))
+      (Param @"width_byteena_a" @Integer (natToNum @nBytes))
+      (Param @"byte_size" @Integer (natToNum @(BitSize a) `P.div` natToNum @nBytes))
+      (Param @"width_b" @Integer (natToNum @(BitSize a)))
+      (Param @"widthad_b" @Integer (natToNum @(CLog 2 n)))
+      (Param @"numwords_b" @Integer (natToNum @n))
+      (Param @"address_reg_b" @String "CLOCK1")
+      (Param @"outdata_reg_b" @String (outdataRegParamB cfgB))
+      (Param @"outdata_aclr_b" @String "NONE")
+      (Param @"address_aclr_b" @String "NONE")
+      (Param @"clock_enable_input_a" @String "NORMAL")
+      (Param @"clock_enable_input_b" @String "NORMAL")
+      (Param @"clock_enable_output_b" @String "NORMAL")
+      (Param @"read_during_write_mode_mixed_ports" @String (mixedRdwParam (mixedReadDuringWrite cfg)))
+      (Param @"ram_block_type" @String (ramBlockTypeParam (ramBlockType cfg)))
+      (Param @"init_file" @String (initFileParam cfg))
+      (Param @"power_up_uninitialized" @String "FALSE")
+      (Param @"intended_device_family" @String (symbolVal (Proxy @deviceFamily)))
+      (Param @"lpm_type" @String "altsyncram")
+      (ClockPort @"clock0" clkA)
+      (Port @"clocken0" (boolToBit <$> fromEnable enA))
+      (Port @"address_a" (pack . (\(a, _, _) -> a) . fromJustX <$> wr))
+      (Port @"wren_a" (boolToBit . isJust <$> wr))
+      (Port @"byteena_a" (maybe 0 (\(_, be, _) -> be) <$> wr))
+      (Port @"data_a" (pack . (\(_, _, d) -> d) . fromJustX <$> wr))
+      (ClockPort @"clock1" clkB)
+      (Port @"clocken1" (boolToBit <$> fromEnable enB))
+      (Port @"address_b" (pack <$> rdAddr))
+
+{- | True dual-port RAM (@altsyncram@ with @operation_mode =
+\"BIDIR_DUAL_PORT\"@) holding @n@ words of type @a@, with two ports that read
+and write, with their own clocks (@clock0@ and @clock1@). See
+"Clash.Cores.Intel.Memory" for the behavior of the ports, and
+'altsyncramTrueDualPort' for a RAM with a single clock.
+
+The relation between the clocks is unknown, so the result of reading an
+address that the other port is writing is undefined, see "Read during write"
+in "Clash.Cores.Intel.Memory". As for 'altsyncramSimpleDualPortDualClock',
+use 'MixedDontCare' for M10K and M20K blocks and 'MixedOldData' for M9K
+blocks.
+
+The simulation model matches Intel's simulation model (@altera_mf@) for
+Cyclone IV E, Cyclone V and MAX 10.
+-}
+altsyncramTrueDualPortDualClock ::
+  forall n nBytes a domA domB deviceFamily.
+  ( HasCallStack
+  , KnownDomain domA
+  , KnownDomain domB
+  , KnownNat n
+  , 2 <= n
+  , KnownNat nBytes
+  , 1 <= nBytes
+  , BitPack a
+  , NFDataX a
+  , KnownSymbol deviceFamily
+  ) =>
+  -- | The FPGA family (@intended_device_family@), for example
+  -- @SSymbol \@\"Cyclone V\"@
+  SSymbol deviceFamily ->
+  AltsyncramConfig ->
+  -- | Configuration of port A
+  PortConfig ->
+  -- | Configuration of port B
+  PortConfig ->
+  -- | @clock0@
+  Clock domA ->
+  -- | @clocken0@
+  Enable domA ->
+  -- | Port A: address (@address_a@) and write (@byteena_a@, @data_a@ and
+  -- @wren_a@)
+  Signal domA (Index n, Maybe (BitVector nBytes, a)) ->
+  -- | @clock1@
+  Clock domB ->
+  -- | @clocken1@
+  Enable domB ->
+  -- | Port B: address (@address_b@) and write (@byteena_b@, @data_b@ and
+  -- @wren_b@)
+  Signal domB (Index n, Maybe (BitVector nBytes, a)) ->
+  -- | Read data of port A (@q_a@) and port B (@q_b@)
+  (Signal domA a, Signal domB a)
+altsyncramTrueDualPortDualClock _ cfg cfgA cfgB clkA enA portA clkB enB portB
+  | clashSimulation =
+      let
+        (oA, oB) =
+          model2 @n @(BitSize a) @nBytes cfg cfgA cfgB
+            clkA enA (fmap (fmap (fmap pack)) <$> portA)
+            clkB enB (fmap (fmap (fmap pack)) <$> portB)
+      in (unpack <$> oA, unpack <$> oB)
+  | otherwise = (unpack <$> unPort qA, unpack <$> unPort qB)
+ where
+  (addrA, wrA) = unbundle portA
+  (addrB, wrB) = unbundle portB
+  (qA, qB) = ports
+  ports :: (Port "q_a" domA (BitVector (BitSize a)), Port "q_b" domB (BitVector (BitSize a)))
+  ports =
+    inst
+      (alteraMf "altsyncram")
+      (Param @"operation_mode" @String "BIDIR_DUAL_PORT")
+      (Param @"width_a" @Integer (natToNum @(BitSize a)))
+      (Param @"widthad_a" @Integer (natToNum @(CLog 2 n)))
+      (Param @"numwords_a" @Integer (natToNum @n))
+      (Param @"width_byteena_a" @Integer (natToNum @nBytes))
+      (Param @"byte_size" @Integer (natToNum @(BitSize a) `P.div` natToNum @nBytes))
+      (Param @"outdata_reg_a" @String (outdataRegParam cfgA))
+      (Param @"outdata_aclr_a" @String "NONE")
+      (Param @"read_during_write_mode_port_a" @String (rdwParam (readDuringWrite cfgA)))
+      (Param @"width_b" @Integer (natToNum @(BitSize a)))
+      (Param @"widthad_b" @Integer (natToNum @(CLog 2 n)))
+      (Param @"numwords_b" @Integer (natToNum @n))
+      (Param @"width_byteena_b" @Integer (natToNum @nBytes))
+      (Param @"address_reg_b" @String "CLOCK1")
+      (Param @"indata_reg_b" @String "CLOCK1")
+      (Param @"wrcontrol_wraddress_reg_b" @String "CLOCK1")
+      (Param @"byteena_reg_b" @String "CLOCK1")
+      (Param @"outdata_reg_b" @String (outdataRegParamB cfgB))
+      (Param @"outdata_aclr_b" @String "NONE")
+      (Param @"address_aclr_b" @String "NONE")
+      (Param @"read_during_write_mode_port_b" @String (rdwParam (readDuringWrite cfgB)))
+      (Param @"read_during_write_mode_mixed_ports" @String (mixedRdwParam (mixedReadDuringWrite cfg)))
+      (Param @"clock_enable_input_a" @String "NORMAL")
+      (Param @"clock_enable_output_a" @String "NORMAL")
+      (Param @"clock_enable_input_b" @String "NORMAL")
+      (Param @"clock_enable_output_b" @String "NORMAL")
+      (Param @"ram_block_type" @String (ramBlockTypeParam (ramBlockType cfg)))
+      (Param @"init_file" @String (initFileParam cfg))
+      (Param @"power_up_uninitialized" @String "FALSE")
+      (Param @"intended_device_family" @String (symbolVal (Proxy @deviceFamily)))
+      (Param @"lpm_type" @String "altsyncram")
+      (ClockPort @"clock0" clkA)
+      (Port @"clocken0" (boolToBit <$> fromEnable enA))
+      (Port @"address_a" (pack <$> addrA))
+      (Port @"wren_a" (boolToBit . isJust <$> wrA))
+      (Port @"byteena_a" (maybe 0 fst <$> wrA))
+      (Port @"data_a" (pack . snd . fromJustX <$> wrA))
+      (ClockPort @"clock1" clkB)
+      (Port @"clocken1" (boolToBit <$> fromEnable enB))
+      (Port @"address_b" (pack <$> addrB))
+      (Port @"wren_b" (boolToBit . isJust <$> wrB))
+      (Port @"byteena_b" (maybe 0 fst <$> wrB))
+      (Port @"data_b" (pack . snd . fromJustX <$> wrB))
+
 -- * Shift register
 
 {- | RAM-based shift register with taps (@altshift_taps@): a chain of
@@ -653,6 +1062,46 @@ breakOnStr sep = go []
 
 -- * Simulation model
 
+-- | A word of which all bits are undefined
+undefWord :: forall w. KnownNat w => BitVector w
+undefWord = BV (2 P.^ (natToNum @w :: Int) - 1) 0
+
+-- | Bits of the bytes enabled in a byte enable
+byteMaskOf :: forall w nBytes. (KnownNat w, KnownNat nBytes) => BitVector nBytes -> BitVector w
+byteMaskOf be = case maybeIsX be of
+  Nothing -> undefWord
+  Just _ ->
+    P.foldl (.|.) 0
+      [ (2 P.^ byteWidth - 1) `shiftL` (i * byteWidth)
+      | i <- [0 .. nBytes - 1]
+      , testBit be i
+      ]
+ where
+  nBytes = natToNum @nBytes :: Int
+  byteWidth = natToNum @w `P.div` nBytes
+
+-- | Combine two words: the bits in the mask from the first, the others from
+-- the second. Undefined bits stay undefined.
+mergeWords :: forall w. KnownNat w => BitVector w -> BitVector w -> BitVector w -> BitVector w
+mergeWords mask (BV m1 v1) (BV m2 v2) =
+  BV ((m1 .&. mk) .|. (m2 .&. nmk)) ((v1 .&. mk) .|. (v2 .&. nmk))
+ where
+  BV _ mk = mask
+  nmk = (2 P.^ (natToNum @w :: Int) - 1) `xor` mk
+
+-- | A word of which the bits in the mask are undefined
+undefBitsOf :: forall w. KnownNat w => BitVector w -> BitVector w -> BitVector w
+undefBitsOf mask w = mergeWords mask undefWord w
+
+-- | Initial contents of a memory: the initialization file, or all zeroes
+initialContents :: forall n w. (KnownNat n, KnownNat w) => Maybe FilePath -> IntMap.IntMap (BitVector w)
+initialContents file = IntMap.fromList (P.zip [0 ..] contents)
+ where
+  depth = natToNum @n :: Int
+  contents = case file of
+    Nothing -> P.replicate depth 0
+    Just f -> unsafePerformIO (readMifFile depth f)
+
 {- | Simulation model of a single-clock @altsyncram@ with two ports, working on
 'BitVector's. Port B can be read-only. Returns the outputs of both ports.
 -}
@@ -673,44 +1122,11 @@ model AltsyncramConfig{..} cfgA cfgB clk en portA portB =
   ( outReg cfgA (fst <$> latches)
   , outReg cfgB (snd <$> latches) )
  where
-  depth = natToNum @n :: Int
-  width = natToNum @w :: Int
-  nBytes = natToNum @nBytes :: Int
-  byteWidth = width `P.div` nBytes
-
-  initMem :: IntMap.IntMap (BitVector w)
-  initMem = IntMap.fromList (P.zip [0 ..] contents)
-   where
-    contents = case initFile of
-      Nothing -> P.replicate depth 0
-      Just f -> unsafePerformIO (readMifFile depth f)
-
-  undef :: BitVector w
-  undef = BV (2 P.^ width - 1) 0
-
-  -- Bits of the bytes enabled in a byte enable
-  byteMask :: BitVector nBytes -> BitVector w
-  byteMask be = case maybeIsX be of
-    Nothing -> undef
-    Just _ ->
-      P.foldl (.|.) 0
-        [ (2 P.^ byteWidth - 1) `shiftL` (i * byteWidth)
-        | i <- [0 .. nBytes - 1]
-        , testBit be i
-        ]
-
-  -- Combine two words: the bits in the mask from the first, the others from
-  -- the second. Undefined bits stay undefined.
-  mergeBits :: BitVector w -> BitVector w -> BitVector w -> BitVector w
-  mergeBits mask (BV m1 v1) (BV m2 v2) =
-    BV ((m1 .&. mk) .|. (m2 .&. nmk)) ((v1 .&. mk) .|. (v2 .&. nmk))
-   where
-    BV _ mk = mask
-    nmk = (2 P.^ width - 1) `xor` mk
-
-  -- A word of which the bits in the mask are undefined
-  undefBits :: BitVector w -> BitVector w -> BitVector w
-  undefBits mask w = mergeBits mask undef w
+  undef = undefWord @w
+  byteMask = byteMaskOf @w @nBytes
+  mergeBits = mergeWords @w
+  undefBits = undefBitsOf @w
+  initMem = initialContents @n @w initFile
 
   -- One enabled clock cycle: new memory contents and read results
   ramCycle ::
@@ -779,4 +1195,121 @@ model AltsyncramConfig{..} cfgA cfgB clk en portA portB =
 
   outReg cfg l
     | outputRegister cfg = register clk noReset en 0 l
+    | otherwise = l
+
+{- | Simulation model of a dual-clock @altsyncram@ with two ports, working on
+'BitVector's: port A in domain @a@, port B in domain @b@. Port B can be
+read-only. Returns the outputs of both ports.
+
+With different clocks, the order of the edges of the two ports decides which
+of them sees the other's writes. A write of a port completes some time after
+the edge that writes, so we consider it /in flight/ until the next edge at which
+the port is enabled (Intel's VHDL simulation model only completes it then). When a port reads an address that the
+other port is writing (in flight, or at the same edge), the bytes written are
+undefined in the read data. When both ports write the same address, the bytes
+they both write become undefined.
+-}
+model2 ::
+  forall n w nBytes a b.
+  (KnownDomain a, KnownDomain b, KnownNat n, KnownNat w, KnownNat nBytes) =>
+  AltsyncramConfig ->
+  PortConfig ->
+  PortConfig ->
+  Clock a ->
+  Enable a ->
+  -- | Port A: address and write
+  Signal a (Index n, Maybe (BitVector nBytes, BitVector w)) ->
+  Clock b ->
+  Enable b ->
+  -- | Port B: address and write
+  Signal b (Index n, Maybe (BitVector nBytes, BitVector w)) ->
+  (Signal a (BitVector w), Signal b (BitVector w))
+model2 cfg cfgA cfgB clkA enA portA clkB enB portB =
+  (outReg clkA enA cfgA latchA, outReg clkB enB cfgB latchB)
+ where
+  undef = undefWord @w
+  byteMask = byteMaskOf @w @nBytes
+  undefBits = undefBitsOf @w
+
+  (latchA, latchB) =
+    go (clockTicks clkA clkB) (initialContents @n @w (initFile cfg)) (0, 0)
+      (Nothing, Nothing) (fromEnable enA) portA (fromEnable enB) portB
+
+  -- The writes in flight of both ports: address and bits written
+  go ::
+    [ClockAB] ->
+    IntMap.IntMap (BitVector w) ->
+    (BitVector w, BitVector w) ->
+    (Maybe (Int, BitVector w), Maybe (Int, BitVector w)) ->
+    Signal a Bool ->
+    Signal a (Index n, Maybe (BitVector nBytes, BitVector w)) ->
+    Signal b Bool ->
+    Signal b (Index n, Maybe (BitVector nBytes, BitVector w)) ->
+    (Signal a (BitVector w), Signal b (BitVector w))
+  go [] _ _ _ _ _ _ _ = error "altsyncram: clockTicks should be infinite"
+  go (tick : ticks) mem (oA, oB) (fA, fB) eas@(~(eA :- eas1)) as@(~(opA :- as1)) ebs@(~(eB :- ebs1)) bs@(~(opB :- bs1)) =
+    case tick of
+      ClockA -> (oA :- restA, restB)
+       where
+        (mem', oA', fA') = edge cfgA mem oA fA fB eA opA
+        (restA, restB) = go ticks mem' (oA', oB) (fA', fB) eas1 as1 ebs bs
+      ClockB -> (restA, oB :- restB)
+       where
+        (mem', oB', fB') = edge cfgB mem oB fB fA eB opB
+        (restA, restB) = go ticks mem' (oA, oB') (fA, fB') eas as ebs1 bs1
+      ClockAB -> (oA :- restA, oB :- restB)
+       where
+        -- Both ports see the other's write of this edge, and read the
+        -- contents from before the edge
+        fA1 = if eA then writeOf opA else fA
+        fB1 = if eB then writeOf opB else fB
+        (memA, oA', _) = edge cfgA mem oA fA fB1 eA opA
+        (_, oB', _) = edge cfgB mem oB fB fA1 eB opB
+        mem' = case opB of
+          (addrB, Just _) | eB -> writeAt memA fA1 addrB opB
+          _ -> memA
+        (restA, restB) = go ticks mem' (oA', oB') (fA1, fB1) eas1 as1 ebs1 bs1
+
+  writeOf (addr, wr) = case (maybeIsX addr, wr) of
+    (Just a, Just (be, _)) -> Just (fromIntegral a, byteMask be)
+    _ -> Nothing
+
+  -- Write the data of an operation, making the bytes that the other port
+  -- writes (in flight) undefined
+  writeAt mem other addr0 (_, wr) = case (maybeIsX addr0, wr) of
+    (Just addr1, Just (be, d)) ->
+      let
+        addr = fromIntegral addr1
+        mask = byteMask be
+        hit = case other of
+          Just (a, m) | a == addr -> m .&. mask
+          _ -> 0
+      in IntMap.adjust (undefBits hit . mergeWords mask d) addr mem
+    (Nothing, Just _) -> IntMap.map (const undef) mem
+    _ -> mem
+
+  -- An edge of a port: new memory contents, read data and write in flight
+  edge pCfg mem out own other en op@(addr0, wr)
+    | not en = (mem, out, own)
+    | otherwise = case maybeIsX addr0 of
+        Nothing -> (IntMap.map (const undef) mem, undef, Nothing)
+        Just addr1 ->
+          let
+            addr = fromIntegral addr1
+            old = IntMap.findWithDefault undef addr mem
+            otherHit = case other of
+              Just (a, m) | a == addr -> m
+              _ -> 0
+            readData = undefBits otherHit $ case wr of
+              Nothing -> old
+              Just (be, d) -> case readDuringWrite pCfg of
+                NewData -> undefBits (complement (byteMask be)) d
+                NewDataOldMaskedBytes -> mergeWords (byteMask be) d old
+                OldData -> old
+                DontCare -> undef
+          in (writeAt mem other addr0 op, readData, writeOf op)
+
+  outReg :: KnownDomain dom => Clock dom -> Enable dom -> PortConfig -> Signal dom (BitVector w) -> Signal dom (BitVector w)
+  outReg clk en pCfg l
+    | outputRegister pCfg = register clk noReset en 0 l
     | otherwise = l
