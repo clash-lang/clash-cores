@@ -125,10 +125,10 @@ The design implements the virtual data registers in the domain of
 -- A 16 bit data register: capture the input, shift, and output what was shifted in
 register16 ::
   'KnownDomain' tck =>
-  'VirtualJtag' tck 2 ->
+  t'VirtualJtag' tck 2 ->
   'Signal' tck ('BitVector' 16) ->
   ('Signal' tck 'Bit', 'Signal' tck ('BitVector' 16))
-register16 'VirtualJtag'{..} input = (lsb '<$>' shiftReg, output)
+register16 v'VirtualJtag'{..} input = (lsb '<$>' shiftReg, output)
  where
   shiftReg = 'register' vjTck 'noReset' 'enableGen' 0 (go '<$>' vjState '<*>' vjTdi '<*>' input '<*>' shiftReg)
   go ('Just' 'CaptureDr') _ i _ = i

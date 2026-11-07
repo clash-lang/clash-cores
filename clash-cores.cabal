@@ -187,6 +187,9 @@ library
     Clash.Cores.Intel.Debug.SourcesProbes
     Clash.Cores.Intel.Debug.VirtualJtag
     Clash.Cores.Intel.Debug.VirtualJtag.Internal
+    Clash.Cores.Intel.Config
+    Clash.Cores.Intel.Config.ChipId
+    Clash.Cores.Intel.Config.Oscillator
 
   other-modules:
     Clash.Core.TermLiteral.Compat

@@ -19,3 +19,4 @@
 * Add `Clash.Cores.Intel.Divide` and `Clash.Cores.Intel.Sqrt`, wrappers for Intel's `lpm_divide` and `altsqrt` megafunctions (integer division and square root), with bit-exact simulation models
 * Add `Clash.Cores.Intel.Debug.SourcesProbes`, support for Intel's In-System Sources and Probes IP (`altsource_probe`), the Intel counterpart of `Clash.Cores.Xilinx.Vio`
 * Add `Clash.Cores.Intel.Debug.VirtualJtag`, support for Intel's Virtual JTAG IP (`sld_virtual_jtag`). Its simulation model performs the same JTAG scans as Intel's simulation models, cycle by cycle.
+* Add `Clash.Cores.Intel.Config`, support for the unique chip ID (`altchip_id`) and the internal oscillator (`altera_int_osc`) of Intel FPGAs. Their simulation models are stubs: Intel only ships encrypted simulation models of these hard blocks.

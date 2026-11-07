@@ -23,6 +23,8 @@ import           GHC.IO.Unsafe             (unsafePerformIO)
 import           Test.Tasty
 import           Test.Tasty.Clash
 
+import           QuartusSynth
+
 -- | GHC version as major.minor.patch1. For example: 8.10.2.
 ghcVersion3 :: String
 ghcVersion3 =
@@ -438,6 +440,33 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific ["virtualJtagNoScansTB"]
             }
+          -- Hard blocks whose simulation models are encrypted, and other IP
+          -- with Quartus synthesis, see hdl-tests/QuartusSynth.hs
+        , clashTestGroup "Quartus"
+          [ \_ -> testGroup "SynthDebug" $ map
+              (quartusTest "SynthDebug" "MAX 10" "10M08SAE144C8G" Synthesis
+                [ Check "map" "; altsource_probe.v " "Megafunction"
+                , Check "map" "; sld_virtual_jtag.v " "Megafunction"
+                , Check "map" "; instance_id " "INIT"
+                , Check "map" "; source_initial_value " "cafe"
+                , Check "map" "; sld_instance_index " "1" ])
+              [VHDL, Verilog]
+          , \_ -> testGroup "SynthConfig MAX 10" $ map
+              (quartusTest "SynthConfig" "MAX 10" "10M08SAE144C8G" FullCompile
+                [ Check "fit" "; Chip ID block " "1 / 1"
+                , Check "fit" "; Oscillator block " "1 / 1"
+                , Check "map" "; ID_VALUE " "0000000100100011010001010110011110001001101010111100110111101111" ])
+              [VHDL, Verilog]
+          , \_ -> testGroup "SynthConfig Cyclone V" $ map
+              (quartusTest "SynthConfig" "Cyclone V" "5CEBA2F17C8" FullCompile
+                [ Check "fit" "; Chip ID block " "1 / 1"
+                , Check "fit" "; Oscillator block " "1 / 1" ])
+              [Verilog]
+          , \_ -> testGroup "SynthOscillator Cyclone 10 LP" $ map
+              (quartusTest "SynthOscillator" "Cyclone 10 LP" "10CL006YE144C8G" FullCompile
+                [ Check "fit" "; Oscillator block " "1 / 1" ])
+              [Verilog]
+          ]
         ]
       ] -- end shouldwork
     ]
