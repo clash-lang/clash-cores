@@ -220,6 +220,12 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 , "tbTdpMax10Same"
                 ]
             }
+        , runTest "ClockCrosser" intelOpts
+            { buildTargets=BuildSpecific
+                [ "tbDefaultFast", "tbDefaultSlow", "tbNoPipelineSame"
+                , "tbNoPipelineFast", "tbDeepSlow"
+                ]
+            }
         , runTest "ShiftTaps" intelOpts
             { buildTargets=BuildSpecific ["tbThreeTaps", "tbTwoTaps", "tbSingleTap"]
             }

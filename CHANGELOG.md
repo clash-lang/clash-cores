@@ -28,3 +28,4 @@
 * Add `Clash.Cores.Intel.Floating`, support for Intel's Floating Point Functions IP (`altera_fp_functions`): addition, subtraction, multiplication, division, multiply-add, comparisons, and conversions from and to 32 bit integers and `Double`, with bit-exact simulation models. The API follows `Clash.Cores.Xilinx.Floating`.
 * Add `Clash.Cores.Intel.Divide` and `Clash.Cores.Intel.Sqrt`, wrappers for Intel's `lpm_divide` and `altsqrt` megafunctions (integer division and square root), with bit-exact simulation models
 * Add `altsyncramRom` and `altsyncramDualPortRom` (ROMs) and `altsyncramSimpleDualPortDualClock` and `altsyncramTrueDualPortDualClock` (RAMs with a clock per port) to `Clash.Cores.Intel.Memory`
+* Add `avalonStClockCrosser` to `Clash.Cores.Intel.Cdc`, the Avalon-ST Handshake Clock Crosser of Platform Designer
