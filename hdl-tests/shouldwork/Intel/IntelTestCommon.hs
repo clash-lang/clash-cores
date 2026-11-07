@@ -12,7 +12,7 @@ expected outputs are computed with the Haskell simulation model at compile
 time, and stored in memory blobs along with the stimuli. Bits that are
 undefined in the Haskell model are not checked.
 -}
-module IntelTestCommon where
+module IntelTestCommon (module IntelTestCommon, withIntelSim) where
 
 import Clash.Explicit.Prelude
 import Clash.Explicit.Testbench
@@ -24,20 +24,9 @@ import Data.String.Interpolate (__i)
 import Data.Word (Word64)
 import Language.Haskell.TH (ExpQ, tupE)
 
-import IntelSimLib (intelSimLibraries)
+import IntelSimLib (withIntelSim)
 
 import qualified Prelude as P
-
--- * Intel's simulation libraries
-
-$(intelSimLibraries "alteraMfLib" "alteraLib")
-
-{- | Returns its argument, but makes Intel's simulation libraries part of the
-HDL of the test bench using it, see "IntelSimLib". Apply it to the @done@
-signal of a test bench.
--}
-withIntelSim :: Signal dom Bool -> Signal dom Bool
-withIntelSim = fmap (bitToBool . alteraLib . alteraMfLib . boolToBit)
 
 -- * Pull-up resistor
 

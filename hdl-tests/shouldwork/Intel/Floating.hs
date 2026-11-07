@@ -3,7 +3,7 @@
 
 {- | Tests of "Clash.Cores.Intel.Floating" against the simulation models of
 the Floating Point Functions IP that Quartus generates. See "IpTestCommon"
-for how the test benches work, and "IntelIpSim" for how the IP's simulation
+for how the test benches work, and "IntelSimLib" for how the IP's simulation
 models end up in the HDL.
 -}
 module Floating where
@@ -14,7 +14,7 @@ import qualified Prelude as P
 
 import IpTestCommon
 import FloatingDuts
-import IntelIpSim
+import IntelSimLib (simLibraries)
 
 addTB :: Signal Dom Bool
 addTB = romTB simLibraries addDut $(memBlobTH (Just 0) (trace addDut (cycles (floatPairs 2500 1))))

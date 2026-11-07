@@ -10,7 +10,7 @@ module Integer where
 import Clash.Explicit.Prelude
 
 import IntegerDuts
-import IntelIpSim
+import IntelSimLib (simLibraries)
 import IpTestCommon
 
 divideUnsignedTB :: Signal Dom Bool

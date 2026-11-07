@@ -172,7 +172,9 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
             , hdlSim=[GHDL, IVerilog, Verilator]
             }
         ]
-      , clashTestGroup "Intel"
+      , clashTestGroup "Intel" $ if not quartusAvailable then [] else
+          -- Need Quartus for its simulation libraries and to generate the
+          -- simulation models of IP, see 'setIntelEnvs'
         [ runTest "IoBuffer" intelOpts
             { buildTargets=BuildSpecific
                 [ "tbIobufFloating", "tbIobufPullUp", "tbOutbufTri", "tbOpndrn"
@@ -215,6 +217,28 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
             }
         , runTest "ClockControl" intelOpts
             { buildTargets=BuildSpecific ["tbCycloneIVE", "tbCycloneIVE2", "tbMax10"]
+            }
+        , -- IP whose simulation models Quartus generates, see 'setIntelEnvs'.
+          -- The models are VHDL only, so Verilog is tested
+          -- with Vivado's mixed language simulator. GHDL doesn't bind the
+          -- components in the models in strict VHDL-93 mode, see
+          -- shouldwork/Intel/IntelSimLib.hs.
+          runTest "Floating" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "addTB", "subTB", "mulTB", "divTB", "mulAddTB", "compareTB"
+                , "predicateTB", "fromS32TB", "fromU32TB", "toS32TB", "toU32TB"
+                , "toDoubleTB", "fromDoubleTB" ]
+            }
+          -- Megafunctions that Clash instantiates directly. Their simulation
+          -- models exist in Verilog too, so Icarus can simulate Verilog.
+        , runTest "Integer" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado, IVerilog]
+            , hdlSim=[Vivado, IVerilog]
+            , buildTargets=BuildSpecific ["divideUnsignedTB", "divideSignedTB", "sqrtTB"]
             }
         ]
       , clashTestGroup "Xilinx"
@@ -450,30 +474,6 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
         , runTest "T2549" def{hdlTargets=[Verilog],hdlSim=[]}
         , runTest "T2781" def{hdlLoad=[],hdlSim=[],hdlTargets=[VHDL]}
         ]
-      , clashTestGroup "Intel" $ if not quartusAvailable then [] else
-        [ -- Needs Quartus to generate the IP's simulation models, see
-          -- 'setIntelEnvs'. The models are VHDL only, so Verilog is tested
-          -- with Vivado's mixed language simulator. GHDL doesn't bind the
-          -- components in the models in strict VHDL-93 mode, see
-          -- shouldwork/Intel/IntelIpSim.hs.
-          runTest "Floating" def
-            { hdlTargets=[VHDL, Verilog]
-            , hdlLoad=[Vivado]
-            , hdlSim=[Vivado]
-            , buildTargets=BuildSpecific
-                [ "addTB", "subTB", "mulTB", "divTB", "mulAddTB", "compareTB"
-                , "predicateTB", "fromS32TB", "fromU32TB", "toS32TB", "toU32TB"
-                , "toDoubleTB", "fromDoubleTB" ]
-            }
-          -- Megafunctions that Clash instantiates directly. Their simulation
-          -- models exist in Verilog too, so Icarus can simulate Verilog.
-        , runTest "Integer" def
-            { hdlTargets=[VHDL, Verilog]
-            , hdlLoad=[Vivado, IVerilog]
-            , hdlSim=[Vivado, IVerilog]
-            , buildTargets=BuildSpecific ["divideUnsignedTB", "divideSignedTB", "sqrtTB"]
-            }
-        ]
       ] -- end shouldwork
     ]
   ] -- end .
@@ -483,7 +483,7 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
 -- Quartus installation in @QUARTUS_ROOTDIR@ or, if it isn't set, the default
 -- Quartus Prime Lite 21.1 installation on our machines. The device family is
 -- taken from @CLASH_INTEL_SIM_FAMILY@, and defaults to MAX 10. See
--- shouldwork/Intel/IntelIpSim.hs for why not Cyclone V. Returns whether
+-- shouldwork/Intel/IntelSimLib.hs for why not Cyclone V. Returns whether
 -- Quartus is available: the tests are skipped if it isn't.
 setIntelEnvs :: IO Bool
 setIntelEnvs = do

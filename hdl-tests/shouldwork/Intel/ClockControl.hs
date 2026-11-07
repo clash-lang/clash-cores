@@ -11,8 +11,7 @@ import Clash.Explicit.Prelude
 import Clash.Cores.Intel.Clock
 
 import ClockControlTypes
-import CycloneIveSim
-import FiftyfivenmSim
+import IntelSimLib
 import IntelTestCommon
 
 -- | This 'topEntity' exists to make @clash-testsuite@ happy. Without it cannot
