@@ -246,6 +246,14 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 , "predicateTB", "fromS32TB", "fromU32TB", "toS32TB", "toU32TB"
                 , "toDoubleTB", "fromDoubleTB" ]
             }
+        , runTest "Cordic" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific
+                [ "sinCos10TB", "sinCos12TB", "sinCos16x8TB", "sinCos20x16TB"
+                , "sinCos4TB", "sinCosUnsignedTB" ]
+            }
           -- Megafunctions that Clash instantiates directly. Their simulation
           -- models exist in Verilog too, so Icarus can simulate Verilog.
         , runTest "Integer" def

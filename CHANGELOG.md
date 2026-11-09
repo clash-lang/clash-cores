@@ -30,3 +30,4 @@
 * Add `altsyncramRom` and `altsyncramDualPortRom` (ROMs) and `altsyncramSimpleDualPortDualClock` and `altsyncramTrueDualPortDualClock` (RAMs with a clock per port) to `Clash.Cores.Intel.Memory`
 * Add `avalonStClockCrosser` to `Clash.Cores.Intel.Cdc`, the Avalon-ST Handshake Clock Crosser of Platform Designer
 * Add a read enable (`rden_b`) to the read port of `altsyncramSimpleDualPort` and `altsyncramSimpleDualPortDualClock`: their read address is now a `Maybe`
+* Add `Clash.Cores.Intel.Cordic`, support for the sine and cosine function of Intel's CORDIC IP (`altera_CORDIC`), for signed and unsigned angles, with bit-exact simulation models. The user guide only promises faithfully rounded results; the models reproduce the datapath of the IP, which was inferred by observing it as a black box.

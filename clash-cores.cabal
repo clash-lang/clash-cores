@@ -189,6 +189,9 @@ library
     Clash.Cores.Intel.Floating
     Clash.Cores.Intel.Floating.Explicit
     Clash.Cores.Intel.Floating.Internal
+    Clash.Cores.Intel.Cordic
+    Clash.Cores.Intel.Cordic.Explicit
+    Clash.Cores.Intel.Cordic.Internal
     Clash.Cores.Intel.Divide
     Clash.Cores.Intel.Sqrt
 
