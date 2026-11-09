@@ -254,6 +254,18 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
             , hdlSim=[Vivado, IVerilog]
             , buildTargets=BuildSpecific ["divideUnsignedTB", "divideSignedTB", "sqrtTB"]
             }
+          -- No simulation model exists: the test compares against the netlists
+          -- Quartus generates for the megafunction, see
+          -- shouldwork/Intel/ComplexMultiplierSim.hs
+        , runTest "ComplexMultiplier" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado, IVerilog]
+            , hdlSim=[Vivado, IVerilog]
+            , clashFlags=["-ihdl-tests/shouldwork/Intel"]
+            , buildTargets=BuildSpecific
+                [ "signedTB", "signedNarrowTB", "signedWideTB", "unsignedTB"
+                , "unsignedNarrowTB", "mixedTB", "tinyTB" ]
+            }
         ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"

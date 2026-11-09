@@ -191,6 +191,7 @@ library
     Clash.Cores.Intel.Floating.Internal
     Clash.Cores.Intel.Divide
     Clash.Cores.Intel.Sqrt
+    Clash.Cores.Intel.ComplexMultiplier
 
   other-modules:
     Clash.Core.TermLiteral.Compat

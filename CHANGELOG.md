@@ -30,3 +30,4 @@
 * Add `altsyncramRom` and `altsyncramDualPortRom` (ROMs) and `altsyncramSimpleDualPortDualClock` and `altsyncramTrueDualPortDualClock` (RAMs with a clock per port) to `Clash.Cores.Intel.Memory`
 * Add `avalonStClockCrosser` to `Clash.Cores.Intel.Cdc`, the Avalon-ST Handshake Clock Crosser of Platform Designer
 * Add a read enable (`rden_b`) to the read port of `altsyncramSimpleDualPort` and `altsyncramSimpleDualPortDualClock`: their read address is now a `Maybe`
+* Add `Clash.Cores.Intel.ComplexMultiplier`, a wrapper for Intel's complex multiplier megafunction `altmult_complex`, with a bit-exact simulation model
