@@ -67,3 +67,23 @@ toDoubleTB = romTB simLibraries toDoubleDut $(memBlobTH (Just 0) (trace toDouble
 fromDoubleTB :: Signal Dom Bool
 fromDoubleTB = romTB simLibraries fromDoubleDut $(memBlobTH (Just 0) (trace fromDoubleDut (cycles (doubles 3000 13))))
 {-# ANN fromDoubleTB (Synthesize "fromDoubleTB" [] (PortName "done")) #-}
+
+sqrtTB :: Signal Dom Bool
+sqrtTB = romTB simLibraries sqrtDut $(memBlobTH (Just 0) (trace sqrtDut (cycles (floats 1000 14 <> floatsIn 1 254 3000 15))))
+{-# ANN sqrtTB (Synthesize "sqrtTB" [] (PortName "done")) #-}
+
+recipTB :: Signal Dom Bool
+recipTB = romTB simLibraries recipDut $(memBlobTH (Just 0) (trace recipDut (cycles (floats 3000 16 <> floatsIn 251 4 500 17))))
+{-# ANN recipTB (Synthesize "recipTB" [] (PortName "done")) #-}
+
+rsqrtTB :: Signal Dom Bool
+rsqrtTB = romTB simLibraries rsqrtDut $(memBlobTH (Just 0) (trace rsqrtDut (cycles (floats 1000 18 <> floatsIn 1 254 3000 19))))
+{-# ANN rsqrtTB (Synthesize "rsqrtTB" [] (PortName "done")) #-}
+
+expTB :: Signal Dom Bool
+expTB = romTB simLibraries expDut $(memBlobTH (Just 0) (trace expDut (cycles (floats 500 20 <> expInputs 3500 21))))
+{-# ANN expTB (Synthesize "expTB" [] (PortName "done")) #-}
+
+logTB :: Signal Dom Bool
+logTB = romTB simLibraries logDut $(memBlobTH (Just 0) (trace logDut (cycles (floats 1000 22 <> floatsIn 1 254 1500 23 <> floatsIn 126 2 1500 24))))
+{-# ANN logTB (Synthesize "logTB" [] (PortName "done")) #-}

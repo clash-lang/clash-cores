@@ -189,6 +189,8 @@ library
     Clash.Cores.Intel.Floating
     Clash.Cores.Intel.Floating.Explicit
     Clash.Cores.Intel.Floating.Internal
+    Clash.Cores.Intel.Floating.Internal.BitExact
+    Clash.Cores.Intel.Floating.Internal.Coefficients
     Clash.Cores.Intel.Divide
     Clash.Cores.Intel.Sqrt
 
@@ -207,6 +209,7 @@ library
     -fno-worker-wrapper
 
   build-depends:
+    array,
     ghc-prim                >= 0.3.1.0 && < 1.0,
     mtl                     >= 2.1.1 && < 2.4,
     pretty-show,

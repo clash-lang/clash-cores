@@ -30,6 +30,23 @@ module Clash.Cores.Intel.Floating
   , mulAddWith
   , mulAdd
   , E.MulAddDefDelay
+    -- * Functions
+  , E.DeviceFamily(..)
+  , sqrtWith
+  , sqrt
+  , E.SqrtDefDelay
+  , recipWith
+  , recip
+  , E.RecipDefDelay
+  , rsqrtWith
+  , rsqrt
+  , E.RsqrtDefDelay
+  , expWith
+  , exp
+  , E.ExpDefDelay
+  , logWith
+  , log
+  , E.LogDefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -65,7 +82,7 @@ module Clash.Cores.Intel.Floating
   , E.intelNaN
   ) where
 
-import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare)
+import Clash.Prelude hiding (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -197,6 +214,129 @@ mulAdd
   -> DSignal dom (n + E.MulAddDefDelay) Float
 mulAdd = withFrozenCallStack $ hideClockResetEnable E.mulAdd
 {-# INLINE mulAdd #-}
+
+-- | Customizable floating point square root. See 'E.sqrtWith'.
+sqrtWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sqrtWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.sqrtWith cfg fam)
+{-# INLINE sqrtWith #-}
+
+-- | Floating point square root, with the default configuration and delay. See
+-- 'E.sqrt'.
+sqrt
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.SqrtDefDelay) Float
+sqrt fam = withFrozenCallStack $ hideClockResetEnable (E.sqrt fam)
+{-# INLINE sqrt #-}
+
+-- | Customizable floating point reciprocal. See 'E.recipWith'.
+recipWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+recipWith cfg = withFrozenCallStack $ hideClockResetEnable (E.recipWith cfg)
+{-# INLINE recipWith #-}
+
+-- | Floating point reciprocal, with the default configuration and delay. See
+-- 'E.recip'.
+recip
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Float
+  -> DSignal dom (n + E.RecipDefDelay) Float
+recip = withFrozenCallStack $ hideClockResetEnable (E.recip)
+{-# INLINE recip #-}
+
+-- | Customizable floating point reciprocal square root. See 'E.rsqrtWith'.
+rsqrtWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+rsqrtWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.rsqrtWith cfg fam)
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, with the default configuration and delay. See
+-- 'E.rsqrt'.
+rsqrt
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.RsqrtDefDelay) Float
+rsqrt fam = withFrozenCallStack $ hideClockResetEnable (E.rsqrt fam)
+{-# INLINE rsqrt #-}
+
+-- | Customizable floating point exponential. See 'E.expWith'.
+expWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+expWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.expWith cfg fam)
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, with the default configuration and delay. See
+-- 'E.exp'.
+exp
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.ExpDefDelay) Float
+exp fam = withFrozenCallStack $ hideClockResetEnable (E.exp fam)
+{-# INLINE exp #-}
+
+-- | Customizable floating point natural logarithm. See 'E.logWith'.
+logWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+logWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.logWith cfg fam)
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, with the default configuration and delay. See
+-- 'E.log'.
+log
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.LogDefDelay) Float
+log fam = withFrozenCallStack $ hideClockResetEnable (E.log fam)
+{-# INLINE log #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With

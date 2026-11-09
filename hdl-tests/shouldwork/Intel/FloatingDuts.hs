@@ -1,13 +1,37 @@
 {- | Functions under test for "Floating". They are defined here, as the
 Template Haskell in "Floating" simulates them to create reference traces.
 -}
+{-# LANGUAGE TemplateHaskell #-}
+
 module FloatingDuts where
 
 import Clash.Explicit.Prelude
+import qualified Prelude as P
 
 import qualified Clash.Cores.Intel.Floating.Explicit as E
 
 import IpTestCommon
+
+import Data.Char (isSpace, toLower)
+import Data.Word (Word32, Word64)
+import GHC.Float (castWord32ToFloat)
+import Language.Haskell.TH.Syntax (lift, runIO)
+import System.Environment (lookupEnv)
+
+{- | The device family the IP's simulation models are generated for, from
+@CLASH_INTEL_SIM_FAMILY@ (see "IntelSimLib"), read when this module is
+compiled. The square root and the transcendental functions compute slightly
+differently on Cyclone V than on the other families.
+-}
+simFamily :: E.DeviceFamily
+simFamily = $(do
+  fam <- runIO (lookupEnv "CLASH_INTEL_SIM_FAMILY")
+  let norm = P.map toLower . P.filter (P.not . isSpace)
+  lift $ case norm <$> fam of
+    Just "cyclonev" -> E.CycloneV
+    Just "cycloneive" -> E.CycloneIVE
+    Just "cyclone10lp" -> E.Cyclone10LP
+    _ -> E.Max10)
 
 -- | E.add, E.addWith @3 E.defConfig, E.addWith @0 E.defConfig
 addDut :: Dut (Float, Float) (Vec 3 Float)
@@ -73,3 +97,45 @@ toDoubleDut clk rst en i = bundle (unary (E.toDouble) clk rst en i :> unary (E.t
 fromDoubleDut :: Dut Double (Vec 2 Float)
 fromDoubleDut clk rst en i = bundle (unary (E.fromDouble) clk rst en i :> unary (E.fromDoubleWith @1 E.defConfig) clk rst en i :> Nil)
 {-# OPAQUE fromDoubleDut #-}
+
+-- | E.sqrt, E.sqrtWith @6
+sqrtDut :: Dut Float (Vec 2 Float)
+sqrtDut clk rst en i = bundle (unary (E.sqrt simFamily) clk rst en i :> unary (E.sqrtWith @6 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE sqrtDut #-}
+
+-- | E.recip, E.recipWith @8
+recipDut :: Dut Float (Vec 2 Float)
+recipDut clk rst en i = bundle (unary E.recip clk rst en i :> unary (E.recipWith @8 E.defConfig) clk rst en i :> Nil)
+{-# OPAQUE recipDut #-}
+
+-- | E.rsqrt, E.rsqrtWith @6
+rsqrtDut :: Dut Float (Vec 2 Float)
+rsqrtDut clk rst en i = bundle (unary (E.rsqrt simFamily) clk rst en i :> unary (E.rsqrtWith @6 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE rsqrtDut #-}
+
+-- | E.exp, E.expWith @6
+expDut :: Dut Float (Vec 2 Float)
+expDut clk rst en i = bundle (unary (E.exp simFamily) clk rst en i :> unary (E.expWith @6 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE expDut #-}
+
+-- | E.log, E.logWith @10
+logDut :: Dut Float (Vec 2 Float)
+logDut clk rst en i = bundle (unary (E.log simFamily) clk rst en i :> unary (E.logWith @10 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE logDut #-}
+
+-- | Positive floats with exponents (biased) in @[lo, lo + n)@ and random
+-- fractions, after the 'specials'
+floatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]
+floatsIn lo n cnt seed = specials <> P.map mk (words32 cnt seed)
+ where
+  mk w = let v = fromIntegral w :: Word32
+             e = lo + (v `shiftR` 23) `P.mod` n
+         in castWord32ToFloat ((v .&. 0x807fffff .&. 0x7fffffff) .|. (e `shiftL` 23))
+
+-- | Mostly negative or positive floats in the range where 'E.exp' is finite
+expInputs :: Int -> Word64 -> [Float]
+expInputs cnt seed = specials <> P.map mk (words32 cnt seed)
+ where
+  mk w = let v = fromIntegral w :: Word32
+             e = 100 + (v `shiftR` 23) `P.mod` 34
+         in castWord32ToFloat ((v .&. 0x807fffff) .|. (e `shiftL` 23))

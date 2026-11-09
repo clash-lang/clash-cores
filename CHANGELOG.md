@@ -31,3 +31,4 @@
 * Add `avalonStClockCrosser` to `Clash.Cores.Intel.Cdc`, the Avalon-ST Handshake Clock Crosser of Platform Designer
 * Add a read enable (`rden_b`) to the read port of `altsyncramSimpleDualPort` and `altsyncramSimpleDualPortDualClock`: their read address is now a `Maybe`
 * Fix `instWithIntelIp` referring to the memory initialization files of IP, like the tables of floating point division, by a path that doesn't exist, so that their simulation stopped at time 0
+* Add `sqrt`, `recip`, `rsqrt`, `exp` and `log` to `Clash.Cores.Intel.Floating`, with simulation models that give the IP's results bit for bit, although Intel only documents them to be faithfully rounded. The models were obtained by black-box testing of the IP; their results depend on the device family, given as a `DeviceFamily` argument
