@@ -549,7 +549,9 @@ generateSimModel hdl family qsys = do
   storeDataFile f@SimFile{simFileBase, simFileOrigExt, simFileContents} = do
     root <- dataDir
     let
-      name = Text.unpack (simFileBase <> "." <> simFileOrigExt)
+      -- The path ends up in the HDL, in which 'substituteNames' replaces the
+      -- name of the Platform Designer system, so it can't be part of the path.
+      name = Text.unpack (Text.replace placeholderName "data" simFileBase <> "." <> simFileOrigExt)
       dir = root </> showHex64 (fnv1a64 (Text.unpack simFileContents))
       path = dir </> name
     createDirectoryIfMissing True dir
