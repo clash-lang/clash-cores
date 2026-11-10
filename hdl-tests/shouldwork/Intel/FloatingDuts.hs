@@ -108,6 +108,11 @@ cbrtDut :: Dut Float (Vec 2 Float)
 cbrtDut clk rst en i = bundle (unary (E.cbrt simFamily) clk rst en i :> unary (E.cbrtWith @8 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE cbrtDut #-}
 
+-- | E.hypot, E.hypotWith @8
+hypotDut :: Dut (Float, Float, Float) (Vec 2 Float)
+hypotDut clk rst en i = bundle (ternary (E.hypot simFamily) clk rst en i :> ternary (E.hypotWith @8 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE hypotDut #-}
+
 -- | E.recip, E.recipWith @8
 recipDut :: Dut Float (Vec 2 Float)
 recipDut clk rst en i = bundle (unary E.recip clk rst en i :> unary (E.recipWith @8 E.defConfig) clk rst en i :> Nil)
@@ -188,3 +193,22 @@ log1pInputs cnt seed = specials <> P.map mk (words32 cnt seed)
              e = 90 + (v `shiftR` 23) `P.mod` 70
              s = if testBit v 31 && e < 127 then bit 31 else 0
          in castWord32ToFloat ((v .&. 0x7fffff) .|. (e `shiftL` 23) .|. s)
+
+-- | Triples of floats of either sign with random fractions, whose (biased)
+-- exponents are @e@, @e - d1@ and @e - d2@ in a random order, with @e@ in
+-- @[lo, lo + n)@ and @d1@ and @d2@ below 16: their squares overlap when
+-- 'E.hypot' adds them. @lo@ must be at least 16.
+closeTriples :: Word32 -> Word32 -> Int -> Word64 -> [(Float, Float, Float)]
+closeTriples lo n cnt seed = P.take cnt (go (randoms seed))
+ where
+  go (k : a : b : c : rs) =
+    let e = lo + fromIntegral k `P.mod` n
+        d1 = fromIntegral (k `shiftR` 32) `P.mod` 16
+        d2 = fromIntegral (k `shiftR` 40) `P.mod` 16
+        mk r d = castWord32ToFloat ((fromIntegral r .&. 0x807fffff) .|. ((e - d) `shiftL` 23))
+        (x, y, z) = (mk a 0, mk b d1, mk c d2)
+     in (case (k `shiftR` 48) `P.mod` 3 of
+           0 -> (x, y, z)
+           1 -> (y, z, x)
+           _ -> (z, x, y)) : go rs
+  go _ = []

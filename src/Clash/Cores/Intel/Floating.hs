@@ -38,6 +38,9 @@ module Clash.Cores.Intel.Floating
   , cbrtWith
   , cbrt
   , E.CbrtDefDelay
+  , hypotWith
+  , hypot
+  , E.HypotDefDelay
   , recipWith
   , recip
   , E.RecipDefDelay
@@ -282,6 +285,36 @@ cbrt
   -> DSignal dom (n + E.CbrtDefDelay) Float
 cbrt fam = withFrozenCallStack $ hideClockResetEnable (E.cbrt fam)
 {-# INLINE cbrt #-}
+
+-- | Customizable floating point three-dimensional hypotenuse. See
+-- 'E.hypotWith'.
+hypotWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+hypotWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.hypotWith cfg fam)
+{-# INLINE hypotWith #-}
+
+-- | Floating point three-dimensional hypotenuse, with the default
+-- configuration and delay. See 'E.hypot'.
+hypot
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.HypotDefDelay) Float
+hypot fam = withFrozenCallStack $ hideClockResetEnable (E.hypot fam)
+{-# INLINE hypot #-}
 
 -- | Customizable floating point reciprocal. See 'E.recipWith'.
 recipWith

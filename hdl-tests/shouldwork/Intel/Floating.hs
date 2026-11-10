@@ -76,6 +76,10 @@ cbrtTB :: Signal Dom Bool
 cbrtTB = romTB simLibraries cbrtDut $(memBlobTH (Just 0) (trace cbrtDut (cycles (floats 1000 60 <> signedFloatsIn 1 254 3000 61))))
 {-# ANN cbrtTB (Synthesize "cbrtTB" [] (PortName "done")) #-}
 
+hypotTB :: Signal Dom Bool
+hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycles (floatTriples 1000 62 <> closeTriples 20 200 2500 63))))
+{-# ANN hypotTB (Synthesize "hypotTB" [] (PortName "done")) #-}
+
 recipTB :: Signal Dom Bool
 recipTB = romTB simLibraries recipDut $(memBlobTH (Just 0) (trace recipDut (cycles (floats 3000 16 <> floatsIn 251 4 500 17))))
 {-# ANN recipTB (Synthesize "recipTB" [] (PortName "done")) #-}

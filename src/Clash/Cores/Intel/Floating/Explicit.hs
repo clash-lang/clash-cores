@@ -65,9 +65,11 @@ from first principles, see Note [Bit-exact models] in
 inputs of two binades and many millions of other inputs, on MAX 10, Cyclone IV
 E, Cyclone 10 LP and Cyclone V, at several latencies. The results of these
 functions depend on the multipliers of the device family, so they take a
-'DeviceFamily' argument. The cube root ('cbrt') is modelled in the same way;
-it is faithfully rounded too. The reciprocal ('recip') is correctly rounded (with a
-quirk just below the smallest normal number, see 'recipModel').
+'DeviceFamily' argument. The cube root ('cbrt') and the three-dimensional
+hypotenuse ('hypot') are modelled in the same way; the cube root is faithfully
+rounded too, the hypotenuse not always, see 'hypotModel'. The reciprocal
+('recip') is correctly rounded (with a quirk just below the smallest normal
+number, see 'recipModel').
 
 Other functions of the IP, such as the trigonometric functions, are not
 supported.
@@ -105,6 +107,9 @@ module Clash.Cores.Intel.Floating.Explicit
   , cbrtWith
   , cbrt
   , CbrtDefDelay
+  , hypotWith
+  , hypot
+  , HypotDefDelay
   , recipWith
   , recip
   , RecipDefDelay
@@ -181,6 +186,7 @@ module Clash.Cores.Intel.Floating.Explicit
   , fromDoubleModel
   , sqrtModel
   , cbrtModel
+  , hypotModel
   , recipModel
   , rsqrtModel
   , expModel
@@ -526,6 +532,62 @@ cbrt = withFrozenCallStack $ cbrtWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type CbrtDefDelay = 11
+
+-- | Customizable floating point three-dimensional hypotenuse,
+-- @sqrt (x^2 + y^2 + z^2)@, see 'hypotModel'. The IP's result is bit-exactly
+-- modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+hypotWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+hypotWith cfg fam clk rst en x y z
+  | clashSimulation = pipeline und clk rst en (hypotModel fam <$> x <*> y <*> z)
+  | otherwise = ternaryInst "fp_hypot" ip clk rst en x y z
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of hypot"
+  ip = fpFunctions cfg "ROOTS" "HYPOT" (natToNum @d) Nil
+{-# INLINE hypotWith #-}
+
+-- | Floating point three-dimensional hypotenuse, @sqrt (x^2 + y^2 + z^2)@,
+-- with the default configuration and delay. See 'hypotWith'.
+hypot
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom n Float
+  -> DSignal dom (n + HypotDefDelay) Float
+hypot = withFrozenCallStack $ hypotWith defConfig
+{-# INLINE hypot #-}
+
+-- | The default delay of 'hypot': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type HypotDefDelay = 22
 
 -- | Customizable floating point reciprocal, @1 / x@, see 'recipModel'. The IP's
 -- result is bit-exactly modelled.

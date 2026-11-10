@@ -3,10 +3,11 @@ Copyright  :  (C) 2026, QBayLogic B.V.
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
-Bit-exact models of the square root, cube root, reciprocal square root,
-reciprocal, exponentials and logarithms (natural, base 2, base 10 and
-@log (1 + x)@) of Intel's Floating Point Functions IP (@altera_fp_functions@)
-in single precision, see Note [Bit-exact models].
+Bit-exact models of the square root, cube root, three-dimensional
+hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
+(natural, base 2, base 10 and @log (1 + x)@) of Intel's Floating Point
+Functions IP (@altera_fp_functions@) in single precision, see Note [Bit-exact
+models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -15,6 +16,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   ( Multipliers(..)
   , sqrtSingle
   , cbrtSingle
+  , hypotSingle
   , rsqrtSingle
   , recipSingle
   , expSingle
@@ -130,6 +132,37 @@ square root's) suggested the structure; the format search over all inputs in
 coefficients for all 384 segments, equal to the ones computed from first
 principles; the square root's truncated multiplier then gave the IP's results
 on all of those inputs without change.
+
+Three-dimensional hypotenuse, sqrt (x^2 + y^2 + z^2):
+
+  1. Every input with a nonzero exponent field is squared exactly (24 x 24
+     bits), and the square becomes a floating point number with its
+     significand truncated to 24 bits. Zero and subnormal inputs count as zero.
+  2. The two smaller squares are aligned to the largest: shifted right by the
+     difference of the exponents and truncated at 2^-25 relative to the
+     largest one's leading bit. A square shifted by more than 24 places is
+     dropped (even though shifting by 25 places would leave its leading bit).
+     The sum of the three is exact.
+  3. The sum is rounded to nearest at 24 bits, ties up.
+  4. Its square root is computed by the datapath of the square root, with the
+     same tables, but with an extra half unit in the last place added before
+     the truncation of the significand: the rounding constants are three
+     quarters of a unit for an even exponent and a whole unit for an odd one.
+  5. Results of 2^128 or more overflow to +inf; the result can't underflow.
+     Any NaN input gives NaN, otherwise any infinite input gives +inf. The
+     signs of the inputs are ignored and the result is never negative.
+
+The IP's tables and multipliers (the synthesis report shows the square root's
+tables and polynomial multipliers, and three full 24 x 24 multipliers)
+suggested the structure. Single inputs (x, 0, 0) matched the square root of
+the truncated square with a larger rounding constant; inputs whose sums are
+exact (mantissas of a few bits) pinned the constant down to an extra half
+unit in the last place for both parities; all of x in [1, 2) with y = 1
+showed that the sum is rounded to nearest after truncating the squares; two
+inputs at all exponent differences up to 30, and three inputs at pairs of
+exponent differences in all six positions, gave the alignment (symmetric in
+the positions, truncation at 2^-25 except that a shift of exactly 25 places
+drops the square).
 
 Reciprocal square root: index p * 256 + top 8 fraction bits (p = 1 for an even
 biased exponent E), y the low 15 fraction bits; the result is
@@ -395,6 +428,46 @@ cbrtSingle mults w
   (k, r) = (e - 127) `divMod` 3
   -- The polynomial of the square root with the formats of p = 0
   o = rootPoly cbrtTable mults 0 (r * 128) f `shiftR` 21
+
+-- * Hypotenuse
+
+-- | The IP's three-dimensional hypotenuse, sqrt (x^2 + y^2 + z^2), in single
+-- precision, on bit patterns
+hypotSingle :: Multipliers -> Word32 -> Word32 -> Word32 -> Word32
+hypotSingle mults x y z
+  | any isNaN' xs = nanSingle
+  | any isInf' xs = infSingle
+  | null sqs = 0
+  | be >= 255 = infSingle
+  -- The carry of a significand of 2 propagates into the exponent
+  | otherwise = (fromIntegral (k + 127) `shiftL` 23) + fromIntegral (o - bit 23)
+ where
+  xs = [x, y, z]
+  isNaN' w = let (_, e, f) = fields w in e == 255 && f /= 0
+  isInf' w = let (_, e, f) = fields w in e == 255 && f == 0
+  -- The squares of the normal inputs as floating point numbers: the exponent
+  -- and the significand, truncated to 24 bits, at 2^-23
+  sqs = [square e f | w <- xs, let (_, e, f) = fields w, e /= 0]
+  square e f =
+    let m = f .|. bit 23
+        s = m * m
+        h = fromIntegral (s `shiftR` 47)
+     in (2 * (e - 127) + h, s `shiftR` (23 + h))
+  eMax = maximum (map fst sqs)
+  -- Aligned to the largest square at 2^-25, rounded down; a square shifted by
+  -- more than 24 places counts as zero. The sum is in [1, 12) (at 2^-25).
+  sumSq = sum [(m `shiftL` 2) `shiftR` d | (e, m) <- sqs, let d = eMax - e, d <= 24]
+  l | sumSq >= bit 27 = 2
+    | sumSq >= bit 26 = 1
+    | otherwise = 0 :: Int
+  -- Rounded to nearest at 24 bits, ties up
+  q0 = (sumSq `shiftR` (1 + l) + 1) `shiftR` 1
+  (q, l') = if q0 >= bit 24 then (q0 `shiftR` 1, l + 1) else (q0, l)
+  -- The square root of q * 2^(eMax + l' - 23), with an extra half unit in the
+  -- last place before the truncation
+  (k, p) = (eMax + l') `divMod` 2
+  o = (rootPoly sqrtTable mults p (p * 128) (q - bit 23) + bit 20) `shiftR` 21
+  be = k + 127 + fromIntegral (o `shiftR` 24)
 
 -- * Reciprocal square root
 

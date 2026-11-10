@@ -39,6 +39,7 @@ module Clash.Cores.Intel.Floating.Internal
   , roundToFloat
   , sqrtModel
   , cbrtModel
+  , hypotModel
   , recipModel
   , rsqrtModel
   , expModel
@@ -181,6 +182,31 @@ sqrtModel fam = onBits (sqrtSingle (familyMultipliers fam))
 -- Cyclone 10 LP and Cyclone V, at several latencies.
 cbrtModel :: DeviceFamily -> Float -> Float
 cbrtModel fam = onBits (cbrtSingle (familyMultipliers fam))
+
+-- | Model of the three-dimensional hypotenuse of the IP,
+-- @sqrt (x^2 + y^2 + z^2)@, see 'sqrtModel'. The IP truncates the squares to
+-- 24 bits, and the smaller ones further when it aligns them to the largest,
+-- rounds their sum to nearest and takes its square root like 'sqrtModel', but
+-- with a larger rounding constant. So the result is not always faithfully
+-- rounded: it can be off by up to about 1.4 units in the last place in either
+-- direction (by a unit or more for about 0.5% of random inputs), and even
+-- @hypot x 0 0@ is sometimes one unit above @|x|@. Subnormal inputs are
+-- treated as zero and the signs of the inputs are ignored. A NaN input gives 'intelNaN', otherwise an
+-- infinite input gives infinity; results of @2^128@ or more overflow to
+-- infinity.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E, Cyclone 10 LP and Cyclone V on 97 million inputs each: all
+-- inputs of 14 binades with the other inputs fixed, chosen to reach every
+-- input of the square root and the edge cases of the alignment; inputs with
+-- exponents that differ by up to 30 in all positions; all combinations of
+-- special values; inputs near the overflow boundary; and two million inputs
+-- that tell candidate models apart or are close to a rounding boundary. Other
+-- latencies and frequencies were checked on 4.7 million of those inputs.
+hypotModel :: DeviceFamily -> Float -> Float -> Float -> Float
+hypotModel fam x y z =
+  castWord32ToFloat
+    (hypotSingle (familyMultipliers fam) (castFloatToWord32 x) (castFloatToWord32 y) (castFloatToWord32 z))
 
 -- | Model of the reciprocal of the IP. It is the IEEE 754 reciprocal, rounded
 -- to nearest, ties to even, of the input with subnormal inputs treated as zero
