@@ -4,9 +4,9 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of the square root, reciprocal square root, reciprocal,
-exponentials and logarithms (natural, base 2 and base 10) of Intel's Floating
-Point Functions IP (@altera_fp_functions@) in single precision, see
-Note [Bit-exact models].
+exponentials and logarithms (natural, base 2, base 10 and @log (1 + x)@) of
+Intel's Floating Point Functions IP (@altera_fp_functions@) in single
+precision, see Note [Bit-exact models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -22,6 +22,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , logSingle
   , log2Single
   , log10Single
+  , log1pSingle
   ) where
 
 import Prelude
@@ -215,6 +216,24 @@ these differences, found by the same format search on all inputs in
 
 In both, the sum is computed exactly and rounded once to nearest, ties away
 from zero, and the special cases are those of the natural logarithm.
+
+ln (1 + x) uses the tables of the natural logarithm, with P truncated to 25
+bits instead of 24 (a rounding constant of 8 units, as there). With
+v = 1 + x:
+
+  * For v in [0.5, 2) (x in (-0.5, 1)) the result is x * P(v), with x exact:
+    the segment and y come from v rounded down to 2^-23 (v >= 1) or 2^-24
+    (v < 1), the regions of the natural logarithm of v. So there is no
+    cancellation for small x, and for |x| < 2^-24 the result is x.
+  * Otherwise v is truncated to its 24 leading bits, v = (1 + g * 2^-23) * 2^E,
+    and the result is E * ln 2 + g * 2^-23 * P(v) as for the natural
+    logarithm.
+
+The result is rounded once to nearest, ties away from zero. Zero and subnormal
+inputs give a zero of the same sign, -1 gives -inf, x < -1, -inf and NaN give
+NaN and +inf gives +inf. This was found by testing the hypothesis "the natural
+logarithm's datapath applied to 1 + x" against the IP, and varying where P is
+truncated and how v is rounded: only this combination matched.
 
 The reciprocal is correctly rounded (round to nearest, ties to even) and
 flushes subnormal inputs to zero, with a quirk at the bottom of the exponent
@@ -582,7 +601,7 @@ logPoly mults i y = (c0 + 8 + lnT2 mults c2 c1 y) `shiftR` 6
   (c2, c1, c0) = coefs logTable i
 
 -- | The part @C2 * y^2 + C1 * y@ of the polynomials of the natural and base
--- 10 logarithms, in the units of the table
+-- 10 logarithms and of @log (1 + x)@, in the units of the table
 lnT2 :: Multipliers -> Int64 -> Int64 -> Int64 -> Int64
 lnT2 mults c2 c1 y = case mults of
   FullMultipliers ->
@@ -685,3 +704,61 @@ log10Poly mults k i y =
   (((c0 + 8) `shiftL` k) + lnT2 mults (c2 `shiftL` k) (c1 `shiftL` k) y) `shiftR` 5
  where
   (c2, c1, c0) = coefs log10Table i
+
+-- * Natural logarithm of 1 + x
+
+-- | The IP's @log (1 + x)@ in single precision, on bit patterns
+log1pSingle :: Multipliers -> Word32 -> Word32
+log1pSingle mults w
+  | e == 255 = if f /= 0 || neg then nanSingle else infSingle
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = w .&. bit 31
+  -- x <= -1
+  | neg && e >= 127 = if e == 127 && f == 0 then 0xFF800000 else nanSingle
+  -- 1 + x in [0.5, 2): x * P (1 + x), at 2^-(e' + 25), with x = m * 2^-e' at
+  -- 2^-e' = 2^(e - 150) and P at 2^-25 or 2^-24
+  | small =
+      if v >= bit 24
+        then
+          -- 1 + x in [1, 2), at 2^-23
+          let v' = (v - bit 24) `shiftR` 1
+          in  roundAt (175 - e) (mx * log1pPoly mults ((if testBit v' 22 then 128 else 0) + jv v') v')
+        else
+          -- 1 + x in [0.5, 1), at 2^-24
+          let v' = v - bit 23
+          in  roundAt (174 - e) (mx * log1pPoly mults ((if testBit v' 22 then 384 else 256) + jv v') v')
+  -- Otherwise 1 + x = (1 + g * 2^-23) * 2^ex truncated to 24 bits:
+  -- ex * ln 2 + g * P at 2^-48, ln 2 rounded to 21 fraction bits
+  | otherwise =
+      roundAt 48
+        (g * log1pPoly mults ((if testBit g 22 then 128 else 0) + jv g) g
+          + (fromIntegral ex * 1453635) `shiftL` 27)
+ where
+  (neg, e, f) = fields w
+  m = f .|. bit 23
+  mx = if neg then negate m else m
+  -- 1 + x in [0.5, 2): x in (-0.5, 1)
+  small = if neg then e <= 125 else e <= 126
+  -- 1 + x at 2^-24, rounded down (x = +-m * 2^-(sh + 24))
+  sh = 126 - e
+  v | neg = bit 24 + (negate m `shiftR` sh)
+    | otherwise = bit 24 + (m `shiftR` sh)
+  jv u = fromIntegral ((u `shiftR` 15) .&. 127)
+  -- 1 + x with its 24 leading bits, as 1 + g * 2^-23 times 2^ex
+  (ex, g)
+    -- 1 is below the last bit of x
+    | e > 150 = (e - 127, f)
+    | otherwise =
+        let -- 1 + x at 2^-(150 - e), x is positive or in (-1, -0.5]
+            u = bit (150 - e) + mx
+            nb = 64 - countLeadingZeros u
+            u' | nb >= 24 = u `shiftR` (nb - 24)
+               | otherwise = u `shiftL` (24 - nb)
+        in  (nb - 1 - (150 - e), u' - bit 23)
+
+-- | P = ln (1 + z) / z truncated to 25 bits (units of 2^-25 or 2^-24): the
+-- 'logPoly' of the natural logarithm with one more bit
+log1pPoly :: Multipliers -> Int -> Int64 -> Int64
+log1pPoly mults i u = (c0 + 8 + lnT2 mults c2 c1 (u .&. 0x7FFF)) `shiftR` 5
+ where
+  (c2, c1, c0) = coefs logTable i

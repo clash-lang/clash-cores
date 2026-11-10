@@ -59,6 +59,9 @@ module Clash.Cores.Intel.Floating
   , log10With
   , log10
   , E.Log10DefDelay
+  , log1pWith
+  , log1p
+  , E.Log1pDefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -449,6 +452,31 @@ log10
   -> DSignal dom (n + E.Log10DefDelay) Float
 log10 fam = withFrozenCallStack $ hideClockResetEnable (E.log10 fam)
 {-# INLINE log10 #-}
+
+-- | Customizable floating point natural logarithm of one plus its argument, @log (1 + x)@. See 'E.log1pWith'.
+log1pWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+log1pWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.log1pWith cfg fam)
+{-# INLINE log1pWith #-}
+
+-- | Floating point natural logarithm of one plus its argument, @log (1 + x)@, with the default configuration and delay. See
+-- 'E.log1p'.
+log1p
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.Log1pDefDelay) Float
+log1p fam = withFrozenCallStack $ hideClockResetEnable (E.log1p fam)
+{-# INLINE log1p #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With

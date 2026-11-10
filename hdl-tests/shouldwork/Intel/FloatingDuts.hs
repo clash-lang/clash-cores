@@ -143,6 +143,11 @@ log10Dut :: Dut Float (Vec 2 Float)
 log10Dut clk rst en i = bundle (unary (E.log10 simFamily) clk rst en i :> unary (E.log10With @10 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE log10Dut #-}
 
+-- | E.log1p, E.log1pWith @10
+log1pDut :: Dut Float (Vec 2 Float)
+log1pDut clk rst en i = bundle (unary (E.log1p simFamily) clk rst en i :> unary (E.log1pWith @10 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE log1pDut #-}
+
 -- | Positive floats with exponents (biased) in @[lo, lo + n)@ and random
 -- fractions, after the 'specials'
 floatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]
@@ -168,3 +173,13 @@ signedFloatsIn lo n cnt seed = specials <> P.map mk (words32 cnt seed)
   mk w = let v = fromIntegral w :: Word32
              e = lo + (v `shiftR` 23) `P.mod` n
          in castWord32ToFloat ((v .&. 0x807fffff) .|. (e `shiftL` 23))
+
+-- | Floats where 'E.log1p' is finite: positive ones with exponents (biased) in
+-- @[90, 160)@ and negative ones above -1 (exponents below 127)
+log1pInputs :: Int -> Word64 -> [Float]
+log1pInputs cnt seed = specials <> P.map mk (words32 cnt seed)
+ where
+  mk w = let v = fromIntegral w :: Word32
+             e = 90 + (v `shiftR` 23) `P.mod` 70
+             s = if testBit v 31 && e < 127 then bit 31 else 0
+         in castWord32ToFloat ((v .&. 0x7fffff) .|. (e `shiftL` 23) .|. s)
