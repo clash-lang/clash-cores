@@ -123,6 +123,16 @@ logDut :: Dut Float (Vec 2 Float)
 logDut clk rst en i = bundle (unary (E.log simFamily) clk rst en i :> unary (E.logWith @10 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE logDut #-}
 
+-- | E.log2, E.log2With @10
+log2Dut :: Dut Float (Vec 2 Float)
+log2Dut clk rst en i = bundle (unary (E.log2 simFamily) clk rst en i :> unary (E.log2With @10 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE log2Dut #-}
+
+-- | E.log10, E.log10With @10
+log10Dut :: Dut Float (Vec 2 Float)
+log10Dut clk rst en i = bundle (unary (E.log10 simFamily) clk rst en i :> unary (E.log10With @10 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE log10Dut #-}
+
 -- | Positive floats with exponents (biased) in @[lo, lo + n)@ and random
 -- fractions, after the 'specials'
 floatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]

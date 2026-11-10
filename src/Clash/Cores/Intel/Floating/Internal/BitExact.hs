@@ -4,8 +4,9 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of the square root, reciprocal square root, reciprocal,
-exponential and natural logarithm of Intel's Floating Point Functions IP
-(@altera_fp_functions@) in single precision, see Note [Bit-exact models].
+exponential and logarithms (natural, base 2 and base 10) of Intel's Floating
+Point Functions IP (@altera_fp_functions@) in single precision, see
+Note [Bit-exact models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -17,6 +18,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , recipSingle
   , expSingle
   , logSingle
+  , log2Single
+  , log10Single
   ) where
 
 import Prelude
@@ -28,7 +31,8 @@ import Data.Int (Int64)
 import Data.Word (Word32)
 
 import Clash.Cores.Intel.Floating.Internal.Coefficients
-  (expCoefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients)
+  ( expCoefficients, log10Coefficients, log2Coefficients, logCoefficients
+  , rsqrtCoefficients, sqrtCoefficients )
 
 {- Note [Bit-exact models]
 The Floating Point Functions user guide documents the latency and the
@@ -42,7 +46,7 @@ multiplier sizes of a synthesis). The polynomial coefficients are computed from
 first principles, see "Clash.Cores.Intel.Floating.Internal.Coefficients"; no
 data was taken from the IP.
 
-The square root, the reciprocal square root, the exponential and the logarithm
+The square root, the reciprocal square root, the exponential and the logarithms
 use a piecewise polynomial of degree two, evaluated in Horner form:
 
   T1 = C2 * y'      (y' = the top bits of y)
@@ -59,10 +63,12 @@ selected by the device family ('Multipliers'):
     multipliers): T1 is rounded half up, and S1 * y is a truncated multiplier
     that leaves out the partial products below a "staircase" of tiles,
     compensated by a constant. For the square root, the reciprocal square
-    root and the logarithm the kept partial products S1_i * y_j are: all i for
-    j >= j0 + 8, i >= 3 for the 3 rows below that, i >= 6 for the rest, with
-    j0 = 1 for the square root and 0 otherwise (a 17x17 signed multiplier
-    plus an 8x9 and a 3x3 one, as in the synthesis report). The exponential
+    root and the natural and base 10 logarithms the kept partial products
+    S1_i * y_j are: all i for j >= j0 + 8, i >= 3 for the 3 rows below that,
+    i >= 6 for the rest, with j0 = 1 for the square root and 0 otherwise (a
+    17x17 signed multiplier plus an 8x9 and a 3x3 one, as in the synthesis
+    report). The base 2 logarithm keeps all i for j >= 8, i >= 3 for j = 6
+    and 7 and i >= 5 for the rest (17x17, 8x9 and 2x2). The exponential
     leaves out S1_i * y_j for i < 2, j < 12; 2 <= i < 7, j < 7 and
     7 <= i < 11, j < 3.
 
@@ -140,6 +146,28 @@ C0 gets a rounding constant of 8 units (2^-27 for P < 1, 2^-26 for P >= 1).
 Zero and subnormal inputs give -inf; negative numbers, -inf and NaN give NaN;
 +inf gives +inf and 1 gives +0.
 
+The base 2 and base 10 logarithms have the same structure as the natural
+logarithm (the same regions and segments, and their own tables of
+log_b(1 + z) / z, see 'log2Coefficients' and 'log10Coefficients'), with
+these differences, found by the same format search on all inputs in
+[0.5, 2) and by checking the constants on all inputs in [0.25, 0.5) and
+[2, 4):
+
+  * Base 2: P is in [1, 2] in all four regions. The coefficients are on the
+    grid 2^-27 (one bit coarser than the natural logarithm's for P < 1, as the
+    narrower tables in the synthesis report suggest), T1 uses the top 12 bits
+    of y, the rounding constant is 2^-25 and P is truncated to 2^-24 (25 bits).
+    Outside [0.5, 1) the result is E + z * P, computed exactly: powers of two
+    give exact results.
+  * Base 10: P is in [0.30, 0.61], the coefficients are on the grid 2^-29 with
+    a rounding constant of 2^-27. For x in [0.5, 1) P is truncated to 2^-25;
+    elsewhere (P < 0.5) the polynomial is evaluated one bit finer (as if the
+    coefficients were doubled), and P truncated to 2^-26. Elsewhere the
+    result is E * log10 2 + z * P, with log10 2 rounded to 30 fraction bits.
+
+In both, the sum is computed exactly and rounded once to nearest, ties away
+from zero, and the special cases are those of the natural logarithm.
+
 The reciprocal is correctly rounded (round to nearest, ties to even) and
 flushes subnormal inputs to zero, with a quirk at the bottom of the exponent
 range: the result is computed with an unbounded exponent, and a result whose
@@ -183,7 +211,7 @@ coefs :: Table -> Int -> (Int64, Int64, Int64)
 coefs (Table c2 c1 c0) i = (unsafeAt c2 i, unsafeAt c1 i, unsafeAt c0 i)
 {-# INLINE coefs #-}
 
-sqrtTable, rsqrtTable, expTable, logTable :: Table
+sqrtTable, rsqrtTable, expTable, logTable, log2Table, log10Table :: Table
 sqrtTable = mkTable sqrtCoefficients
 {-# NOINLINE sqrtTable #-}
 rsqrtTable = mkTable rsqrtCoefficients
@@ -192,6 +220,10 @@ expTable = mkTable expCoefficients
 {-# NOINLINE expTable #-}
 logTable = mkTable logCoefficients
 {-# NOINLINE logTable #-}
+log2Table = mkTable log2Coefficients
+{-# NOINLINE log2Table #-}
+log10Table = mkTable log10Coefficients
+{-# NOINLINE log10Table #-}
 
 -- | Fields of a single precision number: sign bit, biased exponent, fraction
 fields :: Word32 -> (Bool, Int, Int64)
@@ -373,7 +405,7 @@ logSingle mults w
   | e == 0 = 0xFF800000
   | neg = nanSingle
   | e == 127 && f == 0 = 0
-  | otherwise = roundLog s
+  | otherwise = roundAt 47 s
  where
   (neg, e, f) = fields w
   j = fromIntegral ((f `shiftR` 15) .&. 127)
@@ -391,22 +423,27 @@ logSingle mults w
 
 -- | P = ln (1 + z) / z truncated to 24 bits (units of 2^-24 or 2^-23)
 logPoly :: Multipliers -> Int -> Int64 -> Int64
-logPoly mults i y = (c0 + 8 + t2) `shiftR` 6
+logPoly mults i y = (c0 + 8 + lnT2 mults c2 c1 y) `shiftR` 6
  where
   (c2, c1, c0) = coefs logTable i
-  t2 = case mults of
-    FullMultipliers ->
-      let s1 = c1 + ((c2 * (y `shiftR` 2)) `shiftR` 13)
-      in  (s1 * y) `shiftR` 15
-    TruncatedMultipliers ->
-      let s1 = c1 + ((c2 * (y `shiftR` 2) + bit 12) `shiftR` 13)
-      -- Compensation constant 2^13 (2^-32 for the regions with P < 1)
-      in  (staircase 0 s1 y + bit 13) `shiftR` 15
 
--- | Round a non-zero value in units of 2^-47 to single precision: to nearest,
--- ties away from zero
-roundLog :: Int64 -> Word32
-roundLog s =
+-- | The part @C2 * y^2 + C1 * y@ of the polynomials of the natural and base
+-- 10 logarithms, in the units of the table
+lnT2 :: Multipliers -> Int64 -> Int64 -> Int64 -> Int64
+lnT2 mults c2 c1 y = case mults of
+  FullMultipliers ->
+    let s1 = c1 + ((c2 * (y `shiftR` 2)) `shiftR` 13)
+    in  (s1 * y) `shiftR` 15
+  TruncatedMultipliers ->
+    let s1 = c1 + ((c2 * (y `shiftR` 2) + bit 12) `shiftR` 13)
+    -- Compensation constant 2^13 (2^-32 for the regions with P < 1 of the
+    -- natural logarithm)
+    in  (staircase 0 s1 y + bit 13) `shiftR` 15
+
+-- | Round a non-zero value in units of 2^-g to single precision: to nearest,
+-- ties away from zero. The result must be a normal number.
+roundAt :: Int -> Int64 -> Word32
+roundAt g s =
       (if s < 0 then bit 31 else 0)
   .|. (fromIntegral be `shiftL` 23)
   .|. fromIntegral (o .&. 0x7FFFFF)
@@ -416,6 +453,81 @@ roundLog s =
   d = 64 - countLeadingZeros a - 24
   o0 | d <= 0 = a `shiftL` negate d
      | otherwise = (a + bit (d - 1)) `shiftR` d
-  -- The biased exponent: 2^-47 * 2^d * 2^23 * 2^127
-  (o, be) | o0 >= bit 24 = (o0 `shiftR` 1, d + 104)
-          | otherwise = (o0, d + 103)
+  -- The biased exponent: 2^-g * 2^d * 2^23 * 2^127
+  (o, be) | o0 >= bit 24 = (o0 `shiftR` 1, d - g + 151)
+          | otherwise = (o0, d - g + 150)
+
+-- * Base 2 logarithm
+
+-- | The IP's base 2 logarithm in single precision, on bit patterns
+log2Single :: Multipliers -> Word32 -> Word32
+log2Single mults w
+  | e == 255 = if f /= 0 || neg then nanSingle else infSingle
+  -- Zeros and subnormal numbers
+  | e == 0 = 0xFF800000
+  | neg = nanSingle
+  | e == 127 && f == 0 = 0
+  -- x in [0.5, 1): z = x - 1 at 2^-24, P at 2^-24
+  | e == 126 = roundAt 48 ((f - bit 23) * log2Poly mults ((if hi then 384 else 256) + j) y)
+  -- z at 2^-23, P at 2^-24, the exponent (e - 127) exactly
+  | otherwise =
+      roundAt 47
+        (f * log2Poly mults ((if hi then 128 else 0) + j) y
+          + fromIntegral (e - 127) `shiftL` 47)
+ where
+  (neg, e, f) = fields w
+  j = fromIntegral ((f `shiftR` 15) .&. 127)
+  hi = testBit f 22
+  y = f .&. 0x7FFF
+
+-- | P = log2 (1 + z) / z, in [1, 2], truncated to 2^-24
+log2Poly :: Multipliers -> Int -> Int64 -> Int64
+log2Poly mults i y = (c0 + 8 + t2) `shiftR` 4
+ where
+  (c2, c1, c0) = coefs log2Table i
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = c1 + ((c2 * (y `shiftR` 3)) `shiftR` 12)
+      in  (s1 * y) `shiftR` 15
+    TruncatedMultipliers ->
+      let s1 = c1 + ((c2 * (y `shiftR` 3) + bit 11) `shiftR` 12)
+          -- Leaves out S1_i * y_j for (i < 3, j < 8) and (i < 5, j < 6)
+          p = ((s1 `shiftR` 5) * y) `shiftL` 5
+            + ((s1 .&. 31) * (y `shiftR` 8)) `shiftL` 8
+            + (((s1 `shiftR` 3) .&. 3) * ((y `shiftR` 6) .&. 3)) `shiftL` 9
+      -- Compensation constant 2^13 (2^-30)
+      in  (p + bit 13) `shiftR` 15
+
+-- * Base 10 logarithm
+
+-- | The IP's base 10 logarithm in single precision, on bit patterns
+log10Single :: Multipliers -> Word32 -> Word32
+log10Single mults w
+  | e == 255 = if f /= 0 || neg then nanSingle else infSingle
+  -- Zeros and subnormal numbers
+  | e == 0 = 0xFF800000
+  | neg = nanSingle
+  | e == 127 && f == 0 = 0
+  -- The result at 2^-49. x in [0.5, 1): z = x - 1 at 2^-24, P at 2^-25
+  | e == 126 =
+      roundAt 49 ((f - bit 23) * log10Poly mults 0 ((if hi then 384 else 256) + j) y)
+  -- z at 2^-23, P at 2^-26, (e - 127) * log10 2 with log10 2 rounded to 30
+  -- fraction bits (20201781 * 2^-26)
+  | otherwise =
+      roundAt 49
+        (f * log10Poly mults 1 ((if hi then 128 else 0) + j) y
+          + (fromIntegral (e - 127) * 20201781) `shiftL` 23)
+ where
+  (neg, e, f) = fields w
+  j = fromIntegral ((f `shiftR` 15) .&. 127)
+  hi = testBit f 22
+  y = f .&. 0x7FFF
+
+-- | P = log10 (1 + z) / z truncated to 2^-(25 + k). For k = 1 (x in [1, 2),
+-- where P < 0.5), the polynomial is evaluated with the coefficients doubled,
+-- one bit finer.
+log10Poly :: Multipliers -> Int -> Int -> Int64 -> Int64
+log10Poly mults k i y =
+  (((c0 + 8) `shiftL` k) + lnT2 mults (c2 `shiftL` k) (c1 `shiftL` k) y) `shiftR` 5
+ where
+  (c2, c1, c0) = coefs log10Table i
