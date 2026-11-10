@@ -20,9 +20,19 @@ module Clash.Cores.Intel.Cordic.Internal
   , sinCosWidths
   , sinCosModel
   , sinCosMargins
+    -- * Arctangent and vector translation
+  , AtanFunction(..)
+  , AtanWidths(..)
+  , atanWidths
+  , atanWidthsOrError
+  , atanModel
+  , vecTranslateMagnitude
+  , vecTranslateFracR
+  , atanMargins
     -- * Instantiation
   , cordicIp
   , cordicIpSinCos
+  , cordicIpAtan
   , pipeline
   , enPort
     -- * Constants (exported for testing)
@@ -30,6 +40,8 @@ module Clash.Cores.Intel.Cordic.Internal
   , isqrt
   , atanRounded
   , halfPiRounded
+  , piFloor
+  , atanSumRounded
   , inverseGainRounded
   ) where
 
@@ -37,6 +49,7 @@ import Prelude
 
 import Data.Bits (shiftL, shiftR)
 import Data.Ratio (denominator, numerator, (%))
+import GHC.Stack (HasCallStack)
 
 import Clash.Explicit.Prelude
   (BitVector, Clock, Enable, KnownDomain, KnownNat, NFDataX, Reset, Signal, SNat(..),
@@ -118,6 +131,85 @@ and output fractions from 1 to 34, signed and unsigned. With more than 34
 fractional output bits, a few results (signed 36 and 38, unsigned 38) and
 eventually most results (61 and 63) differ: the IP's datapath for those
 widths is different, and was not pursued. The API rejects those widths.
+
+The arctangent (ATAN2) and the vector translation (VECTRANSLATE) were
+inferred the same way, with exhaustive simulations of small configurations
+(up to 2^20 input pairs), random and near-boundary inputs for wide ones, and
+some 800 Quartus synthesis runs whose reports give the number of iterations
+and the widths of the X and Y registers for each format. Let @n0@ be the
+width of the angle output (@fOut + 3@ for signed and @fOut + 2@ for unsigned
+inputs) and @wm@ the magnitude bits of the inputs (@w - 1@ and @w@):
+
+1. The IP takes @|x|@ and @|y|@ and runs a CORDIC in vectoring mode on them:
+   rotate clockwise if Y >= 0, anticlockwise otherwise, with shifts @0, 1 ..
+   n - 1@. Normally @n = n0@.
+
+2. X and Y start as the inputs, as integers in units of the last bit of the
+   inputs. The IP keeps all bits of the shifted operands until X and Y have
+   @g@ fractional bits, after that the shifted operands are truncated (that
+   is the same as starting with @g@ fractional bits). Normally @g = max n0
+   (lambda n0 - 1 - wm)@, where @lambda@ is a width requirement that only
+   depends on @n0@. Its values (16, 18, 19, 21, 24, 27, 28, ... for @n0 = 9,
+   10, 11 ...@) are irregular, and no formula for them was found: they were
+   read from the register widths of the Y datapath in the synthesis reports
+   (the width of every Y register equals its most significant bit, which
+   falls by one per iteration, plus @g@), for each @n0@ up to 51, and
+   confirmed by the exhaustive simulations. 'lambdaTable' has them. They are
+   the same for signed and unsigned inputs, except at @n0 = 19@, and differ
+   for VECTRANSLATE, which has its own table.
+
+3. If that would give X and Y more than @n0 + 10@ fractional bits, the
+   generator instead adds one or two iterations (for some formats, listed in
+   'transitions') or uses @n = fOut + 8@ iterations with @g = n0@. These
+   formats are the ones with many more output bits than input bits.
+
+4. From the shift @(wm + g + 5) \`div\` 2@ on, the IP stops updating X:
+   the change would be below the last bit of X by the generator's bounds.
+   (The synthesis reports show this for every format measured.)
+
+5. ATAN2 accumulates the rotation angle exactly, with the constant of
+   iteration @i@, arctan(2^-i), rounded to the nearest multiple of
+   @2^-(fZ + 2 i)@, where @fZ = n0 + 4 + ceil(log2(n0 + 1))@: the same
+   formula as for sine and cosine, and the angle's registers in the
+   synthesis reports grow by two bits per iteration. VECTRANSLATE instead
+   looks up the sum of the signed constants of each group of four iterations
+   in a table, with entries rounded to the nearest multiple of @2^-(fOut + 2 +
+   ceil(n / 4))@, and adds those.
+
+6. For signed inputs, the angle is truncated to @fOut + 2@ fractional bits,
+   subtracted from pi, truncated to @fOut + 3@ fractional bits, if @x < 0@,
+   negated if @y < 0@, and rounded to @fOut@ fractional bits (ties towards
+   positive infinity). For @x = 0@ the angle before the reconstruction is
+   pi\/2 rounded to @fOut + 2@ fractional bits, for @y = 0@ it is zero, and
+   @atan2 0 0 = 0@. For unsigned inputs the angle is rounded to @fOut@
+   fractional bits (ties towards positive infinity), and for @x = 0@ the
+   result is pi\/2 rounded to @fOut - 1@ fractional bits, in an @fOut + 1@
+   bit field (so it wraps around to 0 for @fOut = 1@).
+
+7. VECTRANSLATE's magnitude is the final X rounded to the format of the
+   magnitude (ties towards positive infinity). With scale factor
+   compensation, X is truncated to two more fractional bits than the
+   magnitude, multiplied by 1\/K rounded to @fOut + 5@ fractional bits, and
+   rounded by adding three quarters of a unit and truncating.
+
+The results don't depend on the fractional bits of the inputs, as atan2 is
+scale invariant and the IP sizes everything relative to the last bit of the
+inputs. The ATAN2 model reproduced all results of 58 exhaustively simulated
+formats (input widths 4 to 10, output fractions 1 to 24, signed and
+unsigned) and of 37,000 to 40,000 random and near-boundary input pairs for
+each of 23 formats with input widths up to 64 and output fractions up to 45.
+The VECTRANSLATE model reproduced both outputs of 15 exhaustively simulated
+formats (output fractions 3 to 16, 9 of them with scale factor compensation)
+and of 4 sampled ones. For VECTRANSLATE with more than 16 fractional output
+bits, the compensated magnitude (from about 30 bits) and the angle's tables
+(in one of six formats tried) differ from these rules, so the API stops at
+16. The API only accepts formats where these rules were measured, see
+'atanWidths'. With more than 45 (signed) or 40 (unsigned) fractional output
+bits, ATAN2's generator makes other choices that no rule here covers.
+
+The IP's @useLUTs@ option makes ATAN2 compute the angle with tables like
+VECTRANSLATE. That matched for the three configurations tried, but the width
+requirement of such configurations was not measured, so it isn't offered.
 -}
 
 ------------------------------------------------------------------------------
@@ -206,6 +298,26 @@ halfPiFloor k = floorBounds (scaleBounds k halfPiBounds)
 
 halfPiBounds :: Bounds
 halfPiBounds b = let (lo, hi) = piBounds b in (lo / 2, hi / 2)
+
+-- | @floor(pi * 2^k)@
+piFloor :: Int -> Integer
+piFloor k = floorBounds (scaleBounds k piBounds)
+
+-- | Bounds on @atan(2^-i)@
+atanBounds :: Int -> Bounds
+atanBounds 0 b = let (lo, hi) = piBounds b in (lo / 4, hi / 4)
+atanBounds i b = atanRecipBounds (2 ^ i) b
+
+-- | @round(sum [+-atan(2^-i)] * 2^k)@, rounding to nearest: the sum of the
+-- arctangents of the given shifts, with the given signs (@True@ for plus)
+atanSumRounded :: [(Int, Bool)] -> Int -> Integer
+atanSumRounded terms k = roundBounds (scaleBounds k sumBounds)
+ where
+  m = length terms
+  sumBounds b =
+    let bs = [ if plus then (lo, hi) else (negate hi, negate lo)
+             | (i, plus) <- terms, let (lo, hi) = atanBounds i (b + m) ]
+    in (sum (map fst bs), sum (map snd bs))
 
 -- | The inverse of the limit of the CORDIC gain, @prod_{i>=0} 1 / sqrt(1 +
 -- 2^-2i)@ (about 0.6072529), rounded to the nearest multiple of @2^-k@
@@ -318,6 +430,257 @@ sinCosMargins SinCosWidths{..} = \a ->
     | z >= 0 = go rest (z - at) (min m (abs z)) (x - (y `shiftR` i), y + (x `shiftR` i))
     | otherwise = go rest (z + at) (min m (abs z)) (x + (y `shiftR` i), y - (x `shiftR` i))
 
+------------------------------------------------------------------------------
+-- Arctangent and vector translation
+------------------------------------------------------------------------------
+
+-- | The functions of the IP that compute an angle from a vector
+data AtanFunction
+  = Atan2Function
+  -- ^ @ATAN2@: the angle
+  | VecTranslateFunction
+  -- ^ @VECTRANSLATE@: the angle and the magnitude
+  deriving (Eq, Show)
+
+-- | Parameters of the datapath of the arctangent and the vector translation,
+-- see @Note [Inferring the datapath of ALTERA_CORDIC]@
+data AtanWidths = AtanWidths
+  { atFunction :: AtanFunction
+  -- ^ Which function
+  , atSigned :: Bool
+  -- ^ Whether the inputs are signed
+  , atWidthIn :: Int
+  -- ^ Width of the inputs
+  , atFracOut :: Int
+  -- ^ Fractional bits of the angle
+  , atIterations :: Int
+  -- ^ Number of iterations, with shifts @0 .. atIterations - 1@
+  , atGuard :: Int
+  -- ^ Fractional bits of X and Y below the last bit of the inputs
+  , atXFreeze :: Int
+  -- ^ X is only updated in the iterations with a shift below this
+  , atFracZ :: Int
+  -- ^ Fractional bits of the angle in the iterations: of the constant of the
+  -- first iteration for ATAN2 (the constant of iteration @i@ has
+  -- @atFracZ + 2 * i@), of the table entries for VECTRANSLATE
+  } deriving (Eq, Show)
+
+-- | The width requirement of X and Y, indexed by the nominal number of
+-- iterations @n0@ (@fOut + 3@ for signed and @fOut + 2@ for unsigned inputs):
+-- with @wm@ magnitude bits in the inputs (@w - 1@ for signed and @w@ for
+-- unsigned inputs), X and Y have at least @lambda n0 - 1 - wm@ fractional
+-- bits below the last bit of the inputs. Read from the register widths in
+-- Quartus' synthesis reports, see @Note [Inferring the datapath of
+-- ALTERA_CORDIC]@. No term below @n0 = 9@.
+lambdaTable :: AtanFunction -> Bool -> Int -> Int
+lambdaTable fun signed n0 =
+  case (fun, signed) of
+    (Atan2Function, False) | n0 == 19 -> 36
+    (Atan2Function, _) -> from 9 atan2Lambdas
+    (VecTranslateFunction, True) -> from 9 vtLambdasSigned
+    (VecTranslateFunction, False) -> from 8 vtLambdasUnsigned
+ where
+  from k xs
+    | n0 >= k && n0 < k + length xs = xs !! (n0 - k)
+    | otherwise = 0
+  atan2Lambdas =
+    [ 16, 18, 19, 21, 24, 27, 28, 31, 32, 34, 37, 39, 40, 42, 46, 47, 49, 52, 53, 55, 57, 58
+    , 62, 64, 65, 67, 70, 72, 73, 77, 78, 81, 82, 84, 85, 87, 90, 92, 94, 96, 99, 100, 102 ]
+  vtLambdasSigned =
+    [ 16, 17, 21, 22, 24, 27, 28, 32, 33, 36, 37, 39, 41, 45, 46, 49, 50, 51, 53, 56, 59, 61
+    , 62, 64, 66, 67, 70, 72, 74, 76, 78, 80, 82, 84, 87 ]
+  vtLambdasUnsigned =
+    [ 15, 16, 18, 19, 23, 24, 27, 30, 32, 34, 37, 39, 39, 42, 45, 47, 48, 50, 52, 55, 56, 59
+    , 60, 62, 65, 66, 69, 70, 72, 74, 76, 79, 80, 82, 84 ]
+
+-- | Configurations where the generator adds one or two iterations instead of
+-- widening X and Y beyond @n0 + 10@ fractional bits: @(wm, n0)@ to the extra
+-- iterations and the fractional bits of X and Y relative to @n0@. From the
+-- synthesis reports of signed configurations; the same cells hold for
+-- unsigned ones with the same @(wm, n0)@ where those were measured.
+transitions :: [((Int, Int), (Int, Int))]
+transitions =
+  [ ((3, 16), (2, 10)), ((6, 19), (1, 10)), ((10, 23), (1, 10)), ((11, 23), (1, 9))
+  , ((14, 26), (1, 10)), ((19, 31), (2, 10)), ((20, 32), (1, 10)), ((23, 35), (2, 10))
+  , ((27, 38), (1, 10)), ((29, 40), (1, 10)) ]
+
+-- | Parameters of the datapath of the arctangent (or the vector translation)
+-- for signed or unsigned inputs of width @w@ and an angle with @fOut@
+-- fractional bits, or the reason why the model doesn't cover that format.
+atanWidths :: AtanFunction -> Bool -> Int -> Int -> Either String AtanWidths
+atanWidths fun signed w fOut
+  | w < 4 || w > 64 = Left "input width outside 4 .. 64"
+  | fOut < 1 = Left "no fractional bits in the angle"
+  | fOut > maxA = Left ("more than " <> show maxA <> " fractional bits in the angle")
+  | fun == VecTranslateFunction && n0 < (if signed then 9 else 8) && w < 8 = Left
+      "inputs of fewer than 8 bits with this output format were not measured"
+  | g0 <= n0 + 10 = Right (mk n0 g0)
+  | fun == VecTranslateFunction || fOut > 40 = Left
+      "the generator uses more iterations for this format, which was not measured"
+  | Just (dn, dg) <- lookup (wm, n0) transitions = Right (mk (n0 + dn) (n0 + dg))
+  | otherwise = Right (mk (fOut + 8) n0)
+ where
+  -- The largest fOut covered
+  maxA = case (fun, signed) of
+    (Atan2Function, True) -> 45
+    (Atan2Function, False) -> 40
+    (VecTranslateFunction, _) -> 16
+  n0 = fOut + (if signed then 3 else 2)
+  wm = if signed then w - 1 else w
+  g0 = max n0 (lambdaTable fun signed n0 - 1 - wm)
+  mk n g = AtanWidths
+    { atFunction = fun
+    , atSigned = signed
+    , atWidthIn = w
+    , atFracOut = fOut
+    , atIterations = n
+    , atGuard = g
+    , atXFreeze = (wm + g + 5) `div` 2
+    , atFracZ = case fun of
+        Atan2Function -> n0 + 4 + ceilLog2 (n0 + 1)
+        VecTranslateFunction -> fOut + 2 + tables n
+    }
+
+-- | 'atanWidths', or an error naming the unsupported format
+atanWidthsOrError :: HasCallStack => AtanFunction -> Bool -> Int -> Int -> AtanWidths
+atanWidthsOrError fun signed w fOut =
+  either err id (atanWidths fun signed w fOut)
+ where
+  err msg = error $
+    "Clash.Cores.Intel.Cordic: no simulation model for " <> name <> " with "
+      <> (if signed then "signed" else "unsigned") <> " inputs of " <> show w
+      <> " bits and " <> show fOut <> " fractional output bits: " <> msg
+  name = case fun of
+    Atan2Function -> "ATAN2"
+    VecTranslateFunction -> "VECTRANSLATE"
+
+-- | Number of tables of four rotation directions of VECTRANSLATE
+tables :: Int -> Int
+tables n = (n + 3) `div` 4
+
+-- | Model of the arctangent and the vector translation. The inputs are the
+-- raw integer values of @x@ and @y@ (two's complement values for signed
+-- inputs). Returns the raw value of the angle, with 'atFracOut' fractional
+-- bits, and the final X of the iterations, with 'atGuard' fractional bits
+-- below the last bit of the inputs (about @K * sqrt(x^2 + y^2)@, with K the
+-- CORDIC gain).
+atanModel :: AtanWidths -> Integer -> Integer -> (Integer, Integer)
+atanModel widths@AtanWidths{..} = \x y ->
+  let (xF, _, z) = core x y
+  in (finish x y z, xF)
+ where
+  core = atanCore widths
+  fOut = atFracOut
+  fZ = atanFracZ widths
+  finish x y z
+    | atSigned =
+        let
+          -- Truncate to fOut + 2 fractional bits, then reconstruct the
+          -- quadrant with a truncated pi at fOut + 3 bits
+          a0 | x == 0 = halfPiRounded (fOut + 2)
+             | y == 0 = 0
+             | otherwise = z `shiftR` (fZ - fOut - 2)
+          a = a0 `shiftL` 1
+          w1 = if x < 0 then piFloor (fOut + 3) - a else a
+          w2 = if y < 0 then negate w1 else w1
+        in if x == 0 && y == 0 then 0 else (w2 + 4) `shiftR` 3
+    | y == 0 = 0
+    | x == 0 = (halfPiRounded (fOut - 1) `shiftL` 1) `mod` (2 ^ (fOut + 1))
+    | otherwise = (z + 1 `shiftL` (fZ - fOut - 1)) `shiftR` (fZ - fOut)
+
+-- | Fractional bits of the magnitude of VECTRANSLATE (the IP's GUI derives
+-- them: the magnitude has @fOut + 3@ bits, @fOut + 2@ with scale factor
+-- compensation, and its most significant bit is one (two without
+-- compensation) above the most significant bit of the magnitude of the
+-- inputs), minus the fractional bits of the inputs. The same with and without
+-- compensation.
+vecTranslateFracR :: AtanWidths -> Int
+vecTranslateFracR AtanWidths{..} = atFracOut + 1 + (if atSigned then 1 else 0) - atWidthIn
+
+-- | The magnitude output of VECTRANSLATE, from the final X of 'atanModel'.
+-- Without scale factor compensation, X rounded to the magnitude's format,
+-- ties towards positive infinity. With compensation, X truncated to two more
+-- fractional bits than the magnitude, multiplied by the inverse of the CORDIC
+-- gain rounded to @fOut + 5@ fractional bits, plus three quarters of a unit
+-- of the magnitude, truncated.
+vecTranslateMagnitude ::
+  AtanWidths ->
+  -- | Scale factor compensation
+  Bool ->
+  Integer ->
+  Integer
+vecTranslateMagnitude widths@AtanWidths{..} sfc = \xF ->
+  if sfc
+    then ((xF `shiftR` (sh - 2)) * c + 3 `shiftL` (atFracOut + 5)) `shiftR` (atFracOut + 7)
+    else (xF + 1 `shiftL` (sh - 1)) `shiftR` sh
+ where
+  sh = atGuard - vecTranslateFracR widths
+  c = inverseGainRounded (atFracOut + 5)
+
+-- | Fractional bits of the angle at the end of the iterations
+atanFracZ :: AtanWidths -> Int
+atanFracZ AtanWidths{..} = case atFunction of
+  -- ATAN2 accumulates the constants exactly, at the precision of the last one
+  Atan2Function -> atFracZ + 2 * (atIterations - 1)
+  VecTranslateFunction -> atFracZ
+
+-- | The iterations of 'atanModel' on @|x|@ and @|y|@: the final X, the
+-- rotation directions (@True@ for a clockwise rotation), and the angle with
+-- 'atanFracZ' fractional bits, before rounding and the reconstruction of the
+-- quadrant
+atanCore :: AtanWidths -> Integer -> Integer -> (Integer, [Bool], Integer)
+atanCore widths@AtanWidths{..} = \x y ->
+  let (xF, ds) = go [0 .. atIterations - 1] (abs x `shiftL` atGuard) (abs y `shiftL` atGuard) []
+  in (xF, ds, angle ds)
+ where
+  fZ = atanFracZ widths
+  go [] x _ ds = (x, reverse ds)
+  go (i : rest) x y ds
+    | y >= 0 = go rest (upd (x + (y `shiftR` i))) (y - (x `shiftR` i)) (True : ds)
+    | otherwise = go rest (upd (x - (y `shiftR` i))) (y + (x `shiftR` i)) (False : ds)
+   where
+    -- Beyond atXFreeze, the generator leaves X alone
+    upd x' = if i < atXFreeze then x' else x
+  angle = case atFunction of
+    Atan2Function -> \ds -> sum (zipWith (\d c -> if d then c else negate c) ds consts)
+    VecTranslateFunction -> \ds -> sum (zipWith (!!) tabs (map index (chunks ds)))
+  -- ATAN2: the constant of iteration i is rounded at atFracZ + 2 i bits
+  consts =
+    [ atanRounded i fi `shiftL` (fZ - fi)
+    | i <- [0 .. atIterations - 1], let fi = atFracZ + 2 * i ]
+  -- VECTRANSLATE: tables of the sum of four constants, for all directions
+  tabs =
+    [ [ atanSumRounded [ (i, odd (v `shiftR` (i - a))) | i <- [a .. b - 1] ] atFracZ
+      | v <- [0 .. 2 ^ (b - a) - 1 :: Int] ]
+    | a <- [0, 4 .. atIterations - 1], let b = min atIterations (a + 4) ]
+  chunks [] = []
+  chunks ds = let (c, rest) = splitAt 4 ds in c : chunks rest
+  index c = sum [ if d then 2 ^ j else 0 | (j, d) <- zip [0 :: Int ..] c ]
+
+-- | How close a pair of inputs of 'atanModel' is to changing the result when
+-- a detail of the datapath changes: the smallest magnitude of Y in the second
+-- half of the iterations (in units of its last place), the distance of the
+-- angle to the point where it is truncated or rounded, and the distance of
+-- the final X to a rounding point of the magnitude (both in units of their
+-- last places in the iterations). Used to find test inputs that tell such
+-- details apart.
+atanMargins :: AtanWidths -> Int -> Integer -> Integer -> (Integer, Integer, Integer)
+atanMargins widths@AtanWidths{..} fracR = \x y ->
+  let
+    ys = scanl step (abs x `shiftL` atGuard, abs y `shiftL` atGuard) [0 .. atIterations - 1]
+    yMin = minimum (map (abs . snd) (drop (atIterations `div` 2) ys))
+    (xF, _, z) = atanCore widths x y
+  in (yMin, dist sZ z, dist sR xF)
+ where
+  fZ = atanFracZ widths
+  sZ = fZ - atFracOut - (if atSigned then 2 else 1)
+  -- Fractional bits of X below the last bit of the magnitude, minus one
+  sR = max 1 (atGuard - fracR - 1)
+  dist s v = let m = 1 `shiftL` s; r = v `mod` m in min r (m - r)
+  step (x, y) i
+    | y >= 0 = (x + (y `shiftR` i), y - (x `shiftR` i))
+    | otherwise = (x - (y `shiftR` i), y + (x `shiftR` i))
+
 -- | Change the number of fractional bits of a fixed point number, truncating
 alignTo :: Int -> Int -> Integer -> Integer
 alignTo from to v
@@ -368,6 +731,33 @@ cordicIpSinCos signed fIn fOut latency =
     :> ("fxpt_out_fraction", IntegerParam fOut)
     :> Nil )
 {-# INLINE cordicIpSinCos #-}
+
+-- | The ALTERA_CORDIC IP computing the arctangent (@ATAN2@) or the vector
+-- translation (@VECTRANSLATE@, with or without scale factor compensation)
+cordicIpAtan ::
+  AtanFunction ->
+  -- | Signed inputs?
+  Bool ->
+  -- | Width of the inputs
+  Integer ->
+  -- | Fractional bits of the inputs
+  Integer ->
+  -- | Fractional bits of the angle
+  Integer ->
+  -- | Scale factor compensation (VECTRANSLATE only)
+  Bool ->
+  -- | Latency
+  Integer ->
+  IntelIp 10
+cordicIpAtan fun signed w fIn fOut sfc latency =
+  cordicIp (case fun of Atan2Function -> "ATAN2"; VecTranslateFunction -> "VECTRANSLATE") latency
+    (  ("fxpt_in_width", IntegerParam w)
+    :> ("fxpt_in_fraction", IntegerParam fIn)
+    :> ("fxpt_in_sign", StrParam (if signed then "1" else "0"))
+    :> ("fxpt_out_fraction", IntegerParam fOut)
+    :> ("SFCompensation", BoolParam (fun == VecTranslateFunction && sfc))
+    :> Nil )
+{-# INLINE cordicIpAtan #-}
 
 -- | Simulation model of the pipeline of the IP: @d@ registers that are
 -- enabled by the 'Enable' signal. The registers have undefined initial values,

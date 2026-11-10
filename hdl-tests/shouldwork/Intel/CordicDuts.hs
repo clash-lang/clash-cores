@@ -11,7 +11,9 @@ import Data.List (sortOn)
 import Data.Word (Word64)
 
 import qualified Clash.Cores.Intel.Cordic.Explicit as E
-import Clash.Cores.Intel.Cordic.Internal (SinCosWidths, sinCosMargins, sinCosWidths)
+import Clash.Cores.Intel.Cordic.Internal
+  (AtanFunction(..), SinCosWidths, atanMargins, atanWidthsOrError, sinCosMargins, sinCosWidths,
+   vecTranslateFracR)
 
 import IpTestCommon
 
@@ -61,6 +63,43 @@ hardInputs widths n xs =
  where
   margins = sinCosMargins widths
 
+-- | Raw inputs @(x, y)@ for the arctangent and the vector translation with
+-- @w@ bit inputs and @fOut@ fractional output bits: all pairs of interesting
+-- values (zero, one, the bounds), @n@ random pairs (a third of them scaled
+-- down, so small vectors are covered too), and @n@ pairs that are close to
+-- changing the result when a detail of the datapath changes (see
+-- 'atanMargins'), picked from @20 * n@ random ones: a third each by Y in the
+-- last iterations, by the angle and by the magnitude.
+vectors :: AtanFunction -> Bool -> Int -> Int -> Int -> Word64 -> [(Integer, Integer)]
+vectors fun signed w fOut n seed = edges <> P.take n randomIn <> hard
+ where
+  (lo, hi) = if signed then (negate (2 P.^ (w - 1)), 2 P.^ (w - 1) - 1) else (0, 2 P.^ w - 1)
+  special = [0, 1, 2, hi, hi - 1, hi `P.div` 2] <> (if signed then [-1, lo, lo + 1, lo `P.div` 2] else [])
+  edges = [(x, y) | x <- special, y <- special]
+  randomIn = go (randoms seed)
+  go (a : b : k : rs) =
+    let v r = toInteger r `mod` (hi - lo + 1) + lo
+        sh = if k `mod` 3 == 0 then fromIntegral (k `shiftR` 8) `mod` w else 0
+    in (v a `P.div` 2 P.^ sh, v b `P.div` 2 P.^ sh) : go rs
+  go _ = []
+  widths = atanWidthsOrError fun signed w fOut
+  margins = atanMargins widths (vecTranslateFracR widths)
+  cands = P.take (20 * n) (P.drop n randomIn)
+  pick sel = P.take (n `P.div` 3) (P.map snd (sortOn fst [(sel (margins x y), (x, y)) | (x, y) <- cands]))
+  hard = pick (\(a, _, _) -> a) <> pick (\(_, b, _) -> b) <> pick (\(_, _, c) -> c)
+
+-- | 'vectors' as signed fixed point numbers
+vectorsS :: forall i f. (KnownNat i, KnownNat f) => AtanFunction -> Int -> Int -> Word64 -> [(SFixed i f, SFixed i f)]
+vectorsS fun fOut n seed =
+  [ (sf (SNat @f) (fromInteger x), sf (SNat @f) (fromInteger y))
+  | (x, y) <- vectors fun True (natToNum @(i + f)) fOut n seed ]
+
+-- | 'vectors' as unsigned fixed point numbers
+vectorsU :: forall i f. (KnownNat i, KnownNat f) => AtanFunction -> Int -> Int -> Word64 -> [(UFixed i f, UFixed i f)]
+vectorsU fun fOut n seed =
+  [ (uf (SNat @f) (fromInteger x), uf (SNat @f) (fromInteger y))
+  | (x, y) <- vectors fun False (natToNum @(i + f)) fOut n seed ]
+
 -- * Functions under test
 
 -- | E.sinCos @3, E.sinCos @0 on 10 fractional bits
@@ -97,3 +136,66 @@ sinCosUnsignedDut clk rst en i =
 sinCos12Dut :: Dut (SFixed 3 12) (Vec 1 (SFixed 2 12, SFixed 2 12))
 sinCos12Dut clk rst en i = bundle (unary (E.sinCos @2) clk rst en i :> Nil)
 {-# OPAQUE sinCos12Dut #-}
+
+-- | Run an arctangent, which takes @y@ first, on pairs @(x, y)@
+atanOf ::
+  (Clock Dom -> Reset Dom -> Enable Dom -> DSignal Dom 0 a -> DSignal Dom 0 a -> DSignal Dom d b) ->
+  Clock Dom -> Reset Dom -> Enable Dom -> Signal Dom (a, a) -> Signal Dom b
+atanOf f = binary (\clk rst en x y -> f clk rst en y x)
+
+-- | E.atan2 @3 and @0 on 10 bit inputs, 8 fractional output bits
+atan2W10Dut :: Dut (SFixed 2 8, SFixed 2 8) (Vec 2 (SFixed 3 8))
+atan2W10Dut clk rst en i =
+  bundle (atanOf (E.atan2 @3) clk rst en i :> atanOf (E.atan2 @0) clk rst en i :> Nil)
+{-# OPAQUE atan2W10Dut #-}
+
+-- | E.atan2 @6 on 8 bit inputs, 14 fractional output bits (X and Y wider
+-- than usual, see the Lambda table)
+atan2W8F14Dut :: Dut (SFixed 2 6, SFixed 2 6) (Vec 1 (SFixed 3 14))
+atan2W8F14Dut clk rst en i = bundle (atanOf (E.atan2 @6) clk rst en i :> Nil)
+{-# OPAQUE atan2W8F14Dut #-}
+
+-- | E.atan2 @25 on 6 bit inputs, 20 fractional output bits (extra iterations;
+-- the IP needs a latency of at least about 21 for this format)
+atan2W6F20Dut :: Dut (SFixed 1 5, SFixed 1 5) (Vec 1 (SFixed 3 20))
+atan2W6F20Dut clk rst en i = bundle (atanOf (E.atan2 @25) clk rst en i :> Nil)
+{-# OPAQUE atan2W6F20Dut #-}
+
+-- | E.atan2 @8 on 12 bit inputs, 20 fractional output bits (one extra
+-- iteration)
+atan2W12F20Dut :: Dut (SFixed 2 10, SFixed 2 10) (Vec 1 (SFixed 3 20))
+atan2W12F20Dut clk rst en i = bundle (atanOf (E.atan2 @8) clk rst en i :> Nil)
+{-# OPAQUE atan2W12F20Dut #-}
+
+-- | E.atan2 @12 on 32 bit inputs, 28 fractional output bits
+atan2W32Dut :: Dut (SFixed 2 30, SFixed 2 30) (Vec 1 (SFixed 3 28))
+atan2W32Dut clk rst en i = bundle (atanOf (E.atan2 @12) clk rst en i :> Nil)
+{-# OPAQUE atan2W32Dut #-}
+
+-- | E.atan2Unsigned @4 on 10 bit inputs with 12 fractional output bits, and
+-- @1 with 1 fractional output bit (where pi\/2 wraps around to 0)
+atan2UnsignedDut :: Dut (UFixed 0 10, UFixed 0 10) (Vec 2 (SFixed 2 12))
+atan2UnsignedDut clk rst en i =
+  bundle
+    (  atanOf (E.atan2Unsigned @4) clk rst en i
+    :> fmap resizeF (atanOf (E.atan2Unsigned @1 @_ @_ @0 @10 @1) clk rst en i)
+    :> Nil )
+{-# OPAQUE atan2UnsignedDut #-}
+
+-- | E.vectorTranslate @5 on 8 bit inputs, 12 fractional output bits
+vecTranslateDut :: Dut (SFixed 2 6, SFixed 2 6) (Vec 1 (SFixed 3 12, UFixed 3 12))
+vecTranslateDut clk rst en i = bundle (binary (E.vectorTranslate @5) clk rst en i :> Nil)
+{-# OPAQUE vecTranslateDut #-}
+
+-- | E.vectorTranslateCompensated @7 on 8 bit inputs, 8 fractional output
+-- bits (X and Y wider than for ATAN2 with the same format)
+vecTranslateCompDut :: Dut (SFixed 2 6, SFixed 2 6) (Vec 1 (SFixed 3 8, UFixed 2 8))
+vecTranslateCompDut clk rst en i = bundle (binary (E.vectorTranslateCompensated @7) clk rst en i :> Nil)
+{-# OPAQUE vecTranslateCompDut #-}
+
+-- | E.vectorTranslateUnsignedCompensated @4 on 8 bit inputs, 10 fractional
+-- output bits
+vecTranslateUnsignedCompDut :: Dut (UFixed 0 8, UFixed 0 8) (Vec 1 (SFixed 2 10, UFixed 1 11))
+vecTranslateUnsignedCompDut clk rst en i =
+  bundle (binary (E.vectorTranslateUnsignedCompensated @4) clk rst en i :> Nil)
+{-# OPAQUE vecTranslateUnsignedCompDut #-}

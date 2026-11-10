@@ -40,12 +40,26 @@ module Clash.Cores.Intel.Cordic.Explicit
   ( -- * Sine and cosine
     sinCos
   , sinCosUnsigned
+    -- * Arctangent
+  , atan2
+  , atan2Unsigned
+    -- * Vector translation
+  , vectorTranslate
+  , vectorTranslateUnsigned
+  , vectorTranslateCompensated
+  , vectorTranslateUnsignedCompensated
     -- * Simulation models
   , sinCosModel
   , sinCosUnsignedModel
+  , atan2Model
+  , atan2UnsignedModel
+  , vectorTranslateModel
+  , vectorTranslateUnsignedModel
+  , vectorTranslateCompensatedModel
+  , vectorTranslateUnsignedCompensatedModel
   ) where
 
-import Clash.Explicit.Prelude
+import Clash.Explicit.Prelude hiding (atan2)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -185,3 +199,461 @@ sinCosUnsignedModel a =
     Nothing -> withFrozenCallStack $ deepErrorX "sinCosUnsigned: angle above pi/2"
  where
   widths = sinCosWidths False (natToNum @fIn) (natToNum @fOut)
+
+-- | The arctangent of @y \/ x@ in radians, in the quadrant of the point
+-- @(x, y)@: like @atan2@ in the Prelude, the first argument is @y@. The result lies in
+-- [-pi, pi]; it is 0 for @x = y = 0@. The inputs have @i + f@ bits, which
+-- must be between 4 and 64; the result has @fOut + 3@ bits. The result only
+-- depends on the inputs as integers, not on @f@: the IP scales everything to
+-- the last bit of the inputs.
+--
+-- The result is within one unit in the last place of the exact value. See
+-- 'atan2Model' for how it is rounded.
+--
+-- Simulation raises an error for the formats the model doesn't cover, see
+-- "Clash.Cores.Intel.Cordic.Internal": angles with more than 45 fractional
+-- bits, and angles with more than 40 fractional bits where the IP's
+-- generator uses extra iterations (inputs of fewer than about @fOut + 6@
+-- bits). The IP itself can be instantiated for any format.
+--
+-- The latency @d@ is set by the type, see "Clash.Cores.Intel.Cordic.Explicit".
+atan2 ::
+  forall d dom n i f fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat i
+  , KnownNat f
+  , KnownNat fOut
+  , 1 <= i
+  , 1 <= f
+  , 4 <= i + f
+  , i + f <= 64
+  , 1 <= fOut
+  , fOut <= 45
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | y
+  DSignal dom n (SFixed i f) ->
+  -- | x
+  DSignal dom n (SFixed i f) ->
+  -- | atan2(y, x), in radians
+  DSignal dom (n + d) (SFixed 3 fOut)
+atan2 clk rst en y x
+  | clashSimulation = pipeline und clk rst en (atan2Model <$> y <*> x)
+  | otherwise = D.unsafeFromSignal (unpack <$> q)
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of atan2"
+  q =
+    atanInst @(fOut + 3)
+      (cordicIpAtan Atan2Function True (natToNum @(i + f)) (natToNum @f) (natToNum @fOut) False (natToNum @d))
+      clk rst en (pack <$> D.toSignal x) (pack <$> D.toSignal y)
+{-# INLINE atan2 #-}
+
+-- | The arctangent of @y \/ x@ in radians for non-negative @x@ and @y@: like
+-- @atan2@ in the Prelude, the first argument is @y@. The result lies in [0, pi\/2];
+-- it is 0 for @x = y = 0@. The inputs have @i + f@ bits, which must be
+-- between 4 and 64. The result has @fOut + 2@ bits: the IP's output format is
+-- signed, but the result is never negative. The result only depends on the
+-- inputs as integers, not on @f@.
+--
+-- The result is within one unit in the last place of the exact value. See
+-- 'atan2UnsignedModel' for how it is rounded. For @x = 0@ and @y > 0@, the IP
+-- returns pi\/2 rounded to @fOut - 1@ fractional bits (with @fOut = 1@, that
+-- wraps around to 0).
+--
+-- Simulation raises an error for the formats the model doesn't cover, see
+-- "Clash.Cores.Intel.Cordic.Internal": angles with more than 40 fractional
+-- bits. The IP itself can be instantiated for any format.
+--
+-- The latency @d@ is set by the type, see "Clash.Cores.Intel.Cordic.Explicit".
+atan2Unsigned ::
+  forall d dom n i f fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat i
+  , KnownNat f
+  , KnownNat fOut
+  , 1 <= f
+  , 4 <= i + f
+  , i + f <= 64
+  , 1 <= fOut
+  , fOut <= 40
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | y
+  DSignal dom n (UFixed i f) ->
+  -- | x
+  DSignal dom n (UFixed i f) ->
+  -- | atan2(y, x), in radians
+  DSignal dom (n + d) (SFixed 2 fOut)
+atan2Unsigned clk rst en y x
+  | clashSimulation = pipeline und clk rst en (atan2UnsignedModel <$> y <*> x)
+  | otherwise = D.unsafeFromSignal (unpack <$> q)
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of atan2Unsigned"
+  q =
+    atanInst @(fOut + 2)
+      (cordicIpAtan Atan2Function False (natToNum @(i + f)) (natToNum @f) (natToNum @fOut) False (natToNum @d))
+      clk rst en (pack <$> D.toSignal x) (pack <$> D.toSignal y)
+{-# INLINE atan2Unsigned #-}
+
+-- | Instantiate the IP for 'atan2' or 'atan2Unsigned'
+atanInst ::
+  forall wOut dom wIn.
+  (KnownDomain dom, KnownNat wIn, KnownNat wOut) =>
+  IntelIp 10 ->
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  Signal dom (BitVector wIn) ->
+  -- | y
+  Signal dom (BitVector wIn) ->
+  Signal dom (BitVector wOut)
+atanInst ip clk rst en x y = unPort q
+ where
+  q :: Port "q" dom (BitVector wOut)
+  q =
+    instWithIntelIp
+      (instConfig "cordic_atan2")
+      ip
+      (ClockPort @"clk" clk)
+      (ResetPort @"areset" @ActiveHigh rst)
+      (Port @"en" (enPort en))
+      (Port @"x" x)
+      (Port @"y" y)
+{-# INLINE atanInst #-}
+
+-- | Simulation model of 'atan2', arguments @y@ and @x@. Raises an error for
+-- formats the model doesn't cover.
+--
+-- The IP computes the angle of @(|x|, |y|)@ with a CORDIC in vectoring mode,
+-- truncates it to @fOut + 2@ fractional bits, subtracts it from pi (truncated
+-- to @fOut + 3@ bits) if @x < 0@, negates it if @y < 0@, and then rounds to
+-- @fOut@ fractional bits, ties towards positive infinity. So, results that
+-- round to a tie are not odd: @atan2 (-y) x@ can be @-(atan2 y x) + 2^-fOut@.
+atan2Model ::
+  forall i f fOut.
+  (KnownNat i, KnownNat f, KnownNat fOut, HasCallStack) =>
+  -- | y
+  SFixed i f ->
+  -- | x
+  SFixed i f ->
+  SFixed 3 fOut
+atan2Model =
+  let model = atanModel (withFrozenCallStack (atanWidthsOrError Atan2Function True (natToNum @(i + f)) (natToNum @fOut)))
+  in \y x -> sf (SNat @fOut) (fromInteger (fst (model (toInteger (unSF x)) (toInteger (unSF y)))))
+
+-- | Simulation model of 'atan2Unsigned', arguments @y@ and @x@. Raises an
+-- error for formats the model doesn't cover. The IP rounds the angle of the
+-- CORDIC to @fOut@ fractional bits, ties towards positive infinity.
+atan2UnsignedModel ::
+  forall i f fOut.
+  (KnownNat i, KnownNat f, KnownNat fOut, HasCallStack) =>
+  -- | y
+  UFixed i f ->
+  -- | x
+  UFixed i f ->
+  SFixed 2 fOut
+atan2UnsignedModel =
+  let model = atanModel (withFrozenCallStack (atanWidthsOrError Atan2Function False (natToNum @(i + f)) (natToNum @fOut)))
+  in \y x -> sf (SNat @fOut) (fromInteger (fst (model (toInteger (unUF x)) (toInteger (unUF y)))))
+
+-- | The angle and the magnitude of the vector @(x, y)@: the angle is the one
+-- of 'atan2', the magnitude is @K * sqrt(x^2 + y^2)@, with @K@ the gain of the
+-- CORDIC, about 1.6467602. The inputs have @i + f@ bits; the angle has
+-- @fOut + 3@ bits, the magnitude @fOut + 3@ bits with its most significant
+-- bit two bits above the most significant bit of @|x|@ (the format the IP's
+-- parameter editor derives). The results only depend on the inputs as
+-- integers, not on @f@.
+--
+-- The angle is within one unit in the last place of the exact value; the
+-- magnitude is K times the X of the CORDIC iterations, rounded to the nearest
+-- (ties towards positive infinity). See 'vectorTranslateModel'.
+--
+-- The model covers up to 16 fractional bits in the angle (with more, the
+-- magnitude with scale factor compensation and the angle's tables differ). For
+-- a few formats with many more output bits than input bits, and for inputs of
+-- fewer than 8 bits with up to 5 fractional bits in the angle, the IP's
+-- datapath wasn't measured: simulation raises an error for those, see
+-- "Clash.Cores.Intel.Cordic.Internal". The IP itself can be instantiated for
+-- any format.
+--
+-- The latency @d@ is set by the type, see "Clash.Cores.Intel.Cordic.Explicit".
+vectorTranslate ::
+  forall d dom n i f fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat i
+  , KnownNat f
+  , KnownNat fOut
+  , 1 <= i
+  , 1 <= f
+  , 4 <= i + f
+  , i + f <= 64
+  , 1 <= fOut
+  , fOut <= 16
+  , i <= fOut + 2
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  DSignal dom n (SFixed i f) ->
+  -- | y
+  DSignal dom n (SFixed i f) ->
+  -- | Angle, in radians, and magnitude
+  DSignal dom (n + d) (SFixed 3 fOut, UFixed (i + 1) (fOut + 2 - i))
+vectorTranslate clk rst en x y
+  | clashSimulation = pipeline und clk rst en (vectorTranslateModel <$> x <*> y)
+  | otherwise = D.unsafeFromSignal (bundle (unpack <$> q, unpack <$> r))
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of vectorTranslate"
+  (q, r) =
+    vecTranslateInst @(fOut + 3) @(fOut + 3)
+      (cordicIpAtan VecTranslateFunction True (natToNum @(i + f)) (natToNum @f) (natToNum @fOut) False (natToNum @d))
+      clk rst en (pack <$> D.toSignal x) (pack <$> D.toSignal y)
+{-# INLINE vectorTranslate #-}
+
+-- | 'vectorTranslate' with scale factor compensation: the magnitude is
+-- @sqrt(x^2 + y^2)@, with @fOut + 2@ bits whose most significant bit is one
+-- bit above the most significant bit of @|x|@. The IP multiplies the X of the
+-- CORDIC iterations by 1\/K, see 'vectorTranslateCompensatedModel'; the
+-- magnitude is within one unit in the last place of the exact value.
+vectorTranslateCompensated ::
+  forall d dom n i f fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat i
+  , KnownNat f
+  , KnownNat fOut
+  , 1 <= i
+  , 1 <= f
+  , 4 <= i + f
+  , i + f <= 64
+  , 1 <= fOut
+  , fOut <= 16
+  , i <= fOut + 2
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  DSignal dom n (SFixed i f) ->
+  -- | y
+  DSignal dom n (SFixed i f) ->
+  -- | Angle, in radians, and magnitude
+  DSignal dom (n + d) (SFixed 3 fOut, UFixed i (fOut + 2 - i))
+vectorTranslateCompensated clk rst en x y
+  | clashSimulation = pipeline und clk rst en (vectorTranslateCompensatedModel <$> x <*> y)
+  | otherwise = D.unsafeFromSignal (bundle (unpack <$> q, unpack <$> r))
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of vectorTranslateCompensated"
+  (q, r) =
+    vecTranslateInst @(fOut + 3) @(fOut + 2)
+      (cordicIpAtan VecTranslateFunction True (natToNum @(i + f)) (natToNum @f) (natToNum @fOut) True (natToNum @d))
+      clk rst en (pack <$> D.toSignal x) (pack <$> D.toSignal y)
+{-# INLINE vectorTranslateCompensated #-}
+
+-- | 'vectorTranslate' for non-negative inputs. The angle, of
+-- 'atan2Unsigned', has @fOut + 2@ bits; the magnitude has @fOut + 3@ bits
+-- with its most significant bit two bits above the most significant bit of
+-- the inputs.
+vectorTranslateUnsigned ::
+  forall d dom n i f fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat i
+  , KnownNat f
+  , KnownNat fOut
+  , 1 <= f
+  , 4 <= i + f
+  , i + f <= 64
+  , 1 <= fOut
+  , fOut <= 16
+  , i <= fOut + 1
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  DSignal dom n (UFixed i f) ->
+  -- | y
+  DSignal dom n (UFixed i f) ->
+  -- | Angle, in radians, and magnitude
+  DSignal dom (n + d) (SFixed 2 fOut, UFixed (i + 2) (fOut + 1 - i))
+vectorTranslateUnsigned clk rst en x y
+  | clashSimulation = pipeline und clk rst en (vectorTranslateUnsignedModel <$> x <*> y)
+  | otherwise = D.unsafeFromSignal (bundle (unpack <$> q, unpack <$> r))
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of vectorTranslateUnsigned"
+  (q, r) =
+    vecTranslateInst @(fOut + 2) @(fOut + 3)
+      (cordicIpAtan VecTranslateFunction False (natToNum @(i + f)) (natToNum @f) (natToNum @fOut) False (natToNum @d))
+      clk rst en (pack <$> D.toSignal x) (pack <$> D.toSignal y)
+{-# INLINE vectorTranslateUnsigned #-}
+
+-- | 'vectorTranslateUnsigned' with scale factor compensation, see
+-- 'vectorTranslateCompensated'. The magnitude has @fOut + 2@ bits.
+vectorTranslateUnsignedCompensated ::
+  forall d dom n i f fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat i
+  , KnownNat f
+  , KnownNat fOut
+  , 1 <= f
+  , 4 <= i + f
+  , i + f <= 64
+  , 1 <= fOut
+  , fOut <= 16
+  , i <= fOut + 1
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  DSignal dom n (UFixed i f) ->
+  -- | y
+  DSignal dom n (UFixed i f) ->
+  -- | Angle, in radians, and magnitude
+  DSignal dom (n + d) (SFixed 2 fOut, UFixed (i + 1) (fOut + 1 - i))
+vectorTranslateUnsignedCompensated clk rst en x y
+  | clashSimulation = pipeline und clk rst en (vectorTranslateUnsignedCompensatedModel <$> x <*> y)
+  | otherwise = D.unsafeFromSignal (bundle (unpack <$> q, unpack <$> r))
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of vectorTranslateUnsignedCompensated"
+  (q, r) =
+    vecTranslateInst @(fOut + 2) @(fOut + 2)
+      (cordicIpAtan VecTranslateFunction False (natToNum @(i + f)) (natToNum @f) (natToNum @fOut) True (natToNum @d))
+      clk rst en (pack <$> D.toSignal x) (pack <$> D.toSignal y)
+{-# INLINE vectorTranslateUnsignedCompensated #-}
+
+-- | Instantiate the IP for the vector translation functions
+vecTranslateInst ::
+  forall wQ wR dom wIn.
+  (KnownDomain dom, KnownNat wIn, KnownNat wQ, KnownNat wR) =>
+  IntelIp 10 ->
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  Signal dom (BitVector wIn) ->
+  -- | y
+  Signal dom (BitVector wIn) ->
+  (Signal dom (BitVector wQ), Signal dom (BitVector wR))
+vecTranslateInst ip clk rst en x y = (unPort q, unPort r)
+ where
+  q :: Port "q" dom (BitVector wQ)
+  r :: Port "r" dom (BitVector wR)
+  (q, r) =
+    instWithIntelIp
+      (instConfig "cordic_vectranslate")
+      ip
+      (ClockPort @"clk" clk)
+      (ResetPort @"areset" @ActiveHigh rst)
+      (Port @"en" (enPort en))
+      (Port @"x" x)
+      (Port @"y" y)
+{-# INLINE vecTranslateInst #-}
+
+-- | Simulation model of the vector translation, on raw values
+vecTranslateRaw ::
+  HasCallStack =>
+  -- | Signed?
+  Bool ->
+  -- | Scale factor compensation?
+  Bool ->
+  -- | Width of the inputs
+  Int ->
+  -- | Fractional bits of the angle
+  Int ->
+  Integer ->
+  Integer ->
+  (Integer, Integer)
+vecTranslateRaw signed sfc w fOut =
+  let widths = withFrozenCallStack (atanWidthsOrError VecTranslateFunction signed w fOut)
+      model = atanModel widths
+      mag = vecTranslateMagnitude widths sfc
+  in \x y -> let (q, xF) = model x y in (q, mag xF)
+
+-- | Simulation model of 'vectorTranslate'. Raises an error for formats the
+-- model doesn't cover.
+--
+-- The angle is computed like the one of 'atan2Model', except that the IP sums
+-- the CORDIC's arctangent constants with tables of four rotation directions
+-- each, see "Clash.Cores.Intel.Cordic.Internal". The magnitude is the X of the
+-- CORDIC iterations, rounded to the nearest, ties towards positive infinity.
+vectorTranslateModel ::
+  forall i f fOut.
+  (KnownNat i, KnownNat f, KnownNat fOut, i <= fOut + 2, HasCallStack) =>
+  -- | x
+  SFixed i f ->
+  -- | y
+  SFixed i f ->
+  (SFixed 3 fOut, UFixed (i + 1) (fOut + 2 - i))
+vectorTranslateModel =
+  let model = withFrozenCallStack (vecTranslateRaw True False (natToNum @(i + f)) (natToNum @fOut))
+  in \x y ->
+       let (q, r) = model (toInteger (unSF x)) (toInteger (unSF y))
+       in (sf (SNat @fOut) (fromInteger q), uf (SNat @(fOut + 2 - i)) (fromInteger r))
+
+-- | Simulation model of 'vectorTranslateCompensated'. Raises an error for
+-- formats the model doesn't cover. The magnitude is the X of the CORDIC
+-- iterations truncated to two more fractional bits than the result, times
+-- 1\/K rounded to @fOut + 5@ fractional bits, rounded up from three quarters
+-- of a unit (so ties and slightly less round up).
+vectorTranslateCompensatedModel ::
+  forall i f fOut.
+  (KnownNat i, KnownNat f, KnownNat fOut, i <= fOut + 2, HasCallStack) =>
+  -- | x
+  SFixed i f ->
+  -- | y
+  SFixed i f ->
+  (SFixed 3 fOut, UFixed i (fOut + 2 - i))
+vectorTranslateCompensatedModel =
+  let model = withFrozenCallStack (vecTranslateRaw True True (natToNum @(i + f)) (natToNum @fOut))
+  in \x y ->
+       let (q, r) = model (toInteger (unSF x)) (toInteger (unSF y))
+       in (sf (SNat @fOut) (fromInteger q), uf (SNat @(fOut + 2 - i)) (fromInteger r))
+
+-- | Simulation model of 'vectorTranslateUnsigned', see 'vectorTranslateModel'
+vectorTranslateUnsignedModel ::
+  forall i f fOut.
+  (KnownNat i, KnownNat f, KnownNat fOut, i <= fOut + 1, HasCallStack) =>
+  -- | x
+  UFixed i f ->
+  -- | y
+  UFixed i f ->
+  (SFixed 2 fOut, UFixed (i + 2) (fOut + 1 - i))
+vectorTranslateUnsignedModel =
+  let model = withFrozenCallStack (vecTranslateRaw False False (natToNum @(i + f)) (natToNum @fOut))
+  in \x y ->
+       let (q, r) = model (toInteger (unUF x)) (toInteger (unUF y))
+       in (sf (SNat @fOut) (fromInteger q), uf (SNat @(fOut + 1 - i)) (fromInteger r))
+
+-- | Simulation model of 'vectorTranslateUnsignedCompensated', see
+-- 'vectorTranslateCompensatedModel'
+vectorTranslateUnsignedCompensatedModel ::
+  forall i f fOut.
+  (KnownNat i, KnownNat f, KnownNat fOut, i <= fOut + 1, HasCallStack) =>
+  -- | x
+  UFixed i f ->
+  -- | y
+  UFixed i f ->
+  (SFixed 2 fOut, UFixed (i + 1) (fOut + 1 - i))
+vectorTranslateUnsignedCompensatedModel =
+  let model = withFrozenCallStack (vecTranslateRaw False True (natToNum @(i + f)) (natToNum @fOut))
+  in \x y ->
+       let (q, r) = model (toInteger (unUF x)) (toInteger (unUF y))
+       in (sf (SNat @fOut) (fromInteger q), uf (SNat @(fOut + 1 - i)) (fromInteger r))

@@ -12,6 +12,7 @@ import Clash.Explicit.Prelude
 import IpTestCommon
 import CordicDuts
 import IntelSimLib (simLibraries)
+import Clash.Cores.Intel.Cordic.Internal (AtanFunction(..))
 
 sinCos10TB :: Signal Dom Bool
 sinCos10TB = romTB simLibraries sinCos10Dut $(memBlobTH (Just 0) (trace sinCos10Dut (cycles (angles 10 1500 21))))
@@ -36,3 +37,39 @@ sinCosUnsignedTB = romTB simLibraries sinCosUnsignedDut $(memBlobTH (Just 0) (tr
 sinCos12TB :: Signal Dom Bool
 sinCos12TB = romTB simLibraries sinCos12Dut $(memBlobTH (Just 0) (trace sinCos12Dut (cycles (angles 12 1500 26))))
 {-# ANN sinCos12TB (Synthesize "sinCos12TB" [] (PortName "done")) #-}
+
+atan2W10TB :: Signal Dom Bool
+atan2W10TB = romTB simLibraries atan2W10Dut $(memBlobTH (Just 0) (trace atan2W10Dut (cycles (vectorsS Atan2Function 8 1500 31))))
+{-# ANN atan2W10TB (Synthesize "atan2W10TB" [] (PortName "done")) #-}
+
+atan2W8F14TB :: Signal Dom Bool
+atan2W8F14TB = romTB simLibraries atan2W8F14Dut $(memBlobTH (Just 0) (trace atan2W8F14Dut (cycles (vectorsS Atan2Function 14 1500 32))))
+{-# ANN atan2W8F14TB (Synthesize "atan2W8F14TB" [] (PortName "done")) #-}
+
+atan2W6F20TB :: Signal Dom Bool
+atan2W6F20TB = romTB simLibraries atan2W6F20Dut $(memBlobTH (Just 0) (trace atan2W6F20Dut (cycles (vectorsS Atan2Function 20 600 33))))
+{-# ANN atan2W6F20TB (Synthesize "atan2W6F20TB" [] (PortName "done")) #-}
+
+atan2W12F20TB :: Signal Dom Bool
+atan2W12F20TB = romTB simLibraries atan2W12F20Dut $(memBlobTH (Just 0) (trace atan2W12F20Dut (cycles (vectorsS Atan2Function 20 1500 34))))
+{-# ANN atan2W12F20TB (Synthesize "atan2W12F20TB" [] (PortName "done")) #-}
+
+atan2W32TB :: Signal Dom Bool
+atan2W32TB = romTB simLibraries atan2W32Dut $(memBlobTH (Just 0) (trace atan2W32Dut (cycles (vectorsS Atan2Function 28 1500 35))))
+{-# ANN atan2W32TB (Synthesize "atan2W32TB" [] (PortName "done")) #-}
+
+atan2UnsignedTB :: Signal Dom Bool
+atan2UnsignedTB = romTB simLibraries atan2UnsignedDut $(memBlobTH (Just 0) (trace atan2UnsignedDut (cycles (vectorsU Atan2Function 12 1500 36))))
+{-# ANN atan2UnsignedTB (Synthesize "atan2UnsignedTB" [] (PortName "done")) #-}
+
+vecTranslateTB :: Signal Dom Bool
+vecTranslateTB = romTB simLibraries vecTranslateDut $(memBlobTH (Just 0) (trace vecTranslateDut (cycles (vectorsS VecTranslateFunction 12 1500 37))))
+{-# ANN vecTranslateTB (Synthesize "vecTranslateTB" [] (PortName "done")) #-}
+
+vecTranslateCompTB :: Signal Dom Bool
+vecTranslateCompTB = romTB simLibraries vecTranslateCompDut $(memBlobTH (Just 0) (trace vecTranslateCompDut (cycles (vectorsS VecTranslateFunction 8 1500 38))))
+{-# ANN vecTranslateCompTB (Synthesize "vecTranslateCompTB" [] (PortName "done")) #-}
+
+vecTranslateUnsignedCompTB :: Signal Dom Bool
+vecTranslateUnsignedCompTB = romTB simLibraries vecTranslateUnsignedCompDut $(memBlobTH (Just 0) (trace vecTranslateUnsignedCompDut (cycles (vectorsU VecTranslateFunction 10 1500 39))))
+{-# ANN vecTranslateUnsignedCompTB (Synthesize "vecTranslateUnsignedCompTB" [] (PortName "done")) #-}
