@@ -73,3 +73,15 @@ vecTranslateCompTB = romTB simLibraries vecTranslateCompDut $(memBlobTH (Just 0)
 vecTranslateUnsignedCompTB :: Signal Dom Bool
 vecTranslateUnsignedCompTB = romTB simLibraries vecTranslateUnsignedCompDut $(memBlobTH (Just 0) (trace vecTranslateUnsignedCompDut (cycles (vectorsU VecTranslateFunction 10 1500 39))))
 {-# ANN vecTranslateUnsignedCompTB (Synthesize "vecTranslateUnsignedCompTB" [] (PortName "done")) #-}
+
+vecRotate4TB :: Signal Dom Bool
+vecRotate4TB = romTB simLibraries vecRotate4Dut $(memBlobTH (Just 0) (trace vecRotate4Dut (cycles (rotations 4 1000 41))))
+{-# ANN vecRotate4TB (Synthesize "vecRotate4TB" [] (PortName "done")) #-}
+
+vecRotate8TB :: Signal Dom Bool
+vecRotate8TB = romTB simLibraries vecRotate8Dut $(memBlobTH (Just 0) (trace vecRotate8Dut (cycles (rotations 8 1500 42))))
+{-# ANN vecRotate8TB (Synthesize "vecRotate8TB" [] (PortName "done")) #-}
+
+vecRotate16x20TB :: Signal Dom Bool
+vecRotate16x20TB = romTB simLibraries vecRotate16x20Dut $(memBlobTH (Just 0) (trace vecRotate16x20Dut (cycles (rotations 20 1500 43))))
+{-# ANN vecRotate16x20TB (Synthesize "vecRotate16x20TB" [] (PortName "done")) #-}

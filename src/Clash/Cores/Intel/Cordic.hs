@@ -24,6 +24,8 @@ module Clash.Cores.Intel.Cordic
   , vectorTranslateUnsigned
   , vectorTranslateCompensated
   , vectorTranslateUnsignedCompensated
+    -- * Vector rotation
+  , vectorRotate
     -- * Simulation models
   , E.sinCosModel
   , E.sinCosUnsignedModel
@@ -33,6 +35,7 @@ module Clash.Cores.Intel.Cordic
   , E.vectorTranslateUnsignedModel
   , E.vectorTranslateCompensatedModel
   , E.vectorTranslateUnsignedCompensatedModel
+  , E.vectorRotateModel
   ) where
 
 import Clash.Prelude hiding (atan2)
@@ -232,3 +235,27 @@ vectorTranslateUnsignedCompensated ::
   DSignal dom (n + d) (SFixed 2 fOut, UFixed (i + 1) (fOut + 1 - i))
 vectorTranslateUnsignedCompensated = withFrozenCallStack $ hideClockResetEnable (E.vectorTranslateUnsignedCompensated @d)
 {-# INLINE vectorTranslateUnsignedCompensated #-}
+
+-- | Rotate the vector @(x, y)@ by an angle in radians, returning the rotated
+-- vector times the CORDIC gain. See 'E.vectorRotate'.
+vectorRotate ::
+  forall d dom n f fOut.
+  ( HiddenClockResetEnable dom
+  , KnownNat d
+  , KnownNat f
+  , KnownNat fOut
+  , 3 <= f
+  , f <= 44
+  , fOut <= 48
+  , HasCallStack
+  ) =>
+  -- | x
+  DSignal dom n (SFixed 2 f) ->
+  -- | y
+  DSignal dom n (SFixed 2 f) ->
+  -- | Angle, in radians
+  DSignal dom n (SFixed 3 f) ->
+  -- | Rotated x and y, times K
+  DSignal dom (n + d) (SFixed 3 fOut, SFixed 3 fOut)
+vectorRotate = withFrozenCallStack $ hideClockResetEnable (E.vectorRotate @d)
+{-# INLINE vectorRotate #-}

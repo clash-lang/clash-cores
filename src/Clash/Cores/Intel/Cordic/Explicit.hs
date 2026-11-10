@@ -48,6 +48,8 @@ module Clash.Cores.Intel.Cordic.Explicit
   , vectorTranslateUnsigned
   , vectorTranslateCompensated
   , vectorTranslateUnsignedCompensated
+    -- * Vector rotation
+  , vectorRotate
     -- * Simulation models
   , sinCosModel
   , sinCosUnsignedModel
@@ -57,6 +59,7 @@ module Clash.Cores.Intel.Cordic.Explicit
   , vectorTranslateUnsignedModel
   , vectorTranslateCompensatedModel
   , vectorTranslateUnsignedCompensatedModel
+  , vectorRotateModel
   ) where
 
 import Clash.Explicit.Prelude hiding (atan2)
@@ -657,3 +660,109 @@ vectorTranslateUnsignedCompensatedModel =
   in \x y ->
        let (q, r) = model (toInteger (unUF x)) (toInteger (unUF y))
        in (sf (SNat @fOut) (fromInteger q), uf (SNat @(fOut + 1 - i)) (fromInteger r))
+
+-- | Rotate the vector @(x, y)@ by an angle in radians: returns @(x cos a - y
+-- sin a, x sin a + y cos a)@, times the CORDIC gain K (about 1.6467602). The
+-- coordinates have @f + 2@ bits and should lie in [-1, 1], the angle has @f +
+-- 3@ bits and should lie in [-pi, pi]; the results have @fOut + 3@ bits.
+--
+-- The results are the X and Y of the CORDIC iterations, rounded to the
+-- nearest (ties towards positive infinity), see 'vectorRotateModel'. Inputs
+-- outside the documented ranges wrap around in the IP's registers; the model
+-- reproduces that too.
+--
+-- The IP's scale factor compensation (multiplying the results by 1\/K) is not
+-- offered: the IP picks between two designs of the constant multiplier, which
+-- round differently, by a rule that couldn't be recovered.
+--
+-- The model was validated for @3 <= f <= 44@ and @fOut <= 48@, which the
+-- constraints enforce. The latency @d@ is set by the type, see
+-- "Clash.Cores.Intel.Cordic.Explicit".
+vectorRotate ::
+  forall d dom n f fOut.
+  ( KnownDomain dom
+  , KnownNat d
+  , KnownNat f
+  , KnownNat fOut
+  , 3 <= f
+  , f <= 44
+  , fOut <= 48
+  , HasCallStack
+  ) =>
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  DSignal dom n (SFixed 2 f) ->
+  -- | y
+  DSignal dom n (SFixed 2 f) ->
+  -- | Angle, in radians
+  DSignal dom n (SFixed 3 f) ->
+  -- | Rotated x and y, times K
+  DSignal dom (n + d) (SFixed 3 fOut, SFixed 3 fOut)
+vectorRotate clk rst en x y a
+  | clashSimulation = pipeline und clk rst en (vectorRotateModel <$> x <*> y <*> a)
+  | otherwise = D.unsafeFromSignal (bundle (unpack <$> xo, unpack <$> yo))
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of vectorRotate"
+  (xo, yo) =
+    vecRotateInst @(fOut + 3)
+      (cordicIpVecRotate (natToNum @f) (natToNum @fOut) (natToNum @d))
+      clk rst en (pack <$> D.toSignal x) (pack <$> D.toSignal y) (pack <$> D.toSignal a)
+{-# INLINE vectorRotate #-}
+
+-- | Instantiate the IP for 'vectorRotate'
+vecRotateInst ::
+  forall wOut dom wXY wA.
+  (KnownDomain dom, KnownNat wXY, KnownNat wA, KnownNat wOut) =>
+  IntelIp 9 ->
+  Clock dom ->
+  Reset dom ->
+  Enable dom ->
+  -- | x
+  Signal dom (BitVector wXY) ->
+  -- | y
+  Signal dom (BitVector wXY) ->
+  -- | Angle
+  Signal dom (BitVector wA) ->
+  (Signal dom (BitVector wOut), Signal dom (BitVector wOut))
+vecRotateInst ip clk rst en x y a = (unPort xo, unPort yo)
+ where
+  xo :: Port "xo" dom (BitVector wOut)
+  yo :: Port "yo" dom (BitVector wOut)
+  (xo, yo) =
+    instWithIntelIp
+      (instConfig "cordic_vecrotate")
+      ip
+      (ClockPort @"clk" clk)
+      (ResetPort @"areset" @ActiveHigh rst)
+      (Port @"en" (enPort en))
+      (Port @"x" x)
+      (Port @"y" y)
+      (Port @"a" a)
+{-# INLINE vecRotateInst #-}
+
+-- | Simulation model of 'vectorRotate', arguments @x@, @y@ and the angle.
+--
+-- The IP truncates the angle to @fT = wOut + ceil(wOut \/ 4)@ fractional
+-- bits (@wOut = fOut + 3@). If its magnitude is at least pi\/2 (rounded to
+-- @fT@ bits), it subtracts pi\/2 from it (or adds) and rotates the vector by
+-- 90 degrees first. A CORDIC in rotation mode with @fOut + 4@ iterations
+-- rotates the vector, which has @fOut + 4@ more fractional bits than the
+-- inputs, with truncated shifts; the results are rounded, ties towards
+-- positive infinity.
+vectorRotateModel ::
+  forall f fOut.
+  (KnownNat f, KnownNat fOut) =>
+  -- | x
+  SFixed 2 f ->
+  -- | y
+  SFixed 2 f ->
+  -- | Angle, in radians
+  SFixed 3 f ->
+  (SFixed 3 fOut, SFixed 3 fOut)
+vectorRotateModel =
+  let model = vecRotateModel (rotateWidths (natToNum @f) (natToNum @fOut))
+  in \x y a ->
+       let (xo, yo) = model (toInteger (unSF x)) (toInteger (unSF y)) (toInteger (unSF a))
+       in (sf (SNat @fOut) (fromInteger xo), sf (SNat @fOut) (fromInteger yo))

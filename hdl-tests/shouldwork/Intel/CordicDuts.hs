@@ -12,8 +12,8 @@ import Data.Word (Word64)
 
 import qualified Clash.Cores.Intel.Cordic.Explicit as E
 import Clash.Cores.Intel.Cordic.Internal
-  (AtanFunction(..), SinCosWidths, atanMargins, atanWidthsOrError, sinCosMargins, sinCosWidths,
-   vecTranslateFracR)
+  (AtanFunction(..), SinCosWidths, atanMargins, atanWidthsOrError, rotateWidths, sinCosMargins,
+   sinCosWidths, vecRotateMargins, vecTranslateFracR)
 
 import IpTestCommon
 
@@ -99,6 +99,43 @@ vectorsU :: forall i f. (KnownNat i, KnownNat f) => AtanFunction -> Int -> Int -
 vectorsU fun fOut n seed =
   [ (uf (SNat @f) (fromInteger x), uf (SNat @f) (fromInteger y))
   | (x, y) <- vectors fun False (natToNum @(i + f)) fOut n seed ]
+
+-- | Inputs @(x, y, angle)@ for 'E.vectorRotate' with @f@ fractional input
+-- bits and @fOut@ fractional output bits: combinations of interesting
+-- coordinates (zero, one, the extremes of the input format) and angles (zero,
+-- +-pi\/4, around +-pi\/2 where the IP pre-rotates the vector, +-pi, the
+-- extremes), @n@ random inputs (most in the documented ranges, some anywhere),
+-- and @n@ inputs that are close to changing the result when a detail of the
+-- datapath changes (see 'vecRotateMargins'), picked from @20 * n@ random ones.
+rotations :: forall f. KnownNat f => Int -> Int -> Word64 -> [(SFixed 2 f, SFixed 2 f, SFixed 3 f)]
+rotations fOut n seed =
+  [ (sf (SNat @f) (fromInteger x), sf (SNat @f) (fromInteger y), sf (SNat @f) (fromInteger a))
+  | (x, y, a) <- edges <> P.take n randomIn <> hard ]
+ where
+  f = natToNum @f :: Int
+  one = 2 P.^ f :: Integer
+  maxXY = 2 * one - 1
+  maxA = 4 * one - 1
+  piA = P.floor (pi * 2 P.^^ f :: Double) :: Integer
+  halfPi = P.round (pi / 2 * 2 P.^^ f :: Double) :: Integer
+  quarterPi = P.round (pi / 4 * 2 P.^^ f :: Double) :: Integer
+  coords = [0, 1, -1, one, negate one, maxXY, negate maxXY - 1]
+  angs =
+    [0, quarterPi, negate quarterPi, piA, negate piA, maxA, negate maxA - 1]
+      <> [c + d | c <- [halfPi, negate halfPi], d <- [-2 .. 2]]
+  edges = [(x, y, a) | x <- coords, y <- coords, a <- [0, halfPi, negate halfPi - 1, piA]]
+    <> [(one, 0, a) | a <- angs] <> [(x, y, a) | (x, y) <- [(one, one), (negate one, 1)], a <- angs]
+  randomIn = go (randoms seed)
+  go (r1 : r2 : r3 : k : rs) =
+    let inRange = k `mod` 8 /= 0
+        c r = if inRange then toInteger r `mod` (2 * one + 1) - one else toInteger r `mod` (4 * one) - 2 * one
+        an = if inRange then toInteger r3 `mod` (2 * piA + 1) - piA else toInteger r3 `mod` (8 * one) - 4 * one
+    in (c r1, c r2, an) : go rs
+  go _ = []
+  margins = vecRotateMargins (rotateWidths f fOut)
+  cands = P.take (20 * n) (P.drop n randomIn)
+  pick sel = P.take (n `P.div` 2) (P.map snd (sortOn fst [(sel (margins x y a), (x, y, a)) | (x, y, a) <- cands]))
+  hard = pick fst <> pick snd
 
 -- * Functions under test
 
@@ -199,3 +236,20 @@ vecTranslateUnsignedCompDut :: Dut (UFixed 0 8, UFixed 0 8) (Vec 1 (SFixed 2 10,
 vecTranslateUnsignedCompDut clk rst en i =
   bundle (binary (E.vectorTranslateUnsignedCompensated @4) clk rst en i :> Nil)
 {-# OPAQUE vecTranslateUnsignedCompDut #-}
+
+-- | E.vectorRotate @2 and @0 with 4 fractional bits in and out
+vecRotate4Dut :: Dut (SFixed 2 4, SFixed 2 4, SFixed 3 4) (Vec 2 (SFixed 3 4, SFixed 3 4))
+vecRotate4Dut clk rst en i =
+  bundle (ternary (E.vectorRotate @2) clk rst en i :> ternary (E.vectorRotate @0) clk rst en i :> Nil)
+{-# OPAQUE vecRotate4Dut #-}
+
+-- | E.vectorRotate @5 and @0 with 8 fractional bits in and out
+vecRotate8Dut :: Dut (SFixed 2 8, SFixed 2 8, SFixed 3 8) (Vec 2 (SFixed 3 8, SFixed 3 8))
+vecRotate8Dut clk rst en i =
+  bundle (ternary (E.vectorRotate @5) clk rst en i :> ternary (E.vectorRotate @0) clk rst en i :> Nil)
+{-# OPAQUE vecRotate8Dut #-}
+
+-- | E.vectorRotate @10 with 16 fractional bits in, 20 out
+vecRotate16x20Dut :: Dut (SFixed 2 16, SFixed 2 16, SFixed 3 16) (Vec 1 (SFixed 3 20, SFixed 3 20))
+vecRotate16x20Dut clk rst en i = bundle (ternary (E.vectorRotate @10) clk rst en i :> Nil)
+{-# OPAQUE vecRotate16x20Dut #-}

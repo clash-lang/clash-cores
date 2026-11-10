@@ -29,10 +29,16 @@ module Clash.Cores.Intel.Cordic.Internal
   , vecTranslateMagnitude
   , vecTranslateFracR
   , atanMargins
+    -- * Vector rotation
+  , RotateWidths(..)
+  , rotateWidths
+  , vecRotateModel
+  , vecRotateMargins
     -- * Instantiation
   , cordicIp
   , cordicIpSinCos
   , cordicIpAtan
+  , cordicIpVecRotate
   , pipeline
   , enPort
     -- * Constants (exported for testing)
@@ -210,6 +216,41 @@ bits, ATAN2's generator makes other choices that no rule here covers.
 The IP's @useLUTs@ option makes ATAN2 compute the angle with tables like
 VECTRANSLATE. That matched for the three configurations tried, but the width
 requirement of such configurations was not measured, so it isn't offered.
+
+The vector rotation (VECROTATE, signed inputs only: the generator of Quartus
+21.1 fails for unsigned ones) was inferred the same way, from exhaustive
+simulations of all bit patterns of nine small formats (input fractions 3 to
+5, output fractions 0 to 12, including inputs outside the documented ranges)
+and 25,000 to 50,000 random inputs of 17 wider formats. With @wOut = fOut +
+3@:
+
+1. The angle is truncated to @fT = wOut + ceil(wOut / 4)@ fractional bits.
+   If its magnitude is at least pi\/2, rounded to the nearest multiple of
+   @2^-fT@, the IP subtracts that constant (or adds it, for a negative
+   angle) and rotates the vector by 90 degrees first: @(x, y)@ becomes @(-y,
+   x)@ for a positive angle and @(y, -x)@ for a negative one. The negation is
+   done in the format of the inputs, so -(-2) = -2.
+
+2. The angle is aligned to @wOut + 4 + ceil(log2(wOut + 1))@ fractional bits
+   (as for sine and cosine), in a register with two integer bits that wraps
+   around for angles beyond pi.
+
+3. A CORDIC in rotation mode with @fOut + 4@ iterations (shifts @0 .. fOut +
+   3@) rotates X and Y, which start as the inputs with @fOut + 4@ more
+   fractional bits, without the inverse gain: the results are K times the
+   rotated vector. The shifted operands are truncated, the constants
+   arctan(2^-i) rounded to nearest, and X and Y have three integer bits and
+   wrap around (for vectors longer than one).
+
+4. X and Y are rounded to @fOut@ fractional bits, ties towards positive
+   infinity.
+
+The model reproduces all of those results. The results didn't depend on the
+target frequency or the device family. With scale factor compensation, the
+IP multiplies X and Y by a constant close to 1\/K, with a shift-and-add or a
+table based multiplier that round differently. Which one the generator
+picks is a cost decision that couldn't be reduced to a rule, so the API
+doesn't offer it.
 -}
 
 ------------------------------------------------------------------------------
@@ -681,6 +722,105 @@ atanMargins widths@AtanWidths{..} fracR = \x y ->
     | y >= 0 = (x + (y `shiftR` i), y - (x `shiftR` i))
     | otherwise = (x - (y `shiftR` i), y + (x `shiftR` i))
 
+------------------------------------------------------------------------------
+-- Vector rotation
+------------------------------------------------------------------------------
+
+-- | Parameters of the datapath of the vector rotation (without scale factor
+-- compensation), see @Note [Inferring the datapath of ALTERA_CORDIC]@
+data RotateWidths = RotateWidths
+  { vrFracIn :: Int
+  -- ^ Fractional bits of the inputs (@x@ and @y@ have @vrFracIn + 2@ bits,
+  -- the angle @vrFracIn + 3@)
+  , vrFracOut :: Int
+  -- ^ Fractional bits of the outputs
+  , vrFracTrunc :: Int
+  -- ^ Fractional bits of the angle that the IP uses
+  , vrFracZ :: Int
+  -- ^ Fractional bits of the angle in the CORDIC iterations
+  , vrIterations :: Int
+  -- ^ Number of iterations, with shifts @0 .. vrIterations - 1@; also the
+  -- fractional bits that X and Y have beyond the inputs
+  } deriving (Eq, Show)
+
+-- | Parameters of the vector rotation for inputs with @fIn@ and outputs with
+-- @fOut@ fractional bits
+rotateWidths :: Int -> Int -> RotateWidths
+rotateWidths fIn fOut = RotateWidths
+  { vrFracIn = fIn
+  , vrFracOut = fOut
+  , vrFracTrunc = wOut + (wOut + 3) `div` 4
+  , vrFracZ = wOut + 4 + ceilLog2 (wOut + 1)
+  , vrIterations = fOut + 4
+  }
+ where
+  wOut = fOut + 3
+
+-- | Model of the vector rotation. The inputs are the raw integer values of
+-- @x@, @y@ (with 'vrFracIn' fractional bits, @vrFracIn + 2@ bits wide) and
+-- the angle (@vrFracIn + 3@ bits wide); the results are the raw values of the
+-- rotated @x@ and @y@, with 'vrFracOut' fractional bits, @vrFracOut + 3@ bits
+-- wide. Inputs outside the documented ranges ([-1, 1] and [-pi, pi]) wrap
+-- around like they do in the IP.
+vecRotateModel :: RotateWidths -> Integer -> Integer -> Integer -> (Integer, Integer)
+vecRotateModel widths@RotateWidths{..} = \x y a ->
+  let (xF, yF, _) = vecRotateCore widths x y a
+  in (wrap (vrFracOut + 3) (rnd xF), wrap (vrFracOut + 3) (rnd yF))
+ where
+  sh = vrFracIn + vrIterations - vrFracOut
+  rnd v = (v + 1 `shiftL` (sh - 1)) `shiftR` sh
+
+-- | The iterations of 'vecRotateModel': the final X and Y (with @vrFracIn +
+-- vrIterations@ fractional bits), and the smallest magnitude of the angle at
+-- a rotation (in units of its last place)
+vecRotateCore :: RotateWidths -> Integer -> Integer -> Integer -> (Integer, Integer, Integer)
+vecRotateCore RotateWidths{..} = \x y a ->
+  let
+    z0 = alignTo vrFracIn vrFracTrunc a
+    big = abs z0 >= halfPi
+    pos = z0 > 0
+    -- Beyond pi/2: subtract pi/2 from the angle, and rotate the vector by 90
+    -- degrees first. The negation is done in the format of the inputs.
+    z1 | big && pos = z0 - halfPi
+       | big = z0 + halfPi
+       | otherwise = z0
+    (x1, y1)
+      | big && pos = (wrap wIn (negate y), x)
+      | big = (y, wrap wIn (negate x))
+      | otherwise = (x, y)
+    z2 = wrap (vrFracZ + 2) (alignTo vrFracTrunc vrFracZ z1)
+  in go consts z2 (abs z2) (x1 `shiftL` vrIterations) (y1 `shiftL` vrIterations)
+ where
+  wIn = vrFracIn + 2
+  wXY = vrFracIn + vrIterations + 3
+  halfPi = halfPiRounded vrFracTrunc
+  consts = [ (i, atanRounded i vrFracZ) | i <- [0 .. vrIterations - 1] ]
+  go [] _ m xx yy = (xx, yy, m)
+  go ((i, at) : rest) z m xx yy
+    | z >= 0 = go rest (z - at) m' (wrap wXY (xx - (yy `shiftR` i))) (wrap wXY (yy + (xx `shiftR` i)))
+    | otherwise = go rest (z + at) m' (wrap wXY (xx + (yy `shiftR` i))) (wrap wXY (yy - (xx `shiftR` i)))
+   where
+    m' = min m (abs z)
+
+-- | How close inputs of 'vecRotateModel' are to changing the result when a
+-- detail of the datapath changes: the smallest magnitude of the angle at a
+-- rotation (in units of its last place), and the smallest distance of X or Y
+-- to a rounding boundary of the outputs (in units of the last place of X and
+-- Y). Used to find test inputs that tell such details apart.
+vecRotateMargins :: RotateWidths -> Integer -> Integer -> Integer -> (Integer, Integer)
+vecRotateMargins widths@RotateWidths{..} = \x y a ->
+  let (xF, yF, zMin) = vecRotateCore widths x y a
+  in (zMin, min (dist xF) (dist yF))
+ where
+  sh = vrFracIn + vrIterations - vrFracOut
+  dist v = abs ((v `mod` (1 `shiftL` sh)) - (1 `shiftL` (sh - 1)))
+
+-- | Two's complement wrap-around of an integer to @w@ bits
+wrap :: Int -> Integer -> Integer
+wrap w v = ((v + h) `mod` (2 * h)) - h
+ where
+  h = 1 `shiftL` (w - 1)
+
 -- | Change the number of fractional bits of a fixed point number, truncating
 alignTo :: Int -> Int -> Integer -> Integer
 alignTo from to v
@@ -758,6 +898,25 @@ cordicIpAtan fun signed w fIn fOut sfc latency =
     :> ("SFCompensation", BoolParam (fun == VecTranslateFunction && sfc))
     :> Nil )
 {-# INLINE cordicIpAtan #-}
+
+-- | The ALTERA_CORDIC IP rotating a vector (@VECROTATE@), without scale
+-- factor compensation
+cordicIpVecRotate ::
+  -- | Fractional bits of the inputs
+  Integer ->
+  -- | Fractional bits of the outputs
+  Integer ->
+  -- | Latency
+  Integer ->
+  IntelIp 9
+cordicIpVecRotate fIn fOut latency =
+  cordicIp "VECROTATE" latency
+    (  ("fxpt_in_fraction", IntegerParam fIn)
+    :> ("fxpt_in_sign", StrParam "1")
+    :> ("fxpt_out_fraction", IntegerParam fOut)
+    :> ("SFCompensation", BoolParam False)
+    :> Nil )
+{-# INLINE cordicIpVecRotate #-}
 
 -- | Simulation model of the pipeline of the IP: @d@ registers that are
 -- enabled by the 'Enable' signal. The registers have undefined initial values,
