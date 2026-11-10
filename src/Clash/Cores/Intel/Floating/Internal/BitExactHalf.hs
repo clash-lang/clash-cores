@@ -4,8 +4,9 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
-in half precision: square root, reciprocal square root, reciprocal,
-exponentials and logarithms, see Note [Bit-exact half precision models].
+in half precision: square root, cube root, hypotenuse, reciprocal square
+root, reciprocal, exponentials, logarithms and the sine, cosine and tangent
+of pi times x, see Note [Bit-exact half precision models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -21,6 +22,11 @@ module Clash.Cores.Intel.Floating.Internal.BitExactHalf
   , log2Half
   , log10Half
   , log1pHalf
+  , cbrtHalf
+  , hypotHalf
+  , sinPiHalf
+  , cosPiHalf
+  , tanPiHalf
   ) where
 
 import Prelude
@@ -33,8 +39,9 @@ import Data.Word (Word16)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
 import Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
-  ( exp10HalfCoefficients, exp2HalfCoefficients, expHalfCoefficients, log10HalfCoefficients
-  , log2HalfCoefficients, logHalfCoefficients, rsqrtHalfCoefficients, sqrtHalfCoefficients )
+  ( cbrtHalfCoefficients, exp10HalfCoefficients, exp2HalfCoefficients, expHalfCoefficients
+  , log10HalfCoefficients, log2HalfCoefficients, logHalfCoefficients, rsqrtHalfCoefficients
+  , sinPiHalfCoefficients, sqrtHalfCoefficients, tanPiRecipHalfCoefficients )
 
 {- Note [Bit-exact half precision models]
 The IP supports half precision as a custom format with 5 exponent and 10
@@ -164,6 +171,45 @@ coefficients reproduce the IP's results; the constant of the truncated product
 and the finer evaluation for base 10 and log (1 + x) were found on all inputs
 of the families with 18x18 multipliers.
 
+Cube root: the square root's datapath on a 96-entry table, indexed by
+r * 32 + the top 5 fraction bits for x = m * 2^(3k + r), y the low 5 fraction
+bits, with C0 and C1 at 2^-14 and the rounding constant 4 (a quarter unit in
+the last place, as in single precision). NaN keeps its sign.
+
+Three-dimensional hypotenuse: as in single precision, with the squares
+truncated to 11 bits, aligned to the largest at 2^-12 (a square shifted by
+more than 11 places is dropped), the sum rounded to nearest at 11 bits (ties
+up) and the square root's datapath with a rounding constant of 8 (an extra
+half unit in the last place). These widths were confirmed on all pairs of
+non-negative inputs and on random triples: a shift limit of 12, other
+alignments or ties to even give different results.
+
+Sine, cosine and tangent of pi times x, as in single precision:
+
+  * Sine: X = floor (|x| * 2^11) mod 2^12, q = X / 2^10 the half period and r
+    in [0, 1/2] at 2^-11. P = sin (pi * r) / r is a 64-entry table indexed by
+    r * 128 (r = 1/2 is segment 63 with y = 16), y the 4 bits below, C0 and C1
+    at 2^-13 with rounding constant 4, truncated to 2^-10. The result is
+    m * P rounded to nearest (ties away from zero), with m the significand of
+    x for |x| < 2^-6 (and P = P(0)), the significand without its last bit for
+    |x| in [2^-6, 1/4) (the outputs ignore the last input bit exactly there),
+    and r otherwise. A NaN keeps its sign (in single precision it gets the
+    opposite sign); an infinity gives NaN with its sign.
+  * Cosine: the distance to the nearest half integer computed exactly (at
+    2^-24), the same polynomial, and the distance truncated to 11 significant
+    bits times P, rounded to nearest. The product is exact on all families.
+  * Tangent: the sine times R, a polynomial approximation of the reciprocal of
+    the cosine's significand (128 segments indexed by the top 7 fraction bits,
+    y the 3 bits below, C0 and C1 at 2^-16, rounding constant 4, R truncated
+    to 2^-13), rounded to nearest. |x| < 2^-7 gives x times pi rounded to half
+    precision (3.140625), rounded.
+
+These were found by porting the single precision structure: the intervals of P
+per r from the inputs whose r is exact contain a point of the 2^-10 grid
+(and not of 2^-9); the coefficient format search on them and on the
+reciprocal of the tangent gave the formats; the thresholds of the special
+paths and the fixed-point widths were scanned on all inputs.
+
 The IP generates the NaN 0x7C01.
 -}
 
@@ -206,6 +252,14 @@ log2Table = mkTable1 log2HalfCoefficients
 {-# NOINLINE log2Table #-}
 log10Table = mkTable1 log10HalfCoefficients
 {-# NOINLINE log10Table #-}
+
+cbrtTable, sinPiTable, tanPiRecipTable :: Table1
+cbrtTable = mkTable1 cbrtHalfCoefficients
+{-# NOINLINE cbrtTable #-}
+sinPiTable = mkTable1 sinPiHalfCoefficients
+{-# NOINLINE sinPiTable #-}
+tanPiRecipTable = mkTable1 tanPiRecipHalfCoefficients
+{-# NOINLINE tanPiRecipTable #-}
 
 -- | Fields of a half precision number: sign bit, biased exponent, fraction
 fields :: Word16 -> (Bool, Int, Int64)
@@ -505,3 +559,151 @@ log1pHalf mults w
             u' | nb >= 11 = u `shiftR` (nb - 11)
                | otherwise = u `shiftL` (11 - nb)
         in  (nb - 1 - (25 - e), u' - bit 10)
+
+-- * Cube root
+
+-- | The IP's cube root in half precision, on bit patterns
+cbrtHalf :: Multipliers -> Word16 -> Word16
+cbrtHalf mults w
+  -- NaN keeps its sign
+  | e == 31 = if f /= 0 then sgn .|. nanHalf else w
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = sgn
+  -- The carry of a significand of 2 propagates into the exponent
+  | otherwise = sgn .|. ((fromIntegral (k + 15) `shiftL` 10) + fromIntegral (o - bit 10))
+ where
+  (_, e, f) = fields w
+  sgn = w .&. bit 15
+  -- x = m * 2^(3k + r), cbrt x = cbrt (m * 2^r) * 2^k
+  (k, r) = (e - 15) `divMod` 3
+  -- Coefficients at 2^-14, rounding constant 4 (a quarter unit in the last
+  -- place)
+  o = poly1 cbrtTable mults 4 5 (r * 32 + fromIntegral (f `shiftR` 5)) (f .&. 31) `shiftR` 4
+
+-- * Hypotenuse
+
+-- | The IP's three-dimensional hypotenuse, sqrt (x^2 + y^2 + z^2), in half
+-- precision, on bit patterns
+hypotHalf :: Multipliers -> Word16 -> Word16 -> Word16 -> Word16
+hypotHalf mults x y z
+  | any isNaN' xs = nanHalf
+  | any isInf' xs = infHalf
+  | null sqs = 0
+  | be >= 31 = infHalf
+  -- The carry of a significand of 2 propagates into the exponent
+  | otherwise = (fromIntegral (k + 15) `shiftL` 10) + fromIntegral (o - bit 10)
+ where
+  xs = [x, y, z]
+  isNaN' w = let (_, e, f) = fields w in e == 31 && f /= 0
+  isInf' w = let (_, e, f) = fields w in e == 31 && f == 0
+  -- The squares of the normal inputs as floating point numbers: the exponent
+  -- and the significand, truncated to 11 bits, at 2^-10
+  sqs = [square e f | w <- xs, let (_, e, f) = fields w, e /= 0]
+  square e f =
+    let m = f .|. bit 10
+        s = m * m
+        h = fromIntegral (s `shiftR` 21)
+     in (2 * (e - 15) + h, s `shiftR` (10 + h))
+  eMax = maximum (map fst sqs)
+  -- Aligned to the largest square at 2^-12, rounded down; a square shifted by
+  -- more than 11 places counts as zero. The sum is in [1, 12) (at 2^-12).
+  sumSq = sum [(m `shiftL` 2) `shiftR` d | (e, m) <- sqs, let d = eMax - e, d <= 11]
+  l | sumSq >= bit 14 = 2
+    | sumSq >= bit 13 = 1
+    | otherwise = 0 :: Int
+  -- Rounded to nearest at 11 bits, ties up
+  q0 = (sumSq `shiftR` (1 + l) + 1) `shiftR` 1
+  (q, l') = if q0 >= bit 11 then (q0 `shiftR` 1, l + 1) else (q0, l)
+  -- The square root of q * 2^(eMax + l' - 10), with an extra half unit in the
+  -- last place before the truncation
+  (k, p) = (eMax + l') `divMod` 2
+  f' = q - bit 10
+  o = (poly1 sqrtTable mults 8 6 (p * 16 + fromIntegral (f' `shiftR` 6)) (f' .&. 63)) `shiftR` 3
+  be = k + 15 + fromIntegral (o `shiftR` 11)
+
+-- * Sine, cosine and tangent of pi times x
+
+-- | P = sin (pi * r) / r at 2^-10 for r = (j + y * 2^-4) / 128; r = 1/2 is
+-- segment 63 with y = 16
+sinPiPoly :: Multipliers -> Int64 -> Int64
+sinPiPoly mults r = poly1 sinPiTable mults 4 4 j y `shiftR` 3
+ where
+  (j, y) | r >= bit 10 = (63, 16)
+         | otherwise = (fromIntegral (r `shiftR` 4), r .&. 15)
+
+-- | The IP's @sin (pi * x)@ in half precision, on bit patterns
+sinPiHalf :: Multipliers -> Word16 -> Word16
+sinPiHalf mults w
+  -- NaN with the input's sign, for infinities and NaNs
+  | e == 31 = sgn .|. nanHalf
+  -- Zeros, subnormal numbers and integers give a zero of the input's sign
+  | e == 0 || e >= 25 = sgn
+  -- |x| < 2^-6: the significand times sin (pi r) / r at r = 0
+  | e <= 8 = sgn .|. roundAt (35 - e) (m * sinPiPoly mults 0)
+  | r == 0 = sgn
+  -- |x| < 1/4: the significand truncated to 10 bits
+  | e <= 13 = sgn' .|. roundAt (34 - e) ((m `shiftR` 1) * p)
+  -- Otherwise r is exact
+  | otherwise = sgn' .|. roundAt 21 (r * p)
+ where
+  (_, e, f) = fields w
+  sgn = w .&. bit 15
+  m = f .|. bit 10
+  -- floor (|x| * 2^11) mod 2^12: q is the half period, r in [0, 2^10] the
+  -- distance to the nearest integer, in units of 2^-11
+  xx | e >= 14 = (m `shiftL` (e - 14)) .&. (bit 12 - 1)
+     | otherwise = m `shiftR` (14 - e)
+  q = xx `shiftR` 10
+  lo = xx .&. (bit 10 - 1)
+  r = if odd q then bit 10 - lo else lo
+  sgn' = if q >= 2 then sgn `xor` bit 15 else sgn
+  p = sinPiPoly mults r
+
+-- | The IP's @cos (pi * x)@ in half precision, on bit patterns
+cosPiHalf :: Multipliers -> Word16 -> Word16
+cosPiHalf mults w
+  | e == 31 = nanHalf
+  -- x + 1/2 is an integer
+  | rf == 0 = 0
+  | otherwise = sgn .|. roundAt g (m * sinPiPoly mults (rf `shiftR` 13))
+ where
+  (_, e, f) = fields w
+  -- floor (|x| * 2^24) mod 2^25 (exact for all normal x; zeros and subnormal
+  -- numbers keep the hidden bit): q is the half period, rf in [0, 2^23] the
+  -- distance to the nearest half integer, in units of 2^-24
+  xx | e >= 1 = ((f .|. bit 10) `shiftL` (e - 1)) .&. (bit 25 - 1)
+     | otherwise = (f .|. bit 10) `shiftR` 1
+  q = xx `shiftR` 23
+  lo = xx .&. (bit 23 - 1)
+  rf = if odd q then lo else bit 23 - lo
+  sgn = if q == 1 || q == 2 then bit 15 else 0
+  -- rf truncated to 11 significant bits, m * 2^-(g - 10)
+  nb = 64 - countLeadingZeros rf
+  (m, g) | nb > 11 = (rf `shiftR` (nb - 11), 45 - nb)
+         | otherwise = (rf, 34)
+
+-- | The IP's @tan (pi * x)@ in half precision, on bit patterns: the IP's sine
+-- of pi times x divided by its cosine of pi times x
+tanPiHalf :: Multipliers -> Word16 -> Word16
+tanPiHalf mults w
+  | e == 31 = nanHalf
+  -- Zeros and subnormal numbers are returned unchanged
+  | e == 0 = w
+  -- |x| < 2^-7: x times pi rounded to half precision (1608 * 2^-9), rounded
+  | e <= 7 = (w .&. bit 15) .|. roundAt (34 - e) ((bit 10 .|. f) * 1608)
+  -- Integers: a zero
+  | s .&. 0x7FFF == 0 = sgn
+  -- Half integers: an infinity
+  | c .&. 0x7FFF == 0 = sgn .|. infHalf
+  -- The quotient at 2^-(23 - es + ec)
+  | otherwise = sgn .|. roundAt (23 - es + ec) ((bit 10 .|. fs) * r)
+ where
+  (_, e, f) = fields w
+  s = sinPiHalf mults w
+  c = cosPiHalf mults w
+  sgn = (s `xor` c) .&. bit 15
+  (_, es, fs) = fields s
+  (_, ec, fc) = fields c
+  -- 1 / (1 + fc * 2^-10) at 2^-13; coefficients at 2^-16, rounding constant 4
+  r | fc == 0 = bit 13
+    | otherwise = poly1 tanPiRecipTable mults 4 3 (fromIntegral (fc `shiftR` 3)) (fc .&. 7) `shiftR` 3

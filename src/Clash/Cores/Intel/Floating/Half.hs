@@ -47,6 +47,21 @@ module Clash.Cores.Intel.Floating.Half
   , log1pWith
   , log1p
   , E.Log1pDefDelay
+  , cbrtWith
+  , cbrt
+  , E.CbrtDefDelay
+  , hypotWith
+  , hypot
+  , E.HypotDefDelay
+  , sinPiWith
+  , sinPi
+  , E.SinPiDefDelay
+  , cosPiWith
+  , cosPi
+  , E.CosPiDefDelay
+  , tanPiWith
+  , tanPi
+  , E.TanPiDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -62,6 +77,11 @@ module Clash.Cores.Intel.Floating.Half
   , E.log2Model
   , E.log10Model
   , E.log1pModel
+  , E.cbrtModel
+  , E.hypotModel
+  , E.sinPiModel
+  , E.cosPiModel
+  , E.tanPiModel
   ) where
 
 import Clash.Prelude hiding (sqrt, recip, exp, log)
@@ -328,3 +348,137 @@ log1p
   -> DSignal dom (n + E.Log1pDefDelay) Half
 log1p fam = withFrozenCallStack $ hideClockResetEnable (E.log1p fam)
 {-# INLINE log1p #-}
+
+-- | Customizable floating point cube root, in half precision. See
+-- 'E.cbrtWith'.
+cbrtWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+cbrtWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.cbrtWith cfg fam)
+{-# INLINE cbrtWith #-}
+
+-- | Floating point cube root, in half precision, with the default configuration
+-- and delay. See 'E.cbrt'.
+cbrt
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.CbrtDefDelay) Half
+cbrt fam = withFrozenCallStack $ hideClockResetEnable (E.cbrt fam)
+{-# INLINE cbrt #-}
+
+-- | Customizable floating point three-dimensional hypotenuse, @sqrt (x^2 + y^2 + z^2)@, in half precision. See
+-- 'E.hypotWith'.
+hypotWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+hypotWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.hypotWith cfg fam)
+{-# INLINE hypotWith #-}
+
+-- | Floating point three-dimensional hypotenuse, @sqrt (x^2 + y^2 + z^2)@, in half precision, with the default configuration
+-- and delay. See 'E.hypot'.
+hypot
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.HypotDefDelay) Half
+hypot fam = withFrozenCallStack $ hideClockResetEnable (E.hypot fam)
+{-# INLINE hypot #-}
+
+-- | Customizable floating point sine of pi times x, @sin (pi * x)@, in half precision. See
+-- 'E.sinPiWith'.
+sinPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+sinPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.sinPiWith cfg fam)
+{-# INLINE sinPiWith #-}
+
+-- | Floating point sine of pi times x, @sin (pi * x)@, in half precision, with the default configuration
+-- and delay. See 'E.sinPi'.
+sinPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.SinPiDefDelay) Half
+sinPi fam = withFrozenCallStack $ hideClockResetEnable (E.sinPi fam)
+{-# INLINE sinPi #-}
+
+-- | Customizable floating point cosine of pi times x, @cos (pi * x)@, in half precision. See
+-- 'E.cosPiWith'.
+cosPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+cosPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.cosPiWith cfg fam)
+{-# INLINE cosPiWith #-}
+
+-- | Floating point cosine of pi times x, @cos (pi * x)@, in half precision, with the default configuration
+-- and delay. See 'E.cosPi'.
+cosPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.CosPiDefDelay) Half
+cosPi fam = withFrozenCallStack $ hideClockResetEnable (E.cosPi fam)
+{-# INLINE cosPi #-}
+
+-- | Customizable floating point tangent of pi times x, @tan (pi * x)@, in half precision. See
+-- 'E.tanPiWith'.
+tanPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+tanPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.tanPiWith cfg fam)
+{-# INLINE tanPiWith #-}
+
+-- | Floating point tangent of pi times x, @tan (pi * x)@, in half precision, with the default configuration
+-- and delay. See 'E.tanPi'.
+tanPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.TanPiDefDelay) Half
+tanPi fam = withFrozenCallStack $ hideClockResetEnable (E.tanPi fam)
+{-# INLINE tanPi #-}

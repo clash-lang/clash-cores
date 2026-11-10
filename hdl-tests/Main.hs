@@ -255,7 +255,8 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
             , hdlSim=[Vivado]
             , buildTargets=BuildSpecific
                 [ "sqrtTB", "recipTB", "rsqrtTB", "expTB", "exp2TB", "exp10TB", "logTB"
-                , "log2TB", "log10TB", "log1pTB" ]
+                , "log2TB", "log10TB", "log1pTB", "cbrtTB", "hypotTB", "sinPiTB"
+                , "cosPiTB", "tanPiTB" ]
             }
           -- Megafunctions that Clash instantiates directly. Their simulation
           -- models exist in Verilog too, so Icarus can simulate Verilog.

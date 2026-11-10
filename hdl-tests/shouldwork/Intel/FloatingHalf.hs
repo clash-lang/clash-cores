@@ -6,9 +6,10 @@ of the Floating Point Functions IP that Quartus generates, in half precision.
 See "IpTestCommon" for how the test benches work, and "IntelSimLib" for how
 the IP's simulation models end up in the HDL.
 
-The models were verified on all 2^16 inputs outside of these tests; the tests
-feed every 17th input and all inputs of two or three binades, see 'everyNth'
-and 'binades'.
+The models of the one-input functions were verified on all 2^16 inputs
+outside of these tests; the tests feed every 17th (or 23rd) input and all
+inputs of a few binades, see 'everyNth' and 'binades'. The test of the
+hypotenuse feeds triples, see 'halfTriples'.
 -}
 module FloatingHalf where
 
@@ -57,3 +58,23 @@ log10TB = romTB simLibraries log10Dut $(memBlobTH (Just 0) (trace log10Dut (cycl
 log1pTB :: Signal Dom Bool
 log1pTB = romTB simLibraries log1pDut $(memBlobTH (Just 0) (trace log1pDut (cycles (everyNth 17 9 <> binades False 13 2 <> binades True 13 1))))
 {-# ANN log1pTB (Synthesize "log1pTB" [] (PortName "done")) #-}
+
+cbrtTB :: Signal Dom Bool
+cbrtTB = romTB simLibraries cbrtDut $(memBlobTH (Just 0) (trace cbrtDut (cycles (everyNth 23 10 <> binades False 15 3 <> binades True 16 1))))
+{-# ANN cbrtTB (Synthesize "cbrtTB" [] (PortName "done")) #-}
+
+sinPiTB :: Signal Dom Bool
+sinPiTB = romTB simLibraries sinPiDut $(memBlobTH (Just 0) (trace sinPiDut (cycles (everyNth 17 11 <> binades False 14 2 <> binades True 9 1))))
+{-# ANN sinPiTB (Synthesize "sinPiTB" [] (PortName "done")) #-}
+
+cosPiTB :: Signal Dom Bool
+cosPiTB = romTB simLibraries cosPiDut $(memBlobTH (Just 0) (trace cosPiDut (cycles (everyNth 17 12 <> binades False 14 2 <> binades True 9 1))))
+{-# ANN cosPiTB (Synthesize "cosPiTB" [] (PortName "done")) #-}
+
+tanPiTB :: Signal Dom Bool
+tanPiTB = romTB simLibraries tanPiDut $(memBlobTH (Just 0) (trace tanPiDut (cycles (everyNth 17 13 <> binades False 14 2 <> binades True 9 1))))
+{-# ANN tanPiTB (Synthesize "tanPiTB" [] (PortName "done")) #-}
+
+hypotTB :: Signal Dom Bool
+hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycles (halfTriples 4000 14))))
+{-# ANN hypotTB (Synthesize "hypotTB" [] (PortName "done")) #-}

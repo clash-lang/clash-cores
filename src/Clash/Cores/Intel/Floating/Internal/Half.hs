@@ -22,6 +22,11 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , log2Model
   , log10Model
   , log1pModel
+  , cbrtModel
+  , hypotModel
+  , sinPiModel
+  , cosPiModel
+  , tanPiModel
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -146,6 +151,82 @@ log10Model fam = onBits (log10Half (familyMultipliers fam))
 -- Verified like 'sqrtModel'.
 log1pModel :: DeviceFamily -> Half -> Half
 log1pModel fam = onBits (log1pHalf (familyMultipliers fam))
+
+-- | Model of the cube root of the IP in half precision, see 'sqrtModel'. It is
+-- faithfully rounded. Zero and subnormal inputs give a zero of the same sign,
+-- negative inputs the negated cube root of their magnitude, and a NaN input
+-- gives a NaN with the sign of the input (@0x7C01@ or @0xFC01@), like in single
+-- precision.
+--
+-- Verified like 'sqrtModel'.
+cbrtModel :: DeviceFamily -> Half -> Half
+cbrtModel fam = onBits (cbrtHalf (familyMultipliers fam))
+
+-- | Model of the three-dimensional hypotenuse of the IP in half precision,
+-- @sqrt (x^2 + y^2 + z^2)@, see 'sqrtModel'. Like in single precision, the IP
+-- truncates the squares to 11 bits, and the smaller ones further when it
+-- aligns them to the largest, rounds their sum to nearest and takes its square
+-- root like 'sqrtModel' with a larger rounding constant. So the result can be
+-- off by up to about two units in the last place (by a unit or more for about
+-- 1% of random inputs). Subnormal inputs are treated as zero and the signs of
+-- the inputs are ignored. A NaN input gives 'intelNaN', otherwise an infinite
+-- input gives infinity; results of @2^16@ or more overflow to infinity.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10 and
+-- Cyclone V on 58 million inputs each: 50 million triples with overlapping
+-- squares, all non-negative inputs paired with 195 others, every input with
+-- the other two zero, all combinations of special values, inputs near the
+-- overflow boundary and random triples; and for Cyclone IV E, Cyclone 10 LP
+-- and other latencies on 2.5 million of those.
+hypotModel :: DeviceFamily -> Half -> Half -> Half -> Half
+hypotModel fam x y z =
+  Half (fromIntegral (hypotHalf (familyMultipliers fam) (bits x) (bits y) (bits z)))
+ where
+  bits = fromIntegral . getHalf
+
+-- | Model of the IP's @sin (pi * x)@ in half precision (the \"SIN\" function
+-- with the angle represented as a multiple of pi), see 'sqrtModel'. As in
+-- single precision, the IP computes @r * P(r)@ with @r@ the distance of @x@
+-- to the nearest integer and @P@ a polynomial approximation of
+-- @sin (pi * r) / r@. For @x@ in @[2^-6, 0.25)@ it drops the last bit of @x@'s
+-- significand, so the result can be off by more than two units in the last
+-- place (by a unit or more for 4% of the inputs): unlike what the user guide
+-- promises, it is not always faithfully rounded. Integers and inputs of
+-- magnitude @1024@ and above give a zero with the sign of @x@, as do zero and
+-- subnormal inputs. Infinities and NaNs give 'intelNaN' with the sign of the
+-- input (unlike in single precision, where a NaN input gives a NaN of the
+-- opposite sign).
+--
+-- Verified like 'sqrtModel'.
+sinPiModel :: DeviceFamily -> Half -> Half
+sinPiModel fam = onBits (sinPiHalf (familyMultipliers fam))
+
+-- | Model of the IP's @cos (pi * x)@ in half precision (the \"COS\" function
+-- with the angle represented as a multiple of pi), see 'sqrtModel' and
+-- 'sinPiModel': the IP computes @sin (pi * r)@ with @r@ the distance of @x@ to
+-- the nearest half integer, with the polynomial of 'sinPiModel'. The result
+-- can be off by up to almost two units in the last place (by a unit or more
+-- for 2% of the inputs). Half integers give positive zero; NaN and the
+-- infinities give 'intelNaN'.
+--
+-- Verified like 'sqrtModel'.
+cosPiModel :: DeviceFamily -> Half -> Half
+cosPiModel fam = onBits (cosPiHalf (familyMultipliers fam))
+
+-- | Model of the IP's @tan (pi * x)@ in half precision (the \"TAN\" function
+-- with the angle represented as a multiple of pi), see 'sqrtModel'. The IP
+-- divides its sine of pi times x ('sinPiModel') by its cosine of pi times x
+-- ('cosPiModel'), both rounded to half precision, multiplying by a polynomial
+-- approximation of the reciprocal, so the result can be off by up to four
+-- units in the last place (by a unit or more for 9% of the inputs). Inputs of
+-- magnitude below @2^-7@ give @x@ times pi rounded to half precision, rounded;
+-- zero and subnormal inputs are returned unchanged; integers give a zero and
+-- half integers an infinity, with the sign of the quotient; NaN and the
+-- infinities give 'intelNaN'.
+--
+-- Verified like 'sqrtModel'.
+tanPiModel :: DeviceFamily -> Half -> Half
+tanPiModel fam = onBits (tanPiHalf (familyMultipliers fam))
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'
