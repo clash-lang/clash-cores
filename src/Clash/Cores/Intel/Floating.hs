@@ -74,6 +74,9 @@ module Clash.Cores.Intel.Floating
   , cosPiWith
   , cosPi
   , E.CosPiDefDelay
+  , tanPiWith
+  , tanPi
+  , E.TanPiDefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -594,6 +597,31 @@ cosPi
   -> DSignal dom (n + E.CosPiDefDelay) Float
 cosPi fam = withFrozenCallStack $ hideClockResetEnable (E.cosPi fam)
 {-# INLINE cosPi #-}
+
+-- | Customizable floating point tangent of pi times its argument, @tan (pi * x)@. See 'E.tanPiWith'.
+tanPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+tanPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.tanPiWith cfg fam)
+{-# INLINE tanPiWith #-}
+
+-- | Floating point tangent of pi times its argument, @tan (pi * x)@, with the default configuration and delay. See
+-- 'E.tanPi'.
+tanPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.TanPiDefDelay) Float
+tanPi fam = withFrozenCallStack $ hideClockResetEnable (E.tanPi fam)
+{-# INLINE tanPi #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With

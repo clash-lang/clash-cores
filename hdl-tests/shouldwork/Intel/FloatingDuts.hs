@@ -168,6 +168,11 @@ cosPiDut :: Dut Float (Vec 2 Float)
 cosPiDut clk rst en i = bundle (unary (E.cosPi simFamily) clk rst en i :> unary (E.cosPiWith @8 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE cosPiDut #-}
 
+-- | E.tanPi, E.tanPiWith @16
+tanPiDut :: Dut Float (Vec 2 Float)
+tanPiDut clk rst en i = bundle (unary (E.tanPi simFamily) clk rst en i :> unary (E.tanPiWith @16 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE tanPiDut #-}
+
 -- | Positive floats with exponents (biased) in @[lo, lo + n)@ and random
 -- fractions, after the 'specials'
 floatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]

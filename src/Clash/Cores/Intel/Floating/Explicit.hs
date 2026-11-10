@@ -71,9 +71,10 @@ rounded too, the hypotenuse not always, see 'hypotModel'. The reciprocal
 ('recip') is correctly rounded (with a quirk just below the smallest normal
 number, see 'recipModel').
 
-Of the trigonometric functions, the sine and cosine of pi times the argument
-('sinPi' and 'cosPi', the IP's sine and cosine with the angle represented as a
-multiple of pi) are supported, with bit-exact models obtained in the same way.
+Of the trigonometric functions, the sine, cosine and tangent of pi times the
+argument ('sinPi', 'cosPi' and 'tanPi', the IP's functions with the angle
+represented as a multiple of pi) are supported, with bit-exact models obtained
+in the same way.
 The IP's option \"Inputs are within range -2pi to +2pi\" has no effect on
 these device families. The sine, cosine and tangent of an angle in radians and
 the other functions of the IP are not supported.
@@ -147,6 +148,9 @@ module Clash.Cores.Intel.Floating.Explicit
   , cosPiWith
   , cosPi
   , CosPiDefDelay
+  , tanPiWith
+  , tanPi
+  , TanPiDefDelay
     -- * Comparison
   , Ordering(..)
   , toMaybeOrdering
@@ -208,6 +212,7 @@ module Clash.Cores.Intel.Floating.Explicit
   , log1pModel
   , sinPiModel
   , cosPiModel
+  , tanPiModel
   ) where
 
 import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log)
@@ -1148,6 +1153,57 @@ cosPi = withFrozenCallStack $ cosPiWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type CosPiDefDelay = 19
+
+-- | Customizable floating point tangent of pi times its argument, @tan (pi * x)@, see 'tanPiModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"TAN\" function
+-- with the angle represented as a multiple of pi (@scale_by_pi@).
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+tanPiWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+tanPiWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (tanPiModel fam <$> x)
+  | otherwise = unaryInst "fp_tanpi" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of tanPi"
+  ip = fpFunctions cfg "TRIG" "TAN" (natToNum @d) (scaleByPi :> Nil)
+{-# INLINE tanPiWith #-}
+
+-- | Floating point tangent of pi times its argument, @tan (pi * x)@, with the default configuration and delay. See 'tanPiWith'.
+tanPi
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + TanPiDefDelay) Float
+tanPi = withFrozenCallStack $ tanPiWith defConfig
+{-# INLINE tanPi #-}
+
+-- | The default delay of 'tanPi': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type TanPiDefDelay = 36
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@.
 --

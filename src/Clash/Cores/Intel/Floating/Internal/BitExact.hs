@@ -5,8 +5,8 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of the square root, cube root, three-dimensional
 hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
-(natural, base 2, base 10 and @log (1 + x)@) and the sine and cosine of pi
-times x of Intel's Floating Point Functions IP (@altera_fp_functions@) in
+(natural, base 2, base 10 and @log (1 + x)@) and the sine, cosine and
+tangent of pi times x of Intel's Floating Point Functions IP (@altera_fp_functions@) in
 single precision, see Note [Bit-exact models].
 -}
 
@@ -28,6 +28,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , log1pSingle
   , sinPiSingle
   , cosPiSingle
+  , tanPiSingle
   ) where
 
 import Prelude
@@ -40,7 +41,8 @@ import Data.Word (Word32)
 
 import Clash.Cores.Intel.Floating.Internal.Coefficients
   ( cbrtCoefficients, exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
-  , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients, sinPiCoefficients )
+  , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients, sinPiCoefficients
+  , tanPiRecipCoefficients )
 
 {- Note [Bit-exact models]
 The Floating Point Functions user guide documents the latency and the
@@ -341,6 +343,31 @@ fixed-point resolution, the tiny-input threshold and its truncated multiplier
 (fitted by coordinate descent over per-row cuts of the partial products, as in
 the synthesis report) were found on random and swept inputs.
 
+Tangent of pi times x (the IP's \"TAN\" with the angle represented as a
+multiple of pi): the IP divides its sine of pi times x by its cosine of pi
+times x, both rounded to single precision as above, by multiplying the sine's
+significand by R, a polynomial approximation of the reciprocal of the cosine's
+significand 1 + f * 2^-23: a 512-entry table indexed by the top 9 bits of f, y
+the 14 bits below them, T1 from the top 12 bits of y, the coefficients at
+2^-29 and T1, S1 and A at 2^-30, R truncated to 2^-26 with a rounding constant
+of 2^-27 in C0. On 18x18 families T1 is rounded half up, S1 * y is the
+staircase with j0 = -1 compensated by 2^-32, and the final product is the
+truncated multiplier of the cosine (an 18x18, two 9x9 and two 2x2 tiles; any
+compensation constant up to 2^13 gives the same results on all inputs). A
+cosine of a power of two (f = 0) gives R = 1 and an exact product. The result
+is rounded to nearest, ties away from zero. |x| < 2^-13 gives x times pi
+rounded to single precision, rounded; zero and subnormal inputs are returned
+unchanged; integers give a zero and half integers an infinity, with the sign
+of the sine times the cosine; NaN and the infinities give NaN.
+
+This was found as follows: the outputs match the IP's sine and cosine rounded
+to single precision, divided with a reciprocal rounded to 26 bits, on all but
+0.7% of the inputs in [0.25, 1); the format search on the intervals of the
+reciprocal per cosine significand found the formats with unique coefficients
+for all 512 segments; with the truncated product of the cosine, the
+reciprocal of the 18x18 families was fitted by coordinate descent over
+per-row cuts of the partial products.
+
 The IP generates the NaN 0x7F800001.
 -}
 
@@ -400,6 +427,11 @@ log10Table = mkTable log10Coefficients
 sinPiTable :: Table
 sinPiTable = mkTable sinPiCoefficients
 {-# NOINLINE sinPiTable #-}
+
+-- | The reciprocal table of 'tanPiSingle'
+tanPiRecipTable :: Table
+tanPiRecipTable = mkTable tanPiRecipCoefficients
+{-# NOINLINE tanPiRecipTable #-}
 
 -- | Fields of a single precision number: sign bit, biased exponent, fraction
 fields :: Word32 -> (Bool, Int, Int64)
@@ -1026,3 +1058,62 @@ cosPiProduct m p =
   + (((m `shiftR` 4) .&. 3) * ((p `shiftR` 14) .&. 3)) `shiftL` 18
   + (((m `shiftR` 13) .&. 3) * ((p `shiftR` 5) .&. 3)) `shiftL` 18
   + bit 22
+
+-- * Tangent of pi times x
+
+-- | The IP's @tan (pi * x)@ in single precision, on bit patterns: the IP's
+-- sine of pi times x divided by its cosine of pi times x
+tanPiSingle :: Multipliers -> Word32 -> Word32
+tanPiSingle mults w
+  | e == 255 = nanSingle
+  -- Zeros and subnormal numbers are returned unchanged
+  | e == 0 = w
+  -- |x| < 2^-13: x times pi rounded to single precision (0x40490FDB), rounded
+  | e <= 113 = (w .&. bit 31) .|. roundAt (173 - e) ((bit 23 .|. f) * 26353590)
+  -- Integers: a zero
+  | s .&. 0x7FFFFFFF == 0 = sgn
+  -- Half integers: an infinity
+  | c .&. 0x7FFFFFFF == 0 = sgn .|. infSingle
+  -- The quotient at 2^-g
+  | otherwise = sgn .|. roundAt (49 - es + ec) p
+ where
+  (_, e, f) = fields w
+  s = sinPiSingle mults w
+  c = cosPiSingle mults w
+  sgn = (s `xor` c) .&. bit 31
+  (_, es, fs) = fields s
+  (_, ec, fc) = fields c
+  sm = bit 23 .|. fs
+  r = tanPiRecip mults fc
+  p = case mults of
+    TruncatedMultipliers | fc /= 0 -> tanPiProduct sm r
+    _ -> sm * r
+
+-- | The reciprocal @1 / (1 + f * 2^-23)@ of the cosine's significand at
+-- 2^-26, for its fraction @f@. The coefficients have their LSBs at 2^-29, T1
+-- (from the top 12 bits of y) and S1 at 2^-30.
+tanPiRecip :: Multipliers -> Int64 -> Int64
+tanPiRecip mults f = (2 * (c0 + 4) + t2) `shiftR` 4
+ where
+  (c2, c1, c0) = coefs tanPiRecipTable (fromIntegral (f `shiftR` 14))
+  y = f .&. 0x3FFF
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((2 * c2 * (y `shiftR` 2)) `shiftR` 12)
+      in  (s1 * y) `shiftR` 14
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((2 * c2 * (y `shiftR` 2) + bit 11) `shiftR` 12)
+      -- Compensation constant 2^12 (2^-32)
+      in  (staircase (-1) s1 y + bit 12) `shiftR` 14
+
+-- | The truncated 24x26 multiplier of the tangent on 18x18 families (the tiles
+-- of 'cosPiProduct'): the sine's significand times the reciprocal. Any
+-- compensation constant from 0 to 2^13 gives the same results on all inputs;
+-- the model adds none.
+tanPiProduct :: Int64 -> Int64 -> Int64
+tanPiProduct a b =
+    ((a `shiftR` 6) * (b `shiftR` 8)) `shiftL` 14
+  + ((a .&. 63) * (b `shiftR` 17)) `shiftL` 17
+  + ((a `shiftR` 15) * (b .&. 255)) `shiftL` 15
+  + (((a `shiftR` 4) .&. 3) * ((b `shiftR` 15) .&. 3)) `shiftL` 19
+  + (((a `shiftR` 13) .&. 3) * ((b `shiftR` 6) .&. 3)) `shiftL` 19
