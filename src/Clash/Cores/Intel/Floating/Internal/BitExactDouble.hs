@@ -4,8 +4,8 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
-in double precision: square root and reciprocal, see Note [Bit-exact double
-precision models].
+in double precision: square root, reciprocal and the arithmetic, see Note
+[Bit-exact double precision models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -13,12 +13,17 @@ precision models].
 module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   ( sqrtDouble
   , recipDouble
+  , addDouble
+  , subDouble
+  , mulDouble
+  , divDouble
   ) where
 
 import Prelude
 
 import Data.Array (Array, listArray, (!))
 import Data.Bits
+import Data.Ratio (denominator, numerator)
 import Data.Word (Word64)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
@@ -41,6 +46,14 @@ inputs treated as zero and the exponent unbounded, with the quirk at the
 bottom of the exponent range of the single precision one (a result whose
 biased exponent would be 0 keeps its 52 fraction bits with an exponent field
 of 0; results below that flush to a zero of the same sign).
+
+The addition, subtraction, multiplication and division are correctly
+rounded like in single precision: they are the IEEE 754 operations, rounded
+to nearest with ties to even as if the exponent were unbounded, with
+subnormal inputs treated as zero (keeping their sign) and results below the
+smallest normal number flushed to a zero of the same sign. Unlike the
+reciprocal, the division has no special case at the bottom of the exponent
+range. NaN results are always the IP's NaN.
 
 The square root uses a piecewise polynomial of degree five, evaluated in
 Horner form, with a 256-entry table indexed by p * 128 + the top 7 fraction
@@ -234,3 +247,99 @@ recipDouble w
   -- The result is q * 2^(h - 52); only m = 2^52 gives q1 = 2^53
   (h, q) | q1 >= bit 53 = (1023 - e, q1 `shiftR` 1)
          | otherwise = (1022 - e, q1)
+
+-- * Arithmetic
+
+-- | A double precision number as the arithmetic of the IP sees it: subnormal
+-- numbers are zeros
+data Value
+  = VNaN
+  | VInf Bool
+  -- ^ Infinity, with its sign
+  | VNum Bool Rational
+  -- ^ Sign and magnitude (zero for zeros and subnormal numbers)
+
+value :: Word64 -> Value
+value w
+  | e == 2047 = if f /= 0 then VNaN else VInf s
+  | e == 0 = VNum s 0
+  | otherwise = VNum s (toRational (f .|. bit 52) * 2 ^^ (e - 1075))
+ where
+  (s, e, f) = fields w
+
+-- | Round a magnitude to double precision: to nearest, ties to even, with an
+-- unbounded exponent; results of 2^1024 or more overflow to infinity and
+-- results below 2^-1022 are flushed to zero
+roundDouble :: Bool -> Rational -> Word64
+roundDouble s a
+  | a == 0 = sgn
+  | be >= 2047 = sgn .|. infDouble
+  | be <= 0 = sgn
+  | otherwise = sgn .|. (fromIntegral be `shiftL` 52) .|. fromInteger (q - bit 52)
+ where
+  sgn = if s then bit 63 else 0
+  -- a in [2^e0, 2^(e0 + 1))
+  l = bitLength (numerator a) - bitLength (denominator a)
+  e0 = if a < 2 ^^ l then l - 1 else l
+  -- The significand, in [2^52, 2^53]
+  (q0, r) = properFraction (a * 2 ^^ (52 - e0)) :: (Integer, Rational)
+  q1 | r > 1 / 2 || (r == 1 / 2 && odd q0) = q0 + 1
+     | otherwise = q0
+  (q, e) = if q1 == bit 53 then (q1 `shiftR` 1, e0 + 1) else (q1, e0)
+  be = e + 1023
+
+-- | The number of bits of a positive integer
+bitLength :: Integer -> Int
+bitLength = go 0
+ where
+  go k m = if m == 0 then k else go (k + 1) (m `shiftR` 1)
+
+-- | The IP's addition in double precision, on bit patterns
+addDouble :: Word64 -> Word64 -> Word64
+addDouble x y = case (value x, value y) of
+  (VNaN, _) -> nanDouble
+  (_, VNaN) -> nanDouble
+  (VInf s, VInf t) -> if s /= t then nanDouble else signed s infDouble
+  (VInf s, _) -> signed s infDouble
+  (_, VInf t) -> signed t infDouble
+  (VNum s a, VNum t b)
+    -- Zeros: negative only if both are
+    | a == 0 && b == 0 -> signed (s && t) 0
+    | v == 0 -> 0
+    | otherwise -> roundDouble (v < 0) (abs v)
+   where
+    v = sgnd s a + sgnd t b
+ where
+  sgnd s a = if s then negate a else a
+
+-- | The IP's subtraction in double precision, on bit patterns
+subDouble :: Word64 -> Word64 -> Word64
+subDouble x y = addDouble x (y `xor` bit 63)
+
+-- | The IP's multiplication in double precision, on bit patterns
+mulDouble :: Word64 -> Word64 -> Word64
+mulDouble x y = case (value x, value y) of
+  (VNaN, _) -> nanDouble
+  (_, VNaN) -> nanDouble
+  (VInf _, VNum _ 0) -> nanDouble
+  (VNum _ 0, VInf _) -> nanDouble
+  (VInf s, VInf t) -> signed (s /= t) infDouble
+  (VInf s, VNum t _) -> signed (s /= t) infDouble
+  (VNum s _, VInf t) -> signed (s /= t) infDouble
+  (VNum s a, VNum t b) -> roundDouble (s /= t) (a * b)
+
+-- | The IP's division in double precision, on bit patterns
+divDouble :: Word64 -> Word64 -> Word64
+divDouble x y = case (value x, value y) of
+  (VNaN, _) -> nanDouble
+  (_, VNaN) -> nanDouble
+  (VInf _, VInf _) -> nanDouble
+  (VNum _ 0, VNum _ 0) -> nanDouble
+  (VInf s, VNum t _) -> signed (s /= t) infDouble
+  (VNum s _, VInf t) -> signed (s /= t) 0
+  (VNum s _, VNum t 0) -> signed (s /= t) infDouble
+  (VNum s a, VNum t b) -> roundDouble (s /= t) (a / b)
+
+-- | Set the sign bit of a bit pattern if the flag is set
+signed :: Bool -> Word64 -> Word64
+signed s w = if s then w .|. bit 63 else w

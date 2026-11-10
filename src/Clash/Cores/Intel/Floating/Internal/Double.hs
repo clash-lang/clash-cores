@@ -12,6 +12,10 @@ Simulation models and instantiation helpers for
 module Clash.Cores.Intel.Floating.Internal.Double
   ( -- * Simulation models
     intelNaN
+  , addModel
+  , subModel
+  , mulModel
+  , divModel
   , sqrtModel
   , recipModel
     -- * Instantiation
@@ -36,6 +40,43 @@ onBits f = castWord64ToDouble . f . castDoubleToWord64
 -- least significant bit of the fraction set (@0x7FF0000000000001@).
 intelNaN :: Double
 intelNaN = castWord64ToDouble 0x7FF0000000000001
+
+-- | Model of a binary operation of the IP
+onBits2 :: (Word64 -> Word64 -> Word64) -> Double -> Double -> Double
+onBits2 f x y = castWord64ToDouble (f (castDoubleToWord64 x) (castDoubleToWord64 y))
+
+-- | Model of the floating point addition of the IP in double precision: IEEE
+-- 754 addition, rounding to nearest with ties to even, but with subnormal
+-- inputs treated as zero and results flushed to zero as in single precision
+-- (see "Clash.Cores.Intel.Floating.Explicit"): the result is rounded as if
+-- the exponent were unbounded, and flushed to a zero of the same sign if that
+-- is below the smallest normal number. NaN results are always 'intelNaN'.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E, Cyclone 10 LP and Cyclone V, at several latencies, on 700,000
+-- pairs of inputs each: all pairs of special values, random inputs of several
+-- kinds (around one, close to each other, near the ends of the exponent
+-- range, with few fraction bits set) and inputs whose result is close to the
+-- smallest normal number. The same goes for 'subModel', 'mulModel' and
+-- 'divModel'.
+addModel :: Double -> Double -> Double
+addModel = onBits2 addDouble
+
+-- | Model of the floating point subtraction of the IP in double precision,
+-- see 'addModel'
+subModel :: Double -> Double -> Double
+subModel = onBits2 subDouble
+
+-- | Model of the floating point multiplication of the IP in double precision,
+-- see 'addModel'
+mulModel :: Double -> Double -> Double
+mulModel = onBits2 mulDouble
+
+-- | Model of the floating point division of the IP in double precision, see
+-- 'addModel'. Unlike 'recipModel', it flushes every result below the
+-- smallest normal number.
+divModel :: Double -> Double -> Double
+divModel = onBits2 divDouble
 
 -- | Model of the square root of the IP in double precision. It gives the IP's
 -- results bit for bit, see Note [Bit-exact double precision models] in

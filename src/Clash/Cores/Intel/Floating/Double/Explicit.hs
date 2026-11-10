@@ -13,7 +13,12 @@ instantiate the IP, how the IP is reset and enabled and how it treats
 subnormal numbers. "Clash.Cores.Intel.Floating.Double" has the same functions
 with a hidden clock, reset and enable.
 
-The supported functions are 'sqrt' and 'recip'. In double precision the IP
+The supported functions are the arithmetic ('add', 'sub', 'mul' and 'div'),
+'sqrt' and 'recip'. The arithmetic and the reciprocal are correctly rounded,
+with the deviations from IEEE 754 described in
+"Clash.Cores.Intel.Floating.Explicit" (subnormal inputs are treated as zero
+and results below the smallest normal number are flushed to zero, after
+rounding with an unbounded exponent). In double precision the IP
 computes them with the algorithms of single precision, scaled up: the square
 root with a polynomial of degree five instead of two. Clash simulation gives
 the IP's results bit for bit: the models ('sqrtModel' and 'recipModel') were
@@ -24,15 +29,28 @@ E, Cyclone 10 LP and Cyclone V, at several latencies. The results of the
 square root depend on the multipliers of the device family, so it takes a
 'DeviceFamily' argument.
 
-The other functions of the IP, its arithmetic, comparisons and conversions are
-not supported in double precision.
+The other functions of the IP, its multiply-add, comparisons and conversions
+are not supported in double precision.
 -}
 
 {-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
 
 module Clash.Cores.Intel.Floating.Double.Explicit
-  ( -- * Functions
-    DeviceFamily(..)
+  ( -- * Arithmetic
+    addWith
+  , add
+  , AddDefDelay
+  , subWith
+  , sub
+  , SubDefDelay
+  , mulWith
+  , mul
+  , MulDefDelay
+  , divWith
+  , div
+  , DivDefDelay
+    -- * Functions
+  , DeviceFamily(..)
   , sqrtWith
   , sqrt
   , SqrtDefDelay
@@ -44,17 +62,209 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , defConfig
     -- * Simulation models
   , intelNaN
+  , addModel
+  , subModel
+  , mulModel
+  , divModel
   , sqrtModel
   , recipModel
   ) where
 
-import Clash.Explicit.Prelude hiding (sqrt, recip)
+import Clash.Explicit.Prelude hiding (add, sub, mul, div, sqrt, recip)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
 import Clash.Cores.Intel.Floating.Internal
-  (Config(..), DeviceFamily(..), defConfig, pipeline, unaryInst)
+  (Config(..), DeviceFamily(..), binaryInst, defConfig, pipeline, unaryInst)
 import Clash.Cores.Intel.Floating.Internal.Double
+
+-- | Customizable floating point addition, in double precision, see
+-- 'addModel'. The IP's result is bit-exactly modelled.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+addWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+addWith cfg clk rst en x y
+  | clashSimulation = pipeline und clk rst en (addModel <$> x <*> y)
+  | otherwise = binaryInst "fp_add_double" ip clk rst en x y
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of add"
+  ip = fpFunctionsDouble cfg "ARITH" "ADD" (natToNum @d) Nil
+{-# INLINE addWith #-}
+
+-- | Floating point addition, in double precision, with the default
+-- configuration and delay. See 'addWith'.
+add
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + AddDefDelay) Double
+add = withFrozenCallStack $ addWith defConfig
+{-# INLINE add #-}
+
+-- | The default delay of 'add': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type AddDefDelay = 18
+
+-- | Customizable floating point subtraction, in double precision, see
+-- 'subModel'. The IP's result is bit-exactly modelled.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+subWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+subWith cfg clk rst en x y
+  | clashSimulation = pipeline und clk rst en (subModel <$> x <*> y)
+  | otherwise = binaryInst "fp_sub_double" ip clk rst en x y
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of sub"
+  ip = fpFunctionsDouble cfg "ARITH" "SUB" (natToNum @d) Nil
+{-# INLINE subWith #-}
+
+-- | Floating point subtraction, in double precision, with the default
+-- configuration and delay. See 'subWith'.
+sub
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + SubDefDelay) Double
+sub = withFrozenCallStack $ subWith defConfig
+{-# INLINE sub #-}
+
+-- | The default delay of 'sub': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type SubDefDelay = 18
+
+-- | Customizable floating point multiplication, in double precision, see
+-- 'mulModel'. The IP's result is bit-exactly modelled.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+mulWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+mulWith cfg clk rst en x y
+  | clashSimulation = pipeline und clk rst en (mulModel <$> x <*> y)
+  | otherwise = binaryInst "fp_mul_double" ip clk rst en x y
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of mul"
+  ip = fpFunctionsDouble cfg "ARITH" "MUL" (natToNum @d) Nil
+{-# INLINE mulWith #-}
+
+-- | Floating point multiplication, in double precision, with the default
+-- configuration and delay. See 'mulWith'.
+mul
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + MulDefDelay) Double
+mul = withFrozenCallStack $ mulWith defConfig
+{-# INLINE mul #-}
+
+-- | The default delay of 'mul': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type MulDefDelay = 12
+
+-- | Customizable floating point division, in double precision, see
+-- 'divModel'. The IP's result is bit-exactly modelled.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+divWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+divWith cfg clk rst en x y
+  | clashSimulation = pipeline und clk rst en (divModel <$> x <*> y)
+  | otherwise = binaryInst "fp_div_double" ip clk rst en x y
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of div"
+  ip = fpFunctionsDouble cfg "ARITH" "DIV" (natToNum @d) Nil
+{-# INLINE divWith #-}
+
+-- | Floating point division, in double precision, with the default
+-- configuration and delay. See 'divWith'.
+div
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + DivDefDelay) Double
+div = withFrozenCallStack $ divWith defConfig
+{-# INLINE div #-}
+
+-- | The default delay of 'div': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type DivDefDelay = 50
 
 -- | Customizable floating point square root, in double precision, see
 -- 'sqrtModel'. The IP's result is bit-exactly modelled.

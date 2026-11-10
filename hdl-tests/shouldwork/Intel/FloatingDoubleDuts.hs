@@ -17,6 +17,26 @@ import GHC.Float (castWord64ToDouble)
 import FloatingDuts (simFamily)
 import IpTestCommon
 
+-- | E.add, E.addWith @4
+addDut :: Dut (Double, Double) (Vec 2 Double)
+addDut clk rst en i = bundle (binary E.add clk rst en i :> binary (E.addWith @4 E.defConfig) clk rst en i :> Nil)
+{-# OPAQUE addDut #-}
+
+-- | E.sub, E.subWith @4
+subDut :: Dut (Double, Double) (Vec 2 Double)
+subDut clk rst en i = bundle (binary E.sub clk rst en i :> binary (E.subWith @4 E.defConfig) clk rst en i :> Nil)
+{-# OPAQUE subDut #-}
+
+-- | E.mul, E.mulWith @4
+mulDut :: Dut (Double, Double) (Vec 2 Double)
+mulDut clk rst en i = bundle (binary E.mul clk rst en i :> binary (E.mulWith @4 E.defConfig) clk rst en i :> Nil)
+{-# OPAQUE mulDut #-}
+
+-- | E.div, E.divWith @16
+divDut :: Dut (Double, Double) (Vec 2 Double)
+divDut clk rst en i = bundle (binary E.div clk rst en i :> binary (E.divWith @16 E.defConfig) clk rst en i :> Nil)
+{-# OPAQUE divDut #-}
+
 -- | E.sqrt, E.sqrtWith @12
 sqrtDut :: Dut Double (Vec 2 Double)
 sqrtDut clk rst en i = bundle (unary (E.sqrt simFamily) clk rst en i :> unary (E.sqrtWith @12 E.defConfig simFamily) clk rst en i :> Nil)
@@ -58,4 +78,31 @@ doublesIn lo m n seed =
           3 -> withExp x (if testBit k 9 then 1 + (k `shiftR` 10) `mod` 3 else 2046 - (k `shiftR` 10) `mod` 3)
           _ -> withExp x (0x3fe + (k `shiftR` 8) `mod` 4) .&. 0x7fffffffffffffff
      in w : go rs
+  go _ = []
+
+-- | Pairs of doubles: all pairs of the first 20 'specialDoubleWords', followed
+-- by @n@ random pairs: random bit patterns, numbers close to each other (with
+-- either sign) and pairs whose product or quotient is close to the smallest
+-- normal number
+doublePairs :: Int -> Word64 -> [(Double, Double)]
+doublePairs n seed =
+  [(castWord64ToDouble x, castWord64ToDouble y) | x <- sp, y <- sp]
+    <> P.take n (go (randoms seed))
+ where
+  sp = P.take 20 specialDoubleWords
+  withExp x e = (x .&. 0x800fffffffffffff) .|. (e `shiftL` 52)
+  go (k : x : y : rs) =
+    let a = withExp x (0x3c0 + (k `shiftR` 8) `mod` 0x80)
+        ec = 0x3e0 + (k `shiftR` 8) `mod` 0x20
+        c = withExp x ec
+        d = (k `shiftR` 20) `mod` 3
+        pair = case k `mod` 5 of
+          0 -> (castWord64ToDouble x, castWord64ToDouble y)
+          1 -> (castWord64ToDouble a, castWord64ToDouble ((a `xor` (y `mod` 16)) `xor` (y .&. bit 63)))
+          -- a * b close to the smallest normal number
+          2 -> (castWord64ToDouble c, castWord64ToDouble (withExp y (0x3ff - ec + d)))
+          -- a / b close to the smallest normal number
+          3 -> (castWord64ToDouble c, castWord64ToDouble (withExp y (ec + 0x3fe - d)))
+          _ -> (castWord64ToDouble a, castWord64ToDouble (withExp y (0x3c0 + (k `shiftR` 16) `mod` 0x80)))
+     in pair : go rs
   go _ = []

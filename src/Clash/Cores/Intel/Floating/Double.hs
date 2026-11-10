@@ -15,8 +15,21 @@ how Clash instantiates it.
 {-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
 
 module Clash.Cores.Intel.Floating.Double
-  ( -- * Functions
-    E.DeviceFamily(..)
+  ( -- * Arithmetic
+    addWith
+  , add
+  , E.AddDefDelay
+  , subWith
+  , sub
+  , E.SubDefDelay
+  , mulWith
+  , mul
+  , E.MulDefDelay
+  , divWith
+  , div
+  , E.DivDefDelay
+    -- * Functions
+  , E.DeviceFamily(..)
   , sqrtWith
   , sqrt
   , E.SqrtDefDelay
@@ -28,15 +41,123 @@ module Clash.Cores.Intel.Floating.Double
   , E.defConfig
     -- * Simulation models
   , E.intelNaN
+  , E.addModel
+  , E.subModel
+  , E.mulModel
+  , E.divModel
   , E.sqrtModel
   , E.recipModel
   ) where
 
-import Clash.Prelude hiding (sqrt, recip)
+import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
 import qualified Clash.Cores.Intel.Floating.Double.Explicit as E
+
+-- | Customizable floating point addition, in double precision. See
+-- 'E.addWith'.
+addWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+addWith cfg = withFrozenCallStack $ hideClockResetEnable (E.addWith cfg)
+{-# INLINE addWith #-}
+
+-- | Floating point addition, in double precision, with the default
+-- configuration and delay. See 'E.add'.
+add
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.AddDefDelay) Double
+add = withFrozenCallStack $ hideClockResetEnable E.add
+{-# INLINE add #-}
+
+-- | Customizable floating point subtraction, in double precision. See
+-- 'E.subWith'.
+subWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+subWith cfg = withFrozenCallStack $ hideClockResetEnable (E.subWith cfg)
+{-# INLINE subWith #-}
+
+-- | Floating point subtraction, in double precision, with the default
+-- configuration and delay. See 'E.sub'.
+sub
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.SubDefDelay) Double
+sub = withFrozenCallStack $ hideClockResetEnable E.sub
+{-# INLINE sub #-}
+
+-- | Customizable floating point multiplication, in double precision. See
+-- 'E.mulWith'.
+mulWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+mulWith cfg = withFrozenCallStack $ hideClockResetEnable (E.mulWith cfg)
+{-# INLINE mulWith #-}
+
+-- | Floating point multiplication, in double precision, with the default
+-- configuration and delay. See 'E.mul'.
+mul
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.MulDefDelay) Double
+mul = withFrozenCallStack $ hideClockResetEnable E.mul
+{-# INLINE mul #-}
+
+-- | Customizable floating point division, in double precision. See
+-- 'E.divWith'.
+divWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+divWith cfg = withFrozenCallStack $ hideClockResetEnable (E.divWith cfg)
+{-# INLINE divWith #-}
+
+-- | Floating point division, in double precision, with the default
+-- configuration and delay. See 'E.div'.
+div
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.DivDefDelay) Double
+div = withFrozenCallStack $ hideClockResetEnable E.div
+{-# INLINE div #-}
 
 -- | Customizable floating point square root, in double precision. See
 -- 'E.sqrtWith'.
