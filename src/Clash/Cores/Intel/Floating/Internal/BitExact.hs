@@ -3,10 +3,10 @@ Copyright  :  (C) 2026, QBayLogic B.V.
 License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
-Bit-exact models of the square root, reciprocal square root, reciprocal,
-exponentials and logarithms (natural, base 2, base 10 and @log (1 + x)@) of
-Intel's Floating Point Functions IP (@altera_fp_functions@) in single
-precision, see Note [Bit-exact models].
+Bit-exact models of the square root, cube root, reciprocal square root,
+reciprocal, exponentials and logarithms (natural, base 2, base 10 and
+@log (1 + x)@) of Intel's Floating Point Functions IP (@altera_fp_functions@)
+in single precision, see Note [Bit-exact models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -14,6 +14,7 @@ precision, see Note [Bit-exact models].
 module Clash.Cores.Intel.Floating.Internal.BitExact
   ( Multipliers(..)
   , sqrtSingle
+  , cbrtSingle
   , rsqrtSingle
   , recipSingle
   , expSingle
@@ -34,7 +35,7 @@ import Data.Int (Int64)
 import Data.Word (Word32)
 
 import Clash.Cores.Intel.Floating.Internal.Coefficients
-  ( exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
+  ( cbrtCoefficients, exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
   , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients )
 
 {- Note [Bit-exact models]
@@ -49,8 +50,9 @@ multiplier sizes of a synthesis). The polynomial coefficients are computed from
 first principles, see "Clash.Cores.Intel.Floating.Internal.Coefficients"; no
 data was taken from the IP.
 
-The square root, the reciprocal square root, the exponentials and the
-logarithms use a piecewise polynomial of degree two, evaluated in Horner form:
+The square root, the cube root, the reciprocal square root, the exponentials
+and the logarithms use a piecewise polynomial of degree two, evaluated in
+Horner form:
 
   T1 = C2 * y'      (y' = the top bits of y)
   S1 = C1 + T1
@@ -65,11 +67,12 @@ selected by the device family ('Multipliers'):
   * 'TruncatedMultipliers' (MAX 10, Cyclone IV E, Cyclone 10 LP, with 18x18
     multipliers): T1 is rounded half up, and S1 * y is a truncated multiplier
     that leaves out the partial products below a "staircase" of tiles,
-    compensated by a constant. For the square root, the reciprocal square
-    root, the base-2 exponential and the natural and base 10 logarithms the
-    kept partial products S1_i * y_j are: all i for j >= j0 + 8, i >= 3 for
-    the 3 rows below that, i >= 6 for the rest, with j0 = 1 for the square
-    root and the base-2 exponential and 0 otherwise (a 17x17 signed
+    compensated by a constant. For the square root, the cube root, the
+    reciprocal square root, the base-2 exponential and the natural and base
+    10 logarithms the kept partial products S1_i * y_j are: all i for
+    j >= j0 + 8, i >= 3 for the 3 rows below that, i >= 6 for the rest, with
+    j0 = 1 for the square root, the cube root and the base-2 exponential and 0
+    otherwise (a 17x17 signed
     multiplier plus an 8x9 and a 3x3 one, as in the synthesis report). The base 2 logarithm keeps all i for j >= 8, i >= 3 for j = 6
     and 7 and i >= 5 for the rest (17x17, 8x9 and 2x2). The exponential
     leaves out S1_i * y_j for i < 2, j < 12; 2 <= i < 7, j < 7 and
@@ -111,6 +114,22 @@ exponent field rather than or-ing. C0 gets a rounding constant of 4 units: a
 quarter unit in the last place for p = 0 and a half for p = 1. Zero and
 subnormal inputs give a zero with the same sign; negative numbers (including
 -inf) and NaN give NaN; +inf gives +inf.
+
+Cube root (x = m * 2^(3k + r) with m in [1, 2) and r in {0, 1, 2}): the
+result is cbrt (m * 2^r) * 2^k, with the datapath of the square root for
+p = 0 (the same multipliers, coefficient formats and rounding constant, a
+quarter unit in the last place) on its own 384-entry table, indexed by
+r * 128 + the top 7 fraction bits. Zero and subnormal inputs give a zero of
+the same sign, infinities give themselves and negative numbers the negated
+cube root of their magnitude. Unlike all other functions, NaN keeps its sign:
+the result is the sign of the input with 0x7F800001. The table sizes (384
+entries of 29, 21 and 12 bits, plus two 255-entry tables for the quotient and
+remainder of the exponent divided by 3) and the multipliers (identical to the
+square root's) suggested the structure; the format search over all inputs in
+[1, 8) found the coefficient formats of the square root's p = 0, with unique
+coefficients for all 384 segments, equal to the ones computed from first
+principles; the square root's truncated multiplier then gave the IP's results
+on all of those inputs without change.
 
 Reciprocal square root: index p * 256 + top 8 fraction bits (p = 1 for an even
 biased exponent E), y the low 15 fraction bits; the result is
@@ -278,9 +297,11 @@ coefs :: Table -> Int -> (Int64, Int64, Int64)
 coefs (Table c2 c1 c0) i = (unsafeAt c2 i, unsafeAt c1 i, unsafeAt c0 i)
 {-# INLINE coefs #-}
 
-sqrtTable, rsqrtTable, expTable, exp2Table, exp10Table, logTable, log2Table, log10Table :: Table
+sqrtTable, cbrtTable, rsqrtTable, expTable, exp2Table, exp10Table, logTable, log2Table, log10Table :: Table
 sqrtTable = mkTable sqrtCoefficients
 {-# NOINLINE sqrtTable #-}
+cbrtTable = mkTable cbrtCoefficients
+{-# NOINLINE cbrtTable #-}
 rsqrtTable = mkTable rsqrtCoefficients
 {-# NOINLINE rsqrtTable #-}
 expTable = mkTable expCoefficients
@@ -331,12 +352,18 @@ sqrtSingle mults w
   o = sqrtSig mults p f
 
 -- | Significand of sqrt (m * 2^p) in units of 2^-23 (2^23 to 2^24), for the
--- fraction @f@ of m. The coefficients have their LSBs at 2^-(13 - p), 2^-(20 -
--- p) and 2^-(27 - p); S1 at 2^-21; A at 2^-44.
+-- fraction @f@ of m.
 sqrtSig :: Multipliers -> Int -> Int64 -> Int64
-sqrtSig mults p f = a `shiftR` 21
+sqrtSig mults p f = rootPoly sqrtTable mults p (p * 128) f `shiftR` 21
+
+-- | The polynomial of the square root and the cube root: A at 2^-44 (before
+-- truncation to the significand at 2^-23) for the fraction @f@, with the
+-- segment @s0@ plus the top 7 bits of @f@. The coefficients have their LSBs at
+-- 2^-(13 - p), 2^-(20 - p) and 2^-(27 - p); S1 at 2^-21.
+rootPoly :: Table -> Multipliers -> Int -> Int -> Int64 -> Int64
+rootPoly table mults p s0 f = a
  where
-  (c2, c1, c0) = coefs sqrtTable (p * 128 + fromIntegral (f `shiftR` 16))
+  (c2, c1, c0) = coefs table (s0 + fromIntegral (f `shiftR` 16))
   y = f .&. 0xFFFF
   -- C2 times the top 12 bits of y, to 2^-21
   t1 = case mults of
@@ -349,6 +376,25 @@ sqrtSig mults p f = a `shiftR` 21
     FullMultipliers -> a0 + s1 * y
     -- Compensation constant 2^-30
     TruncatedMultipliers -> a0 + staircase 1 s1 y + bit 14
+
+-- * Cube root
+
+-- | The IP's cube root in single precision, on bit patterns
+cbrtSingle :: Multipliers -> Word32 -> Word32
+cbrtSingle mults w
+  -- NaN keeps its sign
+  | e == 255 = if f /= 0 then sgn .|. nanSingle else w
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = sgn
+  -- The carry of a significand of 2 propagates into the exponent
+  | otherwise = sgn .|. ((fromIntegral (k + 127) `shiftL` 23) + fromIntegral (o - bit 23))
+ where
+  (_, e, f) = fields w
+  sgn = w .&. bit 31
+  -- x = m * 2^(3k + r), cbrt x = cbrt (m * 2^r) * 2^k
+  (k, r) = (e - 127) `divMod` 3
+  -- The polynomial of the square root with the formats of p = 0
+  o = rootPoly cbrtTable mults 0 (r * 128) f `shiftR` 21
 
 -- * Reciprocal square root
 

@@ -35,6 +35,9 @@ module Clash.Cores.Intel.Floating
   , sqrtWith
   , sqrt
   , E.SqrtDefDelay
+  , cbrtWith
+  , cbrt
+  , E.CbrtDefDelay
   , recipWith
   , recip
   , E.RecipDefDelay
@@ -254,6 +257,31 @@ sqrt
   -> DSignal dom (n + E.SqrtDefDelay) Float
 sqrt fam = withFrozenCallStack $ hideClockResetEnable (E.sqrt fam)
 {-# INLINE sqrt #-}
+
+-- | Customizable floating point cube root. See 'E.cbrtWith'.
+cbrtWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+cbrtWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.cbrtWith cfg fam)
+{-# INLINE cbrtWith #-}
+
+-- | Floating point cube root, with the default configuration and delay. See
+-- 'E.cbrt'.
+cbrt
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.CbrtDefDelay) Float
+cbrt fam = withFrozenCallStack $ hideClockResetEnable (E.cbrt fam)
+{-# INLINE cbrt #-}
 
 -- | Customizable floating point reciprocal. See 'E.recipWith'.
 recipWith

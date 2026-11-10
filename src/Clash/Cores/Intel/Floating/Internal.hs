@@ -38,6 +38,7 @@ module Clash.Cores.Intel.Floating.Internal
   , fromDoubleModel
   , roundToFloat
   , sqrtModel
+  , cbrtModel
   , recipModel
   , rsqrtModel
   , expModel
@@ -166,6 +167,20 @@ onBits f = castWord32ToFloat . f . castFloatToWord32
 -- as zero, @sqrt (-0) = -0@, and negative inputs give 'intelNaN'.
 sqrtModel :: DeviceFamily -> Float -> Float
 sqrtModel fam = onBits (sqrtSingle (familyMultipliers fam))
+
+-- | Model of the cube root of the IP, see 'sqrtModel'. Zero and subnormal
+-- inputs give a zero of the same sign, negative inputs the negated cube root
+-- of their magnitude. Unlike the other functions of the IP, a NaN input gives
+-- a NaN with the sign of the input: 'intelNaN' for a positive NaN and
+-- @0xFF800001@ for a negative one.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all inputs in
+-- [1, 8) and (-8, -1] (which covers every segment of its tables and all
+-- fractions), on all inputs on a grid with a spacing of 97 bit patterns, and
+-- on three million random and special inputs, for MAX 10, Cyclone IV E,
+-- Cyclone 10 LP and Cyclone V, at several latencies.
+cbrtModel :: DeviceFamily -> Float -> Float
+cbrtModel fam = onBits (cbrtSingle (familyMultipliers fam))
 
 -- | Model of the reciprocal of the IP. It is the IEEE 754 reciprocal, rounded
 -- to nearest, ties to even, of the input with subnormal inputs treated as zero

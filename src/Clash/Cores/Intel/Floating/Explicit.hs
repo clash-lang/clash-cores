@@ -40,7 +40,8 @@ models, such as 'addModel' and 'roundToFloat', describe them precisely.
   are flushed to zero, keeping their sign. So a result just below the smallest
   normal number can round up to it.
 * Every NaN result of an arithmetic function is 'intelNaN' (@0x7F800001@),
-  regardless of the inputs. Conversions between 'Float' and 'Double' keep the
+  regardless of the inputs, except for 'cbrt', which keeps the sign of a NaN
+  input. Conversions between 'Float' and 'Double' keep the
   sign of NaNs.
 * 'mulAdd' is not a fused multiply-add: the product is rounded before the
   addition.
@@ -64,7 +65,8 @@ from first principles, see Note [Bit-exact models] in
 inputs of two binades and many millions of other inputs, on MAX 10, Cyclone IV
 E, Cyclone 10 LP and Cyclone V, at several latencies. The results of these
 functions depend on the multipliers of the device family, so they take a
-'DeviceFamily' argument. The reciprocal ('recip') is correctly rounded (with a
+'DeviceFamily' argument. The cube root ('cbrt') is modelled in the same way;
+it is faithfully rounded too. The reciprocal ('recip') is correctly rounded (with a
 quirk just below the smallest normal number, see 'recipModel').
 
 Other functions of the IP, such as the trigonometric functions, are not
@@ -100,6 +102,9 @@ module Clash.Cores.Intel.Floating.Explicit
   , sqrtWith
   , sqrt
   , SqrtDefDelay
+  , cbrtWith
+  , cbrt
+  , CbrtDefDelay
   , recipWith
   , recip
   , RecipDefDelay
@@ -175,6 +180,7 @@ module Clash.Cores.Intel.Floating.Explicit
   , toDoubleModel
   , fromDoubleModel
   , sqrtModel
+  , cbrtModel
   , recipModel
   , rsqrtModel
   , expModel
@@ -470,6 +476,56 @@ sqrt = withFrozenCallStack $ sqrtWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type SqrtDefDelay = 10
+
+-- | Customizable floating point cube root, see 'cbrtModel'. The IP's result is
+-- bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+cbrtWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+cbrtWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (cbrtModel fam <$> x)
+  | otherwise = unaryInst "fp_cbrt" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of cbrt"
+  ip = fpFunctions cfg "ROOTS" "CBRT" (natToNum @d) Nil
+{-# INLINE cbrtWith #-}
+
+-- | Floating point cube root, with the default configuration and delay. See 'cbrtWith'.
+cbrt
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + CbrtDefDelay) Float
+cbrt = withFrozenCallStack $ cbrtWith defConfig
+{-# INLINE cbrt #-}
+
+-- | The default delay of 'cbrt': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type CbrtDefDelay = 11
 
 -- | Customizable floating point reciprocal, @1 / x@, see 'recipModel'. The IP's
 -- result is bit-exactly modelled.

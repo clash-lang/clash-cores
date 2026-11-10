@@ -103,6 +103,11 @@ sqrtDut :: Dut Float (Vec 2 Float)
 sqrtDut clk rst en i = bundle (unary (E.sqrt simFamily) clk rst en i :> unary (E.sqrtWith @6 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE sqrtDut #-}
 
+-- | E.cbrt, E.cbrtWith @8
+cbrtDut :: Dut Float (Vec 2 Float)
+cbrtDut clk rst en i = bundle (unary (E.cbrt simFamily) clk rst en i :> unary (E.cbrtWith @8 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE cbrtDut #-}
+
 -- | E.recip, E.recipWith @8
 recipDut :: Dut Float (Vec 2 Float)
 recipDut clk rst en i = bundle (unary E.recip clk rst en i :> unary (E.recipWith @8 E.defConfig) clk rst en i :> Nil)

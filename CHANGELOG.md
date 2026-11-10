@@ -35,3 +35,4 @@
 * Add `log2` and `log10` to `Clash.Cores.Intel.Floating`, with simulation models that give the IP's results bit for bit, obtained like the ones of `log`
 * Add `exp2` and `exp10` to `Clash.Cores.Intel.Floating`, with simulation models that give the IP's results bit for bit, obtained like the ones of `exp`. Unlike what Intel documents, their results are not always faithfully rounded
 * Add `log1p` (`log (1 + x)`) to `Clash.Cores.Intel.Floating`, with a simulation model that gives the IP's results bit for bit, obtained like the one of `log`
+* Add `cbrt` (cube root) to `Clash.Cores.Intel.Floating`, with a simulation model that gives the IP's results bit for bit, obtained like the one of `sqrt`
