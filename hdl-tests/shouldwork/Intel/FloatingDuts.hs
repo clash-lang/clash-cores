@@ -118,6 +118,16 @@ expDut :: Dut Float (Vec 2 Float)
 expDut clk rst en i = bundle (unary (E.exp simFamily) clk rst en i :> unary (E.expWith @6 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE expDut #-}
 
+-- | E.exp2, E.exp2With @6
+exp2Dut :: Dut Float (Vec 2 Float)
+exp2Dut clk rst en i = bundle (unary (E.exp2 simFamily) clk rst en i :> unary (E.exp2With @6 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE exp2Dut #-}
+
+-- | E.exp10, E.exp10With @8
+exp10Dut :: Dut Float (Vec 2 Float)
+exp10Dut clk rst en i = bundle (unary (E.exp10 simFamily) clk rst en i :> unary (E.exp10With @8 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE exp10Dut #-}
+
 -- | E.log, E.logWith @10
 logDut :: Dut Float (Vec 2 Float)
 logDut clk rst en i = bundle (unary (E.log simFamily) clk rst en i :> unary (E.logWith @10 E.defConfig simFamily) clk rst en i :> Nil)
@@ -148,4 +158,13 @@ expInputs cnt seed = specials <> P.map mk (words32 cnt seed)
  where
   mk w = let v = fromIntegral w :: Word32
              e = 100 + (v `shiftR` 23) `P.mod` 34
+         in castWord32ToFloat ((v .&. 0x807fffff) .|. (e `shiftL` 23))
+
+-- | Floats of either sign with exponents (biased) in @[lo, lo + n)@ and random
+-- fractions, after the 'specials'
+signedFloatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]
+signedFloatsIn lo n cnt seed = specials <> P.map mk (words32 cnt seed)
+ where
+  mk w = let v = fromIntegral w :: Word32
+             e = lo + (v `shiftR` 23) `P.mod` n
          in castWord32ToFloat ((v .&. 0x807fffff) .|. (e `shiftL` 23))

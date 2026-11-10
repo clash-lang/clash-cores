@@ -41,6 +41,8 @@ module Clash.Cores.Intel.Floating.Internal
   , recipModel
   , rsqrtModel
   , expModel
+  , exp2Model
+  , exp10Model
   , logModel
   , log2Model
   , log10Model
@@ -187,6 +189,26 @@ rsqrtModel fam = onBits (rsqrtSingle (familyMultipliers fam))
 -- number are flushed to zero.
 expModel :: DeviceFamily -> Float -> Float
 expModel fam = onBits (expSingle (familyMultipliers fam))
+
+-- | Model of the base-2 exponential of the IP, see 'sqrtModel'. The IP
+-- truncates its input to 23 fraction bits, so for inputs below one in
+-- magnitude the result can be off by up to two units in the last place: unlike
+-- what the user guide promises, it is not always faithfully rounded. Like
+-- 'expModel', the IP computes @2^(-0)@ and the base-2 exponential of small
+-- negative numbers as the largest number below one (@0x3F7FFFFF@). Results
+-- below the smallest normal number are flushed to zero.
+exp2Model :: DeviceFamily -> Float -> Float
+exp2Model fam = onBits (exp2Single (familyMultipliers fam))
+
+-- | Model of the base-10 exponential of the IP, see 'sqrtModel'. The IP adds a
+-- whole unit in the last place before truncating the result, so it is often
+-- one unit above the correctly rounded result: @10^0@ is @1 + 2^-23@
+-- (@0x3F800001@) and @10^(-0)@ is @0x3F7FFFFE@. Just below a multiple of
+-- @log10 2@, the result can be off by a few units in the last place: unlike
+-- what the user guide promises, it is not always faithfully rounded. Results
+-- below the smallest normal number are flushed to zero.
+exp10Model :: DeviceFamily -> Float -> Float
+exp10Model fam = onBits (exp10Single (familyMultipliers fam))
 
 -- | Model of the natural logarithm of the IP, see 'sqrtModel'. Zero and
 -- subnormal inputs give minus infinity, negative inputs and NaN give

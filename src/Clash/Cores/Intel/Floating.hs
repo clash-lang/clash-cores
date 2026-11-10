@@ -44,6 +44,12 @@ module Clash.Cores.Intel.Floating
   , expWith
   , exp
   , E.ExpDefDelay
+  , exp2With
+  , exp2
+  , E.Exp2DefDelay
+  , exp10With
+  , exp10
+  , E.Exp10DefDelay
   , logWith
   , log
   , E.LogDefDelay
@@ -318,6 +324,56 @@ exp
   -> DSignal dom (n + E.ExpDefDelay) Float
 exp fam = withFrozenCallStack $ hideClockResetEnable (E.exp fam)
 {-# INLINE exp #-}
+
+-- | Customizable floating point base-2 exponential. See 'E.exp2With'.
+exp2With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+exp2With cfg fam = withFrozenCallStack $ hideClockResetEnable (E.exp2With cfg fam)
+{-# INLINE exp2With #-}
+
+-- | Floating point base-2 exponential, with the default configuration and
+-- delay. See 'E.exp2'.
+exp2
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.Exp2DefDelay) Float
+exp2 fam = withFrozenCallStack $ hideClockResetEnable (E.exp2 fam)
+{-# INLINE exp2 #-}
+
+-- | Customizable floating point base-10 exponential. See 'E.exp10With'.
+exp10With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+exp10With cfg fam = withFrozenCallStack $ hideClockResetEnable (E.exp10With cfg fam)
+{-# INLINE exp10With #-}
+
+-- | Floating point base-10 exponential, with the default configuration and
+-- delay. See 'E.exp10'.
+exp10
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.Exp10DefDelay) Float
+exp10 fam = withFrozenCallStack $ hideClockResetEnable (E.exp10 fam)
+{-# INLINE exp10 #-}
 
 -- | Customizable floating point natural logarithm. See 'E.logWith'.
 logWith

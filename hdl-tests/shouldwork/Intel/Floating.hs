@@ -95,3 +95,11 @@ log2TB = romTB simLibraries log2Dut $(memBlobTH (Just 0) (trace log2Dut (cycles 
 log10TB :: Signal Dom Bool
 log10TB = romTB simLibraries log10Dut $(memBlobTH (Just 0) (trace log10Dut (cycles (floats 1000 43 <> floatsIn 1 254 1500 44 <> floatsIn 126 2 1500 45))))
 {-# ANN log10TB (Synthesize "log10TB" [] (PortName "done")) #-}
+
+exp2TB :: Signal Dom Bool
+exp2TB = romTB simLibraries exp2Dut $(memBlobTH (Just 0) (trace exp2Dut (cycles (floats 500 50 <> signedFloatsIn 100 35 3500 51))))
+{-# ANN exp2TB (Synthesize "exp2TB" [] (PortName "done")) #-}
+
+exp10TB :: Signal Dom Bool
+exp10TB = romTB simLibraries exp10Dut $(memBlobTH (Just 0) (trace exp10Dut (cycles (floats 500 52 <> signedFloatsIn 100 34 3500 53))))
+{-# ANN exp10TB (Synthesize "exp10TB" [] (PortName "done")) #-}

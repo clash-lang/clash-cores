@@ -4,7 +4,7 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of the square root, reciprocal square root, reciprocal,
-exponential and logarithms (natural, base 2 and base 10) of Intel's Floating
+exponentials and logarithms (natural, base 2 and base 10) of Intel's Floating
 Point Functions IP (@altera_fp_functions@) in single precision, see
 Note [Bit-exact models].
 -}
@@ -17,6 +17,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , rsqrtSingle
   , recipSingle
   , expSingle
+  , exp2Single
+  , exp10Single
   , logSingle
   , log2Single
   , log10Single
@@ -31,8 +33,8 @@ import Data.Int (Int64)
 import Data.Word (Word32)
 
 import Clash.Cores.Intel.Floating.Internal.Coefficients
-  ( expCoefficients, log10Coefficients, log2Coefficients, logCoefficients
-  , rsqrtCoefficients, sqrtCoefficients )
+  ( exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
+  , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients )
 
 {- Note [Bit-exact models]
 The Floating Point Functions user guide documents the latency and the
@@ -46,8 +48,8 @@ multiplier sizes of a synthesis). The polynomial coefficients are computed from
 first principles, see "Clash.Cores.Intel.Floating.Internal.Coefficients"; no
 data was taken from the IP.
 
-The square root, the reciprocal square root, the exponential and the logarithms
-use a piecewise polynomial of degree two, evaluated in Horner form:
+The square root, the reciprocal square root, the exponentials and the
+logarithms use a piecewise polynomial of degree two, evaluated in Horner form:
 
   T1 = C2 * y'      (y' = the top bits of y)
   S1 = C1 + T1
@@ -63,14 +65,15 @@ selected by the device family ('Multipliers'):
     multipliers): T1 is rounded half up, and S1 * y is a truncated multiplier
     that leaves out the partial products below a "staircase" of tiles,
     compensated by a constant. For the square root, the reciprocal square
-    root and the natural and base 10 logarithms the kept partial products
-    S1_i * y_j are: all i for j >= j0 + 8, i >= 3 for the 3 rows below that,
-    i >= 6 for the rest, with j0 = 1 for the square root and 0 otherwise (a
-    17x17 signed multiplier plus an 8x9 and a 3x3 one, as in the synthesis
-    report). The base 2 logarithm keeps all i for j >= 8, i >= 3 for j = 6
+    root, the base-2 exponential and the natural and base 10 logarithms the
+    kept partial products S1_i * y_j are: all i for j >= j0 + 8, i >= 3 for
+    the 3 rows below that, i >= 6 for the rest, with j0 = 1 for the square
+    root and the base-2 exponential and 0 otherwise (a 17x17 signed
+    multiplier plus an 8x9 and a 3x3 one, as in the synthesis report). The base 2 logarithm keeps all i for j >= 8, i >= 3 for j = 6
     and 7 and i >= 5 for the rest (17x17, 8x9 and 2x2). The exponential
     leaves out S1_i * y_j for i < 2, j < 12; 2 <= i < 7, j < 7 and
-    7 <= i < 11, j < 3.
+    7 <= i < 11, j < 3, the base-10 exponential for i < 2, j < 11;
+    2 <= i < 6, j < 7 and 6 <= i < 11, j < 2.
 
 The results do not depend on the latency or the target frequency, only on the
 device family. The full-multiplier datapath was solved first, on a MAX 10
@@ -135,6 +138,51 @@ functions for DSP-enabled FPGAs", FPT 2010):
   5. A significand of 2 or more is normalised; a biased exponent of 255 or
      more gives +inf, of 0 or less +0 (no subnormal results). NaN gives NaN,
      +inf gives +inf and -inf gives +0.
+
+Base-2 exponential: the exponential's structure without the range reduction.
+
+  1. X = floor (x * 2^23) in two's complement, with the hidden bit kept for
+     zeros and subnormal numbers (so 2^-0 is 0x3F7FFFFF too). |x| >= 512
+     overflows (+inf) or underflows (+0).
+  2. k = X >> 23 is the result's exponent; 2^f for the 23 fraction bits f of
+     X uses a 128-entry table indexed by the top 7 bits of f, y the 16 bits
+     below them, with the multipliers of the square root (T1 from the top 12
+     bits of y; on 18x18 families the same staircase with j0 = 1, compensation
+     constant 2^-29). The result's significand is truncated to 2^-23 with a
+     rounding constant of 2^-24 in C0.
+  3. Overflow, underflow and special inputs as for the exponential.
+
+Base-10 exponential: 10^x = 2^k * 10^r with r = x - k * log10 2.
+
+  1. X = floor (x * 2^24) as for the exponential.
+  2. k = floor (x * log2 10), estimated from the significand times log2 10
+     rounded to nearest at 26 fraction bits, truncated to 26 bits relative to
+     the significand. The estimate can be one too high for inputs (of either
+     sign) just below k * log10 2; r is then clamped to 0.
+  3. r = x - k * log10 2 in units of 2^-27, with k * log10 2 computed from
+     log10 2 rounded to nearest at 34 fraction bits, rounded up to 27.
+  4. 10^r with a 155-entry table (in a 256-entry memory) indexed by the top 8
+     bits of r (r * 512 is below 155), y the 18 bits below them. T1 is C2
+     times the top 13 bits of y at 2^-27; on 18x18 families the truncated
+     multiplier leaves out S1_i * y_j for i < 2, j < 11; 2 <= i < 6, j < 7 and
+     6 <= i < 11, j < 2 (a 17x17, an 8x9, a 9x8 and two 4x4 multipliers, as in
+     the synthesis report), compensated by 2^-29. The rounding constant in C0
+     is a whole unit in the last place, 2^-23, so 10^0 is 1 + 2^-23
+     (0x3F800001) and 10^-0 is 0x3F7FFFFE.
+  5. Overflow, underflow and special inputs as for the exponential.
+
+The structure of the base-10 exponential was found as follows: the outputs
+depend on floor (x * 2^24) only (aligned groups of inputs give equal outputs);
+the mean error is periodic in x - k * log10 2 with a period of 1/512; on the
+inputs with k = 0 the grid search found T1's input width and LSB, with
+unique coefficients for all 155 segments, identical to the ones generated
+from first principles; per k, exactly one value of k * log10 2 at 2^-27
+made all outputs match, which pins log10 2 down to a small interval (rounding
+it up to 33 to 38 fraction bits gives the same results); the inputs where the
+estimate of k is one too high select the estimator among the ones giving the
+same results on all inputs; and the truncated multiplier was fitted by
+coordinate descent over per-row cuts of the partial products, starting from
+the exponential's.
 
 Natural logarithm: for x = m * 2^E in [0.5, 2) (E is -1 or 0) the IP
 computes ln x = z * P(x) with z = x - 1 exact and P approximating
@@ -211,13 +259,17 @@ coefs :: Table -> Int -> (Int64, Int64, Int64)
 coefs (Table c2 c1 c0) i = (unsafeAt c2 i, unsafeAt c1 i, unsafeAt c0 i)
 {-# INLINE coefs #-}
 
-sqrtTable, rsqrtTable, expTable, logTable, log2Table, log10Table :: Table
+sqrtTable, rsqrtTable, expTable, exp2Table, exp10Table, logTable, log2Table, log10Table :: Table
 sqrtTable = mkTable sqrtCoefficients
 {-# NOINLINE sqrtTable #-}
 rsqrtTable = mkTable rsqrtCoefficients
 {-# NOINLINE rsqrtTable #-}
 expTable = mkTable expCoefficients
 {-# NOINLINE expTable #-}
+exp2Table = mkTable exp2Coefficients
+{-# NOINLINE exp2Table #-}
+exp10Table = mkTable exp10Coefficients
+{-# NOINLINE exp10Table #-}
 logTable = mkTable logCoefficients
 {-# NOINLINE logTable #-}
 log2Table = mkTable log2Coefficients
@@ -394,6 +446,108 @@ expSingle mults w
   o0 = a `shiftR` 31
   (o, be) | o0 >= bit 24 = (o0 `shiftR` 1, fromIntegral k + 128 :: Int)
           | otherwise = (o0, fromIntegral k + 127)
+
+-- * Exponential, base 2
+
+-- | The IP's base-2 exponential in single precision, on bit patterns
+exp2Single :: Multipliers -> Word32 -> Word32
+exp2Single mults w
+  | e == 255 = if f /= 0 then nanSingle else if neg then 0 else infSingle
+  -- |x| >= 512
+  | sh > 8 = if neg then 0 else infSingle
+  | otherwise = expResult k (a `shiftR` 20)
+ where
+  (neg, e, f) = fields w
+  -- The hidden bit is set even for zeros and subnormal numbers
+  m = f .|. bit 23
+  -- |x| = m * 2^sh in units of 2^-23
+  sh = e - 127
+  -- x = floor (x * 2^23) = k * 2^23 + the fraction bits of x
+  x = expFixed neg sh m
+  k = x `shiftR` 23
+  (c2, c1, c0) = coefs exp2Table (fromIntegral ((x `shiftR` 16) .&. 127))
+  -- The low 16 fraction bits
+  y = x .&. 0xFFFF
+  -- C2 times the top 12 bits of y, to 2^-27
+  t1 = case mults of
+    FullMultipliers -> (c2 * (y `shiftR` 4)) `shiftR` 12
+    TruncatedMultipliers -> (c2 * (y `shiftR` 4) + bit 11) `shiftR` 12
+  s1 = c1 + t1
+  -- C0 with its rounding constant of 2^-24, at 2^-43
+  a0 = (c0 + 8) `shiftL` 16
+  a = case mults of
+    FullMultipliers -> a0 + s1 * y
+    -- Compensation constant 2^-29
+    TruncatedMultipliers -> a0 + staircase 1 s1 y + bit 14
+
+-- * Exponential, base 10
+
+-- | The IP's base-10 exponential in single precision, on bit patterns
+exp10Single :: Multipliers -> Word32 -> Word32
+exp10Single mults w
+  | e == 255 = if f /= 0 then nanSingle else if neg then 0 else infSingle
+  -- |x| >= 256
+  | sh > 8 = if neg then 0 else infSingle
+  | otherwise = expResult k (a `shiftR` 22)
+ where
+  (neg, e, f) = fields w
+  -- The hidden bit is set even for zeros and subnormal numbers
+  m = f .|. bit 23
+  -- |x| = m * 2^sh in units of 2^-24
+  sh = e - 126
+  -- x = floor (x * 2^24)
+  x = expFixed neg sh m
+  -- m * log2 10 to 26 fraction bits (relative to m), with log2 10 rounded to
+  -- nearest at 26 fraction bits
+  q = (if neg then negate else id) ((m * 222930821) `shiftR` 23)
+  -- k = floor (x * log2 10), estimated
+  k = q `shiftR` min 63 (153 - e)
+  -- k * log10 2 with log10 2 rounded to nearest at 34 fraction bits, rounded
+  -- up to 27 fraction bits
+  kLog = negate (negate (k * 5171655946) `shiftR` 7)
+  -- r = x - k * log10 2 in units of 2^-27; when k is one too high, r = 0
+  r = max 0 (8 * x - kLog)
+  (c2, c1, c0) = coefs exp10Table (fromIntegral (r `shiftR` 18))
+  -- The low 18 bits of r
+  y = r .&. (bit 18 - 1)
+  -- C2 times the top 13 bits of y, to 2^-27
+  t1 = case mults of
+    FullMultipliers -> (c2 * (y `shiftR` 5)) `shiftR` 13
+    TruncatedMultipliers -> (c2 * (y `shiftR` 5) + bit 12) `shiftR` 13
+  s1 = c1 + t1
+  -- C0 with its rounding constant of 2^-23, at 2^-45
+  a0 = (c0 + 16) `shiftL` 18
+  a = case mults of
+    FullMultipliers -> a0 + s1 * y
+    TruncatedMultipliers ->
+      let drop' = (s1 .&. 0x3) * (y .&. 0x7FF)
+                + (s1 .&. 0x3C) * (y .&. 0x7F)
+                + (s1 .&. 0x7C0) * (y .&. 0x3)
+      -- Compensation constant 2^-29
+      in  a0 + s1 * y - drop' + bit 16
+
+-- | @floor (x * 2^n)@ in two's complement for @|x| = m * 2^(sh - n)@ with
+-- @m < 2^24@ (below 2^-n the significand is shifted out completely)
+expFixed :: Bool -> Int -> Int64 -> Int64
+expFixed neg sh m = if neg then negate xAbs else xAbs
+ where
+  -- |x| rounded down for positive x and up for negative x
+  xAbs | sh >= 0 = m `shiftL` sh
+       | otherwise =
+           let d = min 24 (negate sh)
+           in  (m `shiftR` d) + (if neg && m .&. (bit d - 1) /= 0 then 1 else 0)
+
+-- | The result of 'exp2Single' and 'exp10Single' from the unbiased exponent
+-- @k@ and the significand @o0@ in units of 2^-23 (in [1, 4)): normalised,
+-- with overflow to +inf and underflow to +0 (no subnormal results)
+expResult :: Int64 -> Int64 -> Word32
+expResult k o0
+  | be >= 255 = infSingle
+  | be <= 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 23) .|. fromIntegral (o .&. 0x7FFFFF)
+ where
+  (o, be) | o0 >= bit 24 = (o0 `shiftR` 1, k + 128)
+          | otherwise = (o0, k + 127)
 
 -- * Natural logarithm
 
