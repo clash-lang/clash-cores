@@ -248,6 +248,13 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 , "expTB", "logTB", "log2TB", "log10TB", "log1pTB", "exp2TB", "exp10TB", "cbrtTB", "hypotTB"
                 , "sinPiTB", "cosPiTB", "tanPiTB" ]
             }
+          -- The same in half precision
+        , runTest "FloatingHalf" def
+            { hdlTargets=[VHDL, Verilog]
+            , hdlLoad=[Vivado]
+            , hdlSim=[Vivado]
+            , buildTargets=BuildSpecific ["sqrtTB", "recipTB", "rsqrtTB"]
+            }
           -- Megafunctions that Clash instantiates directly. Their simulation
           -- models exist in Verilog too, so Icarus can simulate Verilog.
         , runTest "Integer" def

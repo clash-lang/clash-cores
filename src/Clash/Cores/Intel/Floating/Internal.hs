@@ -54,6 +54,7 @@ module Clash.Cores.Intel.Floating.Internal
   , tanPiModel
     -- * Instantiation
   , fpFunctions
+  , fpFunctionsFormat
   , scaleByPi
   , fxpParams
   , fpFpParams
@@ -496,7 +497,8 @@ fromDoubleModel x
   | isDenormalized x = if testBit (pack x) 63 then -0 else 0
   | otherwise = roundToFloat x
 
--- | Parameters of an @altera_fp_functions@ IP (Floating Point Functions)
+-- | Parameters of an @altera_fp_functions@ IP (Floating Point Functions) in
+-- single precision
 fpFunctions ::
   KnownNat n =>
   Config ->
@@ -509,19 +511,38 @@ fpFunctions ::
   -- | Extra parameters
   Vec n (String, IpParam) ->
   IntelIp (n + 7)
-fpFunctions cfg family function latency extra = IntelIp
+fpFunctions = fpFunctionsFormat (("fp_format", StrParam "single") :> Nil)
+{-# INLINE fpFunctions #-}
+
+-- | Parameters of an @altera_fp_functions@ IP (Floating Point Functions) in
+-- the given format
+fpFunctionsFormat ::
+  (KnownNat m, KnownNat n) =>
+  -- | Format parameters, e.g. @fp_format@
+  Vec m (String, IpParam) ->
+  Config ->
+  -- | Function family, e.g. @ARITH@
+  String ->
+  -- | Function, e.g. @ADD@
+  String ->
+  -- | Latency
+  Integer ->
+  -- | Extra parameters
+  Vec n (String, IpParam) ->
+  IntelIp (n + m + 6)
+fpFunctionsFormat format cfg family function latency extra = IntelIp
   { ipKind = "altera_fp_functions"
   , ipParams =
        ("FUNCTION_FAMILY", StrParam family)
     :> (family <> "_function", StrParam function)
-    :> ("fp_format", StrParam "single")
-    :> ("performance_goal", StrParam "latency")
+    :> (format
+    ++ ("performance_goal", StrParam "latency")
     :> ("latency_target", IntegerParam latency)
     :> ("gen_enable", BoolParam True)
     :> ("enable_hard_fp", BoolParam (hardFp cfg))
-    :> extra
+    :> extra)
   }
-{-# INLINE fpFunctions #-}
+{-# INLINE fpFunctionsFormat #-}
 
 -- | The extra parameter of 'fpFunctions' for the trigonometric functions of pi
 -- times their argument (\"Represent angle as multiple of Pi\")

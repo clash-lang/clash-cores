@@ -81,6 +81,7 @@ common basic-config
     ghc-typelits-extra        >= 0.3.2,
     ghc-typelits-knownnat     >= 0.6,
     ghc-typelits-natnormalise >= 0.6,
+    half                      >= 0.3.1 && < 1.0,
     infinite-list             ^>= 0.1,
     lens,
     QuickCheck,
@@ -188,9 +189,14 @@ library
     Clash.Cores.Intel.Internal
     Clash.Cores.Intel.Floating
     Clash.Cores.Intel.Floating.Explicit
+    Clash.Cores.Intel.Floating.Half
+    Clash.Cores.Intel.Floating.Half.Explicit
     Clash.Cores.Intel.Floating.Internal
     Clash.Cores.Intel.Floating.Internal.BitExact
+    Clash.Cores.Intel.Floating.Internal.BitExactHalf
     Clash.Cores.Intel.Floating.Internal.Coefficients
+    Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
+    Clash.Cores.Intel.Floating.Internal.Half
     Clash.Cores.Intel.Divide
     Clash.Cores.Intel.Sqrt
 
