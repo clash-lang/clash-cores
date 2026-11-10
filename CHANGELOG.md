@@ -37,3 +37,4 @@
 * Add `log1p` (`log (1 + x)`) to `Clash.Cores.Intel.Floating`, with a simulation model that gives the IP's results bit for bit, obtained like the one of `log`
 * Add `cbrt` (cube root) to `Clash.Cores.Intel.Floating`, with a simulation model that gives the IP's results bit for bit, obtained like the one of `sqrt`
 * Add `hypot` (three-dimensional hypotenuse, `sqrt (x^2 + y^2 + z^2)`) to `Clash.Cores.Intel.Floating`, with a simulation model that gives the IP's results bit for bit, obtained by black-box testing of the IP like the one of `sqrt`. Unlike what Intel documents, its results are not always faithfully rounded
+* Add `sinPi` and `cosPi` (`sin (pi * x)` and `cos (pi * x)`) to `Clash.Cores.Intel.Floating`, with simulation models that give the IP's results bit for bit, obtained like the ones of `log`. Unlike what Intel documents, the results of `sinPi` are not always faithfully rounded

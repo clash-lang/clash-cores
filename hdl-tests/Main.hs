@@ -245,7 +245,8 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 [ "addTB", "subTB", "mulTB", "divTB", "mulAddTB", "compareTB"
                 , "predicateTB", "fromS32TB", "fromU32TB", "toS32TB", "toU32TB"
                 , "toDoubleTB", "fromDoubleTB", "sqrtTB", "recipTB", "rsqrtTB"
-                , "expTB", "logTB", "log2TB", "log10TB", "log1pTB", "exp2TB", "exp10TB", "cbrtTB", "hypotTB" ]
+                , "expTB", "logTB", "log2TB", "log10TB", "log1pTB", "exp2TB", "exp10TB", "cbrtTB", "hypotTB"
+                , "sinPiTB", "cosPiTB" ]
             }
           -- Megafunctions that Clash instantiates directly. Their simulation
           -- models exist in Verilog too, so Icarus can simulate Verilog.

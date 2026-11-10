@@ -5,9 +5,9 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of the square root, cube root, three-dimensional
 hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
-(natural, base 2, base 10 and @log (1 + x)@) of Intel's Floating Point
-Functions IP (@altera_fp_functions@) in single precision, see Note [Bit-exact
-models].
+(natural, base 2, base 10 and @log (1 + x)@) and the sine and cosine of pi
+times x of Intel's Floating Point Functions IP (@altera_fp_functions@) in
+single precision, see Note [Bit-exact models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -26,6 +26,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , log2Single
   , log10Single
   , log1pSingle
+  , sinPiSingle
+  , cosPiSingle
   ) where
 
 import Prelude
@@ -38,7 +40,7 @@ import Data.Word (Word32)
 
 import Clash.Cores.Intel.Floating.Internal.Coefficients
   ( cbrtCoefficients, exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
-  , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients )
+  , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients, sinPiCoefficients )
 
 {- Note [Bit-exact models]
 The Floating Point Functions user guide documents the latency and the
@@ -295,6 +297,50 @@ of 0. Note that this is not the subnormal number the bit pattern would encode:
 the result has the significand of a normal number. Results below that flush to
 a zero of the same sign. 1/+-0 is +-inf, 1/+-inf is +-0 and NaN gives NaN.
 
+Sine and cosine of pi times x (the IP's \"SIN\" and \"COS\" with the angle
+represented as a multiple of pi). The IP computes sin (pi * r) = r * P(r), with
+r in [0, 1/2] the distance of x to the nearest integer (sine) or half integer
+(cosine), and P a piecewise polynomial approximation of sin (pi * r) / r, so
+that small results keep their relative accuracy:
+
+  1. X = floor (|x| * 2^24) mod 2^25 for the sine; q = X / 2^23 is the half
+     period and r = X mod 2^23 (q even) or 2^23 - X mod 2^23 (q odd), in units
+     of 2^-24. The result is negative if q >= 2, for the sign of x. For the
+     cosine, the same with r = 2^23 - X mod 2^23 for q even, r = X mod 2^23 for
+     q odd, and a negative result for q = 1, 2, computed at a finer
+     resolution (2^-37): the result is exact, apart from the polynomial.
+  2. P: a 128-entry table indexed by the top 7 bits of r (r = 1/2 is segment
+     127 with y = 2^16), y the 16 bits below them, T1 from the top 14 bits of
+     y, all at 2^-27, truncated to 2^-23 with a rounding constant of 2^-24 in
+     C0. On 18x18 families T1 is rounded half up and S1 * y is the staircase
+     of the square root (j0 = 1), compensated by 2^-29.
+  3. The sine's result is m * P rounded to nearest, ties away from zero, with
+     m the significand of x for |x| < 2^-12 (and P = P(0) = pi rounded down to
+     2^-23), the significand of x without its last bit for |x| in
+     [2^-12, 1/2), and r otherwise. The cosine's is r * P, with r truncated to
+     24 significant bits; on 18x18 families this product is a truncated
+     multiplier of r and P as 24- and 25-bit integers (an 18x18, two 9x9 and
+     two 2x2 tiles, see 'cosPiProduct'), while it is exact for the sine on all
+     families.
+  4. Integers (sine) and half integers (cosine) give a zero: with the sign of
+     x for the sine, positive for the cosine. The sine of a zero, subnormal or
+     |x| >= 2^23 is a zero with the sign of x; the cosine of |x| < 2^-13 is
+     one. The sine of an infinity is NaN with the sign of x, of another NaN
+     NaN with the opposite sign; the cosine gives the positive NaN.
+
+This was found as follows: the outputs ignore the last input bit exactly for
+|x| in [2^-12, 1/2) (aligned pairs give equal outputs), and every output gives
+an interval for P; on the sine's inputs below 1/2, where many significands share
+an r, those intervals all contain a point of the 2^-23 grid (and not of 2^-22).
+The format search over all r found T1's input width and LSB with unique
+coefficients for all 128 segments; the half period above 1/2 fixed how r = 1/2
+is handled. The coefficients are those of the first-principles method with the
+Chebyshev nodes on [0, 1 - 2^-16] (see 'sinPiCoefficients'). The cosine has the
+same table (its outputs match the sine's polynomial on all inputs) and its
+fixed-point resolution, the tiny-input threshold and its truncated multiplier
+(fitted by coordinate descent over per-row cuts of the partial products, as in
+the synthesis report) were found on random and swept inputs.
+
 The IP generates the NaN 0x7F800001.
 -}
 
@@ -349,6 +395,11 @@ log2Table = mkTable log2Coefficients
 {-# NOINLINE log2Table #-}
 log10Table = mkTable log10Coefficients
 {-# NOINLINE log10Table #-}
+
+-- | The table of 'sinPiSingle' and 'cosPiSingle'
+sinPiTable :: Table
+sinPiTable = mkTable sinPiCoefficients
+{-# NOINLINE sinPiTable #-}
 
 -- | Fields of a single precision number: sign bit, biased exponent, fraction
 fields :: Word32 -> (Bool, Int, Int64)
@@ -881,3 +932,97 @@ log1pPoly :: Multipliers -> Int -> Int64 -> Int64
 log1pPoly mults i u = (c0 + 8 + lnT2 mults c2 c1 (u .&. 0x7FFF)) `shiftR` 5
  where
   (c2, c1, c0) = coefs logTable i
+
+-- * Sine and cosine of pi times x
+
+-- | The IP's @sin (pi * x)@ in single precision, on bit patterns
+sinPiSingle :: Multipliers -> Word32 -> Word32
+sinPiSingle mults w
+  -- Infinities give NaN with the input's sign, NaNs with the opposite sign
+  | e == 255 = (if f /= 0 then complement w .&. bit 31 else w .&. bit 31) .|. nanSingle
+  -- Zeros, subnormal numbers and integers give a zero of the input's sign
+  | e == 0 || e >= 150 = w .&. bit 31
+  -- |x| < 2^-12: the significand times sin (pi r) / r at r = 0
+  | e <= 114 = sinPiRound sgn (bit 23 .|. f) (e - 150) (sinPiPoly mults 0 0)
+  | r == 0 = w .&. bit 31
+  -- |x| < 1/2: the significand truncated to 23 bits
+  | e <= 125 = sinPiRound sgn' ((bit 23 .|. f) `shiftR` 1) (e - 149) p
+  -- Otherwise r is exact
+  | otherwise = sinPiRound sgn' r (-24) p
+ where
+  (neg, e, f) = fields w
+  sgn = if neg then bit 31 else 0
+  -- floor (|x| * 2^24) mod 2^25: q is the half period, r in [0, 2^23] the
+  -- distance to the nearest integer, in units of 2^-24
+  xx | e >= 126 = ((bit 23 .|. f) `shiftL` (e - 126)) .&. (bit 25 - 1)
+     | otherwise = (bit 23 .|. f) `shiftR` (126 - e)
+  q = xx `shiftR` 23
+  lo = xx .&. (bit 23 - 1)
+  r = if odd q then bit 23 - lo else lo
+  sgn' = if q >= 2 then sgn `xor` bit 31 else sgn
+  p = sinPiPoly mults (fromIntegral (r `shiftR` 16)) (r .&. 0xFFFF)
+
+-- | The IP's @cos (pi * x)@ in single precision, on bit patterns
+cosPiSingle :: Multipliers -> Word32 -> Word32
+cosPiSingle mults w
+  | e == 255 = nanSingle
+  -- |x| < 2^-13 (including zeros and subnormal numbers) gives 1
+  | e <= 113 = 0x3F800000
+  -- x + 1/2 is an integer
+  | rf == 0 = 0
+  | otherwise = case mults of
+      FullMultipliers -> sinPiRound sgn m em p
+      TruncatedMultipliers ->
+        let mn = m `shiftL` (23 - (63 - countLeadingZeros m))
+            emn = em - (23 - (63 - countLeadingZeros m))
+        in  sgn .|. roundAt (23 - emn) (cosPiProduct mn p)
+ where
+  (_, e, f) = fields w
+  -- floor (|x| * 2^37) mod 2^38: q is the half period, rf in [0, 2^36] the
+  -- distance to the nearest half integer, in units of 2^-37
+  sh = e - 113
+  xx | sh >= 38 = 0
+     | otherwise = ((bit 23 .|. f) `shiftL` sh) .&. (bit 38 - 1)
+  q = xx `shiftR` 36
+  lo = xx .&. (bit 36 - 1)
+  rf = if odd q then lo else bit 36 - lo
+  sgn = if q == 1 || q == 2 then bit 31 else 0
+  -- The polynomial at r = rf truncated to 2^-24
+  r = rf `shiftR` 13
+  p = sinPiPoly mults (fromIntegral (r `shiftR` 16)) (r .&. 0xFFFF)
+  -- rf truncated to 24 significant bits
+  nb = 64 - countLeadingZeros rf
+  (m, em) | nb > 24 = (rf `shiftR` (nb - 24), nb - 24 - 37)
+          | otherwise = (rf, -37)
+
+-- | Round @m * 2^e * p * 2^-23@ to nearest, ties away from zero, with sign @s@
+sinPiRound :: Word32 -> Int64 -> Int -> Int64 -> Word32
+sinPiRound s m e p = s .|. roundAt (23 - e) (m * p)
+
+-- | P = sin (pi * r) / r at 2^-23 for r = (j + y * 2^-16) / 256; r = 1/2 is
+-- segment 127 with y = 2^16
+sinPiPoly :: Multipliers -> Int -> Int64 -> Int64
+sinPiPoly mults j0 y0 = (2 * (c0 + 4) + t2) `shiftR` 4
+ where
+  (j, y) = if j0 == 128 then (127, bit 16) else (j0, y0)
+  (c2, c1, c0) = coefs sinPiTable j
+  -- At 2^-27
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 2)) `shiftR` 13)
+      in  (s1 * y) `shiftR` 16
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 2) + bit 12) `shiftR` 13)
+      -- Compensation constant 2^14 (2^-29)
+      in  (staircase 1 s1 y + bit 14) `shiftR` 16
+
+-- | The truncated 24x25 multiplier of the cosine on 18x18 families: m times p
+-- without the partial products below a staircase of tiles, plus 2^22
+cosPiProduct :: Int64 -> Int64 -> Int64
+cosPiProduct m p =
+    ((m `shiftR` 6) * (p `shiftR` 7)) `shiftL` 13
+  + ((m .&. 63) * (p `shiftR` 16)) `shiftL` 16
+  + ((m `shiftR` 15) * (p .&. 127)) `shiftL` 15
+  + (((m `shiftR` 4) .&. 3) * ((p `shiftR` 14) .&. 3)) `shiftL` 18
+  + (((m `shiftR` 13) .&. 3) * ((p `shiftR` 5) .&. 3)) `shiftL` 18
+  + bit 22

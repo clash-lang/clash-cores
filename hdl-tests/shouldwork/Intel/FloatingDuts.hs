@@ -158,6 +158,16 @@ log1pDut :: Dut Float (Vec 2 Float)
 log1pDut clk rst en i = bundle (unary (E.log1p simFamily) clk rst en i :> unary (E.log1pWith @10 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE log1pDut #-}
 
+-- | E.sinPi, E.sinPiWith @8
+sinPiDut :: Dut Float (Vec 2 Float)
+sinPiDut clk rst en i = bundle (unary (E.sinPi simFamily) clk rst en i :> unary (E.sinPiWith @8 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE sinPiDut #-}
+
+-- | E.cosPi, E.cosPiWith @8
+cosPiDut :: Dut Float (Vec 2 Float)
+cosPiDut clk rst en i = bundle (unary (E.cosPi simFamily) clk rst en i :> unary (E.cosPiWith @8 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE cosPiDut #-}
+
 -- | Positive floats with exponents (biased) in @[lo, lo + n)@ and random
 -- fractions, after the 'specials'
 floatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]

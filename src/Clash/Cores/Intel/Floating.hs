@@ -68,6 +68,12 @@ module Clash.Cores.Intel.Floating
   , log1pWith
   , log1p
   , E.Log1pDefDelay
+  , sinPiWith
+  , sinPi
+  , E.SinPiDefDelay
+  , cosPiWith
+  , cosPi
+  , E.CosPiDefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -538,6 +544,56 @@ log1p
   -> DSignal dom (n + E.Log1pDefDelay) Float
 log1p fam = withFrozenCallStack $ hideClockResetEnable (E.log1p fam)
 {-# INLINE log1p #-}
+
+-- | Customizable floating point sine of pi times its argument, @sin (pi * x)@. See 'E.sinPiWith'.
+sinPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sinPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.sinPiWith cfg fam)
+{-# INLINE sinPiWith #-}
+
+-- | Floating point sine of pi times its argument, @sin (pi * x)@, with the default configuration and delay. See
+-- 'E.sinPi'.
+sinPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.SinPiDefDelay) Float
+sinPi fam = withFrozenCallStack $ hideClockResetEnable (E.sinPi fam)
+{-# INLINE sinPi #-}
+
+-- | Customizable floating point cosine of pi times its argument, @cos (pi * x)@. See 'E.cosPiWith'.
+cosPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+cosPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.cosPiWith cfg fam)
+{-# INLINE cosPiWith #-}
+
+-- | Floating point cosine of pi times its argument, @cos (pi * x)@, with the default configuration and delay. See
+-- 'E.cosPi'.
+cosPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.CosPiDefDelay) Float
+cosPi fam = withFrozenCallStack $ hideClockResetEnable (E.cosPi fam)
+{-# INLINE cosPi #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With

@@ -71,8 +71,12 @@ rounded too, the hypotenuse not always, see 'hypotModel'. The reciprocal
 ('recip') is correctly rounded (with a quirk just below the smallest normal
 number, see 'recipModel').
 
-Other functions of the IP, such as the trigonometric functions, are not
-supported.
+Of the trigonometric functions, the sine and cosine of pi times the argument
+('sinPi' and 'cosPi', the IP's sine and cosine with the angle represented as a
+multiple of pi) are supported, with bit-exact models obtained in the same way.
+The IP's option \"Inputs are within range -2pi to +2pi\" has no effect on
+these device families. The sine, cosine and tangent of an angle in radians and
+the other functions of the IP are not supported.
 
 For each customizable operation, there also exists a function that uses the
 default configuration and a default latency, which is defined as a type.
@@ -137,6 +141,12 @@ module Clash.Cores.Intel.Floating.Explicit
   , log1pWith
   , log1p
   , Log1pDefDelay
+  , sinPiWith
+  , sinPi
+  , SinPiDefDelay
+  , cosPiWith
+  , cosPi
+  , CosPiDefDelay
     -- * Comparison
   , Ordering(..)
   , toMaybeOrdering
@@ -196,6 +206,8 @@ module Clash.Cores.Intel.Floating.Explicit
   , log2Model
   , log10Model
   , log1pModel
+  , sinPiModel
+  , cosPiModel
   ) where
 
 import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log)
@@ -1034,6 +1046,108 @@ log1p = withFrozenCallStack $ log1pWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type Log1pDefDelay = 29
+
+-- | Customizable floating point sine of pi times its argument, @sin (pi * x)@, see 'sinPiModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"SIN\" function
+-- with the angle represented as a multiple of pi (@scale_by_pi@).
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+sinPiWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sinPiWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (sinPiModel fam <$> x)
+  | otherwise = unaryInst "fp_sinpi" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of sinPi"
+  ip = fpFunctions cfg "TRIG" "SIN" (natToNum @d) (scaleByPi :> Nil)
+{-# INLINE sinPiWith #-}
+
+-- | Floating point sine of pi times its argument, @sin (pi * x)@, with the default configuration and delay. See 'sinPiWith'.
+sinPi
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + SinPiDefDelay) Float
+sinPi = withFrozenCallStack $ sinPiWith defConfig
+{-# INLINE sinPi #-}
+
+-- | The default delay of 'sinPi': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type SinPiDefDelay = 19
+
+-- | Customizable floating point cosine of pi times its argument, @cos (pi * x)@, see 'cosPiModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"COS\" function
+-- with the angle represented as a multiple of pi (@scale_by_pi@).
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+cosPiWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+cosPiWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (cosPiModel fam <$> x)
+  | otherwise = unaryInst "fp_cospi" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of cosPi"
+  ip = fpFunctions cfg "TRIG" "COS" (natToNum @d) (scaleByPi :> Nil)
+{-# INLINE cosPiWith #-}
+
+-- | Floating point cosine of pi times its argument, @cos (pi * x)@, with the default configuration and delay. See 'cosPiWith'.
+cosPi
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + CosPiDefDelay) Float
+cosPi = withFrozenCallStack $ cosPiWith defConfig
+{-# INLINE cosPi #-}
+
+-- | The default delay of 'cosPi': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type CosPiDefDelay = 19
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@.
 --
