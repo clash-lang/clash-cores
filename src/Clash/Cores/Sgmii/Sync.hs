@@ -1,11 +1,11 @@
 {-# LANGUAGE ViewPatterns #-}
 
 {- |
-  Copyright   :  (C) 2024, QBayLogic B.V.
-  License     :  BSD2 (see the file LICENSE)
-  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+Copyright   :  (C) 2024-2026, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-  Synchronization process, as defined in IEEE 802.3 Figure 36-9
+Synchronization process, as defined in IEEE 802.3 Figure 36-9
 -}
 module Clash.Cores.Sgmii.Sync
   ( OutputQueue
@@ -29,28 +29,13 @@ type OutputQueue = Vec 3 (CodeGroup, Bool, Symbol8b10b, Even, Status)
 -- | State type of 'sync'. This contains all states as they are defined in IEEE
 --   802.3 Clause 36.
 data SyncState
-  = LossOfSync
-      {_cg :: CodeGroup, _rd :: Bool, _dw :: Symbol8b10b, _rxEven :: Even}
-  | CommaDetect
-      {_cg :: CodeGroup, _rd :: Bool, _dw :: Symbol8b10b, _i :: Index 3}
-  | AcquireSync
-      { _cg :: CodeGroup
-      , _rd :: Bool
-      , _dw :: Symbol8b10b
-      , _rxEven :: Even
-      , _i :: Index 3
-      }
-  | SyncAcquired
-      { _cg :: CodeGroup
-      , _rd :: Bool
-      , _dw :: Symbol8b10b
-      , _rxEven :: Even
-      , _i :: Index 3
-      }
+  = LossOfSync {_cg :: CodeGroup, _rd :: Bool, _rxEven :: Even}
+  | CommaDetect {_cg :: CodeGroup, _rd :: Bool, _i :: Index 3}
+  | AcquireSync {_cg :: CodeGroup, _rd :: Bool, _rxEven :: Even, _i :: Index 3}
+  | SyncAcquired {_cg :: CodeGroup, _rd :: Bool, _rxEven :: Even, _i :: Index 3}
   | SyncAcquiredA
       { _cg :: CodeGroup
       , _rd :: Bool
-      , _dw :: Symbol8b10b
       , _rxEven :: Even
       , _goodCgs :: Index 4
       , _i :: Index 3
@@ -69,47 +54,46 @@ syncT ::
   -- | Current state
   SyncState ->
   -- | New input codegroup
-  CodeGroup ->
+  (BitVector 10, Bool, Symbol8b10b) ->
   -- | New state and output tuple
   SyncState
-syncT s cg = case s of
+syncT s (cg, rd, sym) = case s of
   LossOfSync{}
-    | isNothing comma -> LossOfSync cg rd dw rxEven
-    | otherwise -> CommaDetect cg rd dw 0
+    | isNothing comma -> LossOfSync cg rdUpd rxEven
+    | otherwise -> CommaDetect cg rdUpd 0
   CommaDetect{}
-    | not (isDw dw) -> LossOfSync cg rd dw Even
-    | _i s == 0 -> AcquireSync cg rd dw Even (_i s)
-    | otherwise -> SyncAcquired cg rd dw Even 0
+    | not (isDw sym) -> LossOfSync cg rdUpd Even
+    | _i s == 0 -> AcquireSync cg rdUpd Even (_i s)
+    | otherwise -> SyncAcquired cg rdUpd Even 0
   AcquireSync{}
-    | not (isValidSymbol dw) -> LossOfSync cg rd dw rxEven
-    | cg `elem` commas && rxEven == Even -> LossOfSync cg rd dw rxEven
-    | cg `elem` commas && rxEven == Odd -> CommaDetect cg rd dw 1
-    | otherwise -> AcquireSync cg rd dw rxEven 0
+    | not (isValidSymbol sym) -> LossOfSync cg rdUpd rxEven
+    | cg `elem` commas && rxEven == Even -> LossOfSync cg rdUpd rxEven
+    | cg `elem` commas && rxEven == Odd -> CommaDetect cg rdUpd 1
+    | otherwise -> AcquireSync cg rdUpd rxEven 0
   SyncAcquired{}
-    | _i s == maxBound && not (isValidSymbol dw) -> LossOfSync cg rd dw rxEven
+    | _i s == maxBound && not (isValidSymbol sym) -> LossOfSync cg rdUpd rxEven
     | _i s == maxBound && cg `elem` commas && rxEven == Even ->
-        LossOfSync cg rd dw rxEven
-    | not (isValidSymbol dw) -> SyncAcquired cg rd dw rxEven (_i s + 1)
+        LossOfSync cg rdUpd rxEven
+    | not (isValidSymbol sym) -> SyncAcquired cg rdUpd rxEven (_i s + 1)
     | cg `elem` commas && rxEven == Even ->
-        SyncAcquired cg rd dw rxEven (_i s + 1)
-    | _i s == 0 -> SyncAcquired cg rd dw rxEven 0
-    | otherwise -> SyncAcquiredA cg rd dw rxEven goodCgs (_i s)
+        SyncAcquired cg rdUpd rxEven (_i s + 1)
+    | _i s == 0 -> SyncAcquired cg rdUpd rxEven 0
+    | otherwise -> SyncAcquiredA cg rdUpd rxEven goodCgs (_i s)
   SyncAcquiredA{}
-    | _i s == maxBound && not (isValidSymbol dw) -> LossOfSync cg rd dw rxEven
+    | _i s == maxBound && not (isValidSymbol sym) -> LossOfSync cg rdUpd rxEven
     | _i s == maxBound && cg `elem` commas && rxEven == Even ->
-        LossOfSync cg rd dw rxEven
-    | not (isValidSymbol dw) -> SyncAcquired cg rd dw rxEven (_i s + 1)
+        LossOfSync cg rdUpd rxEven
+    | not (isValidSymbol sym) -> SyncAcquired cg rdUpd rxEven (_i s + 1)
     | cg `elem` commas && rxEven == Even ->
-        SyncAcquired cg rd dw rxEven (_i s + 1)
-    | _i s == 0 && goodCgs == maxBound -> SyncAcquired cg rd dw rxEven 0
-    | goodCgs == maxBound -> SyncAcquired cg rd dw rxEven (_i s - 1)
-    | otherwise -> SyncAcquiredA cg rd dw rxEven goodCgs (_i s)
+        SyncAcquired cg rdUpd rxEven (_i s + 1)
+    | _i s == 0 && goodCgs == maxBound -> SyncAcquired cg rdUpd rxEven 0
+    | goodCgs == maxBound -> SyncAcquired cg rdUpd rxEven (_i s - 1)
+    | otherwise -> SyncAcquiredA cg rdUpd rxEven goodCgs (_i s)
  where
   comma = elemIndex cg commas
-  rdNew = case s of
-    LossOfSync{} -> maybe (_rd s) bitCoerce comma
-    _ -> _rd s
-  (rd, dw) = decode8b10b rdNew cg
+  rdUpd = case s of
+    LossOfSync{} -> maybe rd bitCoerce comma
+    _ -> rd
   rxEven = nextEven (_rxEven s)
   goodCgs = case s of
     SyncAcquiredA{} -> _goodCgs s + 1
@@ -122,12 +106,12 @@ syncO ::
   -- | Current state
   SyncState ->
   -- | New state and output tuple
-  (SyncState, CodeGroup, Bool, Symbol8b10b, Even, Status)
+  (SyncState, CodeGroup, Even, Status)
 syncO s = case s of
-  LossOfSync{} -> (s, _cg s, _rd s, _dw s, rxEven, Fail)
-  CommaDetect{} -> (s, _cg s, _rd s, _dw s, Even, Fail)
-  AcquireSync{} -> (s, _cg s, _rd s, _dw s, rxEven, Fail)
-  _ -> (s, _cg s, _rd s, _dw s, rxEven, Ok)
+  LossOfSync{} -> (s, _cg s, rxEven, Fail)
+  CommaDetect{} -> (s, _cg s, Even, Fail)
+  AcquireSync{} -> (s, _cg s, rxEven, Fail)
+  _ -> (s, _cg s, rxEven, Ok)
  where
   rxEven = nextEven (_rxEven s)
 
@@ -182,9 +166,10 @@ sync rxCg =
     outputQueueT
     outputQueueO
     (repeat (0, False, Dw 0, Odd, Fail))
-    (cg, rd, dw, rxEven, syncStatus)
+    (cg, rd, sym, rxEven, syncStatus)
  where
-  (_, cg, rd, dw, rxEven, syncStatus) =
-    mooreB syncT syncO (LossOfSync 0 False (Dw 0) Even) rxCg
+  (rd, sym) = unbundle $ decode8b10bSC rxCg
 
+  (_, cg, rxEven, syncStatus) =
+    mooreB syncT syncO (LossOfSync 0 False Even) (rxCg, rd, sym)
 {-# OPAQUE sync #-}

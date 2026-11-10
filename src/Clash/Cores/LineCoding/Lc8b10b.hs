@@ -1,9 +1,9 @@
 {- |
-  Copyright   :  (C) 2024-2025, QBayLogic B.V.
-  License     :  BSD2 (see the file LICENSE)
-  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+Copyright   :  (C) 2024-2026, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-  8b/10b encoding and decoding functions
+8b/10b encoding and decoding functions
 -}
 module Clash.Cores.LineCoding.Lc8b10b where
 
@@ -93,3 +93,31 @@ encode8b10b rd sym = out
 
   out = if isValidSymbol sym then (rdNew, cg) else (rd, 0)
 {-# OPAQUE encode8b10b #-}
+
+decode8b10bSCT ::
+  Bool ->
+  BitVector 10 ->
+  (Bool, (Bool, Symbol8b10b))
+decode8b10bSCT rd cg = (rdNew, (rdNew, sym))
+ where
+  (rdNew, sym) = decode8b10b rd cg
+
+decode8b10bSC ::
+  (HiddenClockResetEnable dom) =>
+  Signal dom (BitVector 10) ->
+  Signal dom (Bool, Symbol8b10b)
+decode8b10bSC = mealy decode8b10bSCT False
+
+encode8b10bSCT ::
+  Bool ->
+  Symbol8b10b ->
+  (Bool, (Bool, BitVector 10))
+encode8b10bSCT rd sym = (rdNew, (rdNew, cg))
+ where
+  (rdNew, cg) = encode8b10b rd sym
+
+encode8b10bSC ::
+  (HiddenClockResetEnable dom) =>
+  Signal dom Symbol8b10b ->
+  Signal dom (Bool, BitVector 10)
+encode8b10bSC = mealy encode8b10bSCT False

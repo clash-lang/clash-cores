@@ -1,10 +1,10 @@
 {- |
-  Copyright   :  (C) 2024-2025, QBayLogic B.V.
-  License     :  BSD2 (see the file LICENSE)
-  Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
+Copyright   :  (C) 2024-2026, QBayLogic B.V.
+License     :  BSD2 (see the file LICENSE)
+Maintainer  :  QBayLogic B.V. <devops@qbaylogic.com>
 
-  Top level module for the PCS transmit block, that combines the processes
-  that are defined in the two submodules @CodeGroup@ and @OrderedSet@.
+Top level module for the PCS transmit block, that combines the processes
+that are defined in the two submodules @CodeGroup@ and @OrderedSet@.
 -}
 module Clash.Cores.Sgmii.PcsTransmit
   ( InputDelayState
@@ -13,6 +13,7 @@ module Clash.Cores.Sgmii.PcsTransmit
   )
 where
 
+import Clash.Cores.LineCoding.Lc8b10b
 import Clash.Cores.Sgmii.Common
 import Clash.Cores.Sgmii.PcsTransmit.CodeGroup
 import Clash.Cores.Sgmii.PcsTransmit.OrderedSet
@@ -59,7 +60,6 @@ inputDelayT (idx, txs) (txEn, txEr, dw, txRdy) = ((idxNew, txsNew), tx)
     f (_, _, a) = (False, False, a)
 
   txEnOrEr = txEn || txEr
-
 {-# OPAQUE inputDelayT #-}
 
 -- | Takes the signals that are defined in IEEE 802.3 Clause 36 and runs them
@@ -81,12 +81,14 @@ pcsTransmit ::
   Signal dom CodeGroup
 pcsTransmit txEn txEr dw xmit txConfReg = cg
  where
-  (_, cg, txEven, txInd, txRdy) =
+  (rd, cg) = unbundle $ encode8b10bSC sym
+
+  (_, sym, txEven, txInd, txRdy) =
     mooreB
       codeGroupT
       codeGroupO
-      (IdleDisparityOk False 0 0)
-      (txOSet, dw', txConfReg)
+      (IdleDisparityOk (Dw 0) 0)
+      (txOSet, rd, dw', txConfReg)
 
   (_, txOSet) =
     mealyB
@@ -99,5 +101,4 @@ pcsTransmit txEn txEr dw xmit txConfReg = cg
       inputDelayT
       (0, replicate d5 (False, False, 0))
       (txEn, txEr, dw, txRdy)
-
 {-# OPAQUE pcsTransmit #-}
