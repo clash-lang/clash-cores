@@ -15,6 +15,13 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , sqrtModel
   , rsqrtModel
   , recipModel
+  , expModel
+  , exp2Model
+  , exp10Model
+  , logModel
+  , log2Model
+  , log10Model
+  , log1pModel
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -71,6 +78,74 @@ rsqrtModel fam = onBits (rsqrtHalf (familyMultipliers fam))
 -- Verified like 'sqrtModel'.
 recipModel :: Half -> Half
 recipModel = onBits recipHalf
+
+-- | Model of the exponential of the IP in half precision, see 'sqrtModel'.
+-- The IP computes @x - k * ln 2@ for an estimate of @k = floor (x / ln 2)@,
+-- and its exponential with a polynomial of degree one, so the result can be
+-- off by up to one and a half units in the last place: unlike what the user
+-- guide promises, it is not always faithfully rounded (for 2% of the
+-- inputs). Like in single precision, the IP computes @exp (-0)@ and the
+-- exponential of small negative numbers as the largest number below one
+-- (@0x3BFF@). Results below the smallest normal number are flushed to zero.
+--
+-- Verified like 'sqrtModel'.
+expModel :: DeviceFamily -> Half -> Half
+expModel fam = onBits (expHalf (familyMultipliers fam))
+
+-- | Model of the base-2 exponential of the IP in half precision, see
+-- 'expModel'. The IP truncates its input to 10 fraction bits, so for inputs
+-- below one in magnitude the result can be off by almost two units in the
+-- last place (it is at least one unit off for 6% of the inputs). Like
+-- 'expModel', the IP computes @2^(-0)@ as @0x3BFF@.
+--
+-- Verified like 'sqrtModel'.
+exp2Model :: DeviceFamily -> Half -> Half
+exp2Model fam = onBits (exp2Half (familyMultipliers fam))
+
+-- | Model of the base-10 exponential of the IP in half precision, see
+-- 'expModel'. Like in single precision, the IP adds a whole unit in the last
+-- place before truncating the result, so @10^0@ is @1 + 2^-10@ (@0x3C01@) and
+-- @10^(-0)@ is @0x3BFE@; the result can be off by more than two units in the
+-- last place (at least one unit for 14% of the inputs).
+--
+-- Verified like 'sqrtModel'.
+exp10Model :: DeviceFamily -> Half -> Half
+exp10Model fam = onBits (exp10Half (familyMultipliers fam))
+
+-- | Model of the natural logarithm of the IP in half precision, see
+-- 'sqrtModel'. The result can be off by up to almost two units in the last
+-- place (at least one unit for 0.5% of the inputs): unlike what the user
+-- guide promises, it is not always faithfully rounded. Zero and subnormal
+-- inputs give minus infinity, negative inputs and NaN give 'intelNaN'.
+--
+-- Verified like 'sqrtModel'.
+logModel :: DeviceFamily -> Half -> Half
+logModel fam = onBits (logHalf (familyMultipliers fam))
+
+-- | Model of the base 2 logarithm of the IP in half precision, see
+-- 'logModel'. It is faithfully rounded, and powers of two give exact results.
+--
+-- Verified like 'sqrtModel'.
+log2Model :: DeviceFamily -> Half -> Half
+log2Model fam = onBits (log2Half (familyMultipliers fam))
+
+-- | Model of the base 10 logarithm of the IP in half precision, see
+-- 'logModel'. The result is off by a unit in the last place or more for a
+-- few inputs.
+--
+-- Verified like 'sqrtModel'.
+log10Model :: DeviceFamily -> Half -> Half
+log10Model fam = onBits (log10Half (familyMultipliers fam))
+
+-- | Model of @log (1 + x)@ of the IP in half precision, see 'logModel'. Small
+-- inputs keep their precision, as in single precision. The result can be off
+-- by up to one and a half units in the last place (at least one unit for 1%
+-- of the inputs). Zero and subnormal inputs give a zero of the same sign, -1
+-- gives minus infinity, inputs below -1 and NaN give 'intelNaN'.
+--
+-- Verified like 'sqrtModel'.
+log1pModel :: DeviceFamily -> Half -> Half
+log1pModel fam = onBits (log1pHalf (familyMultipliers fam))
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'
