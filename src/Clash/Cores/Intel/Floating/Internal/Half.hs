@@ -173,11 +173,11 @@ cbrtModel fam = onBits (cbrtHalf (familyMultipliers fam))
 -- input gives infinity; results of @2^16@ or more overflow to infinity.
 --
 -- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10 and
--- Cyclone V on 58 million inputs each: 50 million triples with overlapping
--- squares, all non-negative inputs paired with 195 others, every input with
--- the other two zero, all combinations of special values, inputs near the
--- overflow boundary and random triples; and for Cyclone IV E, Cyclone 10 LP
--- and other latencies on 2.5 million of those.
+-- Cyclone V on all pairs of non-negative inputs (with the third input zero),
+-- 50 million triples with overlapping squares, every input with the other
+-- two zero, all combinations of special values, inputs near the overflow
+-- boundary and random triples; and for Cyclone IV E, Cyclone 10 LP and other
+-- latencies on 2.5 million of those triples.
 hypotModel :: DeviceFamily -> Half -> Half -> Half -> Half
 hypotModel fam x y z =
   Half (fromIntegral (hypotHalf (familyMultipliers fam) (bits x) (bits y) (bits z)))
