@@ -81,6 +81,9 @@ same way. The IP's option \"Inputs are
 within range -2pi to +2pi\" has no effect on these device families. The other
 trigonometric functions of the IP are not supported.
 
+See "Clash.Cores.Intel.Floating#differences" for where the IP differs from its
+documentation.
+
 For each customizable operation, there also exists a function that uses the
 default configuration and a default latency, which is defined as a type.
 -}
