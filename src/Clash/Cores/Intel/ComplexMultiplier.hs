@@ -68,6 +68,23 @@ Not supported:
 * The synchronous clear (@sclr@), available on Arria 10 only
 * The dynamic complex mode (the @complex@ input), available on Stratix V
   only
+
+#differences#
+
+=== Differences from Intel's documentation
+
+* /Unsigned operands./ The
+  [Integer Arithmetic IP Cores User Guide](https://www.intel.com/content/www/us/en/docs/programmable/683490/)
+  (UG-01063, version 2016.06.10, chapter 12, \"Features\" and Table 12-3)
+  lists unsigned operands as supported and lets @WIDTH_RESULT@ go up to 256
+  bits, without saying that the product is not exact for a wide enough
+  result. If both operands are unsigned, the megafunction computes the real
+  and the imaginary part modulo @2^(a + b)@, whatever @WIDTH_RESULT@: a
+  negative real part wraps around and the imaginary part loses its carry.
+  Found by simulating the netlists Quartus Prime Lite 21.1 generates
+  (Cyclone IV E, MAX 10 and Cyclone 10 LP), exhaustively for operands of up
+  to 3 bits and on corner cases and random inputs up to 256 bits; see
+  'complexMultiplyModel'.
 -}
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
@@ -145,7 +162,8 @@ type family ProductRepresentation (f :: Nat -> Type) (g :: Nat -> Type) :: Nat -
 -- negative, and the imaginary part @ar * bi + ai * br@, which needs @a + b + 1@
 -- bits, loses its most significant bit. This is how @altmult_complex@
 -- behaves in Quartus Prime Lite 21.1 (observed for Cyclone IV E, MAX 10 and
--- Cyclone 10 LP).
+-- Cyclone 10 LP), unlike what the user guide suggests, see
+-- "Clash.Cores.Intel.ComplexMultiplier#differences".
 complexMultiplyModel ::
   forall f g o a b.
   ( KnownNat a
