@@ -274,3 +274,29 @@ closeTriples lo n cnt seed = P.take cnt (go (randoms seed))
            1 -> (y, z, x)
            _ -> (z, x, y)) : go rs
   go _ = []
+
+-- | E.pow, E.powWith @40
+powDut :: Dut (Float, Float) (Vec 2 Float)
+powDut clk rst en i = bundle (binary (E.pow simFamily) clk rst en i :> binary (E.powWith @40 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE powDut #-}
+
+-- | Pairs for 'E.pow': random positive normal x (a quarter of them in
+-- [0.5, 2)) with y such that |y * ln x| is below 90, so that most results are
+-- finite, pairs where the models of the two datapaths (Cyclone V and the
+-- families with 18x18 multipliers) differ, and powers of one around the
+-- thresholds where the IP's result is not one
+powPairs :: Int -> Word64 -> [(Float, Float)]
+powPairs n seed = P.take n (go (randoms seed)) <> datapaths <> ones
+ where
+  datapaths =
+    P.take 300 [ p | p@(x, y) <- go (randoms (seed + 1)), E.powModel E.CycloneV x y /= E.powModel E.Max10 x y ]
+  go (a : b : c : rs) =
+    let e = if a `P.mod` 4 == 0 then 126 + (a `shiftR` 2) `P.mod` 2 else 1 + (a `shiftR` 2) `P.mod` 254
+        x = castWord32ToFloat (fromIntegral ((e `shiftL` 23) .|. (b .&. 0x7FFFFF)))
+        lx = P.abs (P.log (realToFrac x :: Double))
+        t = P.fromIntegral (c `P.mod` 1800001) / 10000 - 90 :: Double
+    in if lx == 0 then go rs else (x, realToFrac (t / lx)) : go rs
+  go _ = []
+  ones =
+    [ (1, s * 2 ^^ k * m)
+    | s <- [1, -1], k <- [62, 63, 64, 65, 66, 126, 127 :: Int], m <- [1, 1.25, 1.375, 1.5, 1.75] ]

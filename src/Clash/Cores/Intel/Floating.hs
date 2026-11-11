@@ -27,15 +27,22 @@ models document the details.
   are off by more for some inputs (maximum errors found, in units in the last
   place): 'exp2' (2, for inputs below one in magnitude), 'exp10' (a few, just
   below multiples of log10 2), 'hypot' (1.4), 'sinPi' (2.5), 'tanPi' (5),
-  'sin' (1.6), 'cos' (1.2), 'tan' (2.5), 'atan' (2.2), 'atanPi' (1.9) and
-  'atan2' (2.5). In half precision ("Clash.Cores.Intel.Floating.Half") only
-  the square root, the reciprocal square root, the cube root and the base 2
+  'sin' (1.6), 'cos' (1.2), 'tan' (2.5), 'atan' (2.2), 'atanPi' (1.9),
+  'atan2' (2.5) and 'pow' (1.3). In half precision
+  ("Clash.Cores.Intel.Floating.Half") only the square root, the reciprocal
+  square root, the cube root and the base 2
   logarithm keep within one unit; the other exponentials and logarithms, the
   hypotenuse, 'sinPi', 'cosPi' and 'tanPi' don't. Found with the bit-exact
   models, on all inputs of whole binades and millions of other inputs per
   function, on all four families. The arcsine and arccosine (not supported by
   this module) are off by up to 1.3 and 3 units in the last place for inputs
   in [0.5, 1) (all inputs of that binade, Cyclone V datapath).
+
+* /Power of one./ IEEE 754's @powr@, which the IP's POWR follows otherwise,
+  gives one for @1 ** y@ with a finite @y@. The IP gives @+inf@ or @+0@ for
+  some @y@ with @2^63 <= |y| < 2^66@ and @+0@ for @y <= -1.365 * 2^127@
+  (about): its logarithm of one is 2^-57 instead of zero, see
+  'Clash.Cores.Intel.Floating.Explicit.powModel' (all four families).
 
 * /Range reduction option./ For SIN, COS and TAN the parameter editor offers
   \"Inputs are within range -2pi to +2pi\" (@trig_no_range_reduction@), which
@@ -130,6 +137,9 @@ module Clash.Cores.Intel.Floating
   , atan2With
   , atan2
   , E.Atan2DefDelay
+  , powWith
+  , pow
+  , E.PowDefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -832,6 +842,37 @@ atan2
   -> DSignal dom (n + E.Atan2DefDelay) Float
 atan2 fam = withFrozenCallStack $ hideClockResetEnable (E.atan2 fam)
 {-# INLINE atan2 #-}
+
+-- | Customizable floating point power function @x ** y@ (for @x >= 0@). See 'E.powWith'.
+powWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom (n + d) Float
+powWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.powWith cfg fam)
+{-# INLINE powWith #-}
+
+-- | Floating point power function @x ** y@ (for @x >= 0@), with the default configuration and
+-- delay. See 'E.pow'.
+pow
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom (n + E.PowDefDelay) Float
+pow fam = withFrozenCallStack $ hideClockResetEnable (E.pow fam)
+{-# INLINE pow #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With

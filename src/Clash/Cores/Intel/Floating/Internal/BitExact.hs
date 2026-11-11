@@ -7,7 +7,7 @@ Bit-exact models of the square root, cube root, three-dimensional
 hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
 (natural, base 2, base 10 and @log (1 + x)@), the sine, cosine and
 tangent of x and of pi times x, the arctangent (in radians and divided by
-pi) and the two-argument arctangent of Intel's Floating Point Functions IP
+pi) the two-argument arctangent and the power function of Intel's Floating Point Functions IP
 (@altera_fp_functions@) in
 single precision, see Note [Bit-exact models].
 -}
@@ -37,6 +37,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , atanSingle
   , atanPiSingle
   , atan2Single
+  , powSingle
   ) where
 
 import Prelude
@@ -45,8 +46,9 @@ import Data.Array.Base (unsafeAt)
 import Data.Array.Unboxed (UArray, listArray)
 import Data.Bits
 import Data.Int (Int64)
-import Data.Word (Word32)
+import Data.Word (Word32, Word64)
 
+import Clash.Cores.Intel.Floating.Internal.CoefficientsPow (powExpCoefficients, powLogCoefficients)
 import Clash.Cores.Intel.Floating.Internal.Coefficients
   ( cbrtCoefficients, exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
   , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients, sinPiCoefficients
@@ -507,6 +509,76 @@ at least 44 bits and t exactly, so the model uses pi to 200 bits. The
 special cases were read off a table of all combinations of signed zeros,
 subnormal numbers, the smallest normal number, one, the largest finite
 number and infinity, and checked on random pairs of such inputs.
+
+Power (@x ** y@, the IP's POWR function, IEEE 754's powr): the IP computes
+exp (y * ln x) with its own logarithm and exponential of about 34 bits, both
+piecewise cubic polynomials evaluated in Horner form (T1 = C3 * t,
+S1 = C2 + T1, T2 = S1 * t, S2 = C1 + T2, T3 = S2 * t, A = C0 + T3), with the
+tables of "Clash.Cores.Intel.Floating.Internal.CoefficientsPow":
+
+  1. Logarithm (x positive and normal, x /= 1, x = m * 2^E, m = 1.f): for
+     E = 0 and E = -1 (x in [0.5, 2)), ln x = z * P with z = x - 1 (exact)
+     and P = ln (1 + z) / z from one of four regions of 128 segments (as for
+     the single precision logarithm: x in [1, 1.5), [1.5, 2), [0.5, 0.75) and
+     [0.75, 1)), t = the low 15 fraction bits. P is truncated to 33
+     significant bits (the 2^-33 grid for P < 1, 2^-32 for P >= 1) and
+     L = z * P is rounded to 34 significant bits, to nearest with ties away
+     from zero. For other E, L = E * ln2 + f * P, with f * P from the tables
+     of [1, 2), ln 2 rounded up to 36 fraction bits, the sum exact and then
+     rounded the same way. The datapath works on the 2^-39 grid (2^-38 for
+     P >= 1); T1 uses only the top 14 bits of t. With full multipliers every
+     product is rounded down. With truncated multipliers T1 is rounded half up,
+     T3 gets a quarter unit before it is rounded down, and T2 leaves out
+     S1_i * t_j for i < 7, j < 5 and for i < 4, j < 8 and adds half a unit.
+  2. The product: y * L, exact, its significand truncated to 34 bits.
+  3. Exponential of that product a (as in the single precision exponential):
+     k = floor (a / ln 2), estimated from the significand times 1 / ln 2
+     (rounded up at 2^-40, the product floored at 2^-37; just below a multiple
+     of ln 2 it can be one too high, and then the reduced argument, negative,
+     is clamped to zero); r = a - k * ln2, with a on the 2^-34 grid and ln 2
+     rounded DOWN to 36 fraction bits (unlike the logarithm's constant), the
+     product exact; 178 segments of exp (r) on [0, ln 2), the top 8 bits of r
+     (2^-36 grid) select the segment and the 28 bits below them form t
+     (T1 uses its top 13 bits, T2 its top 22 bits and T3 all but its last 2;
+     below, j counts the bits of t, from its least significant bit, that
+     the product uses).
+     A is on the 2^-40 grid with a rounding constant of 2^-36; the significand
+     is A truncated to 34 bits, a carry into 2 increments the exponent. The
+     result is truncated to single precision. With full multipliers (Cyclone
+     V) every product is rounded down and T3 leaves out the partial products
+     S2_i * t_j for i < 17, j < 8 and for i < 14, 8 <= j < 11; with truncated
+     ones T1 is rounded half up, T2 is a truncated multiplier leaving out
+     S1_i * t_j for i < 9, j < 8, T3 one leaving out i < 18 for j < 4,
+     i < 10 for 4 <= j < 12 and i < 1 for 12 <= j < 21, both with half a unit
+     added. Results above the largest finite number give +inf, below the
+     smallest normal number +0.
+  4. Special cases: a NaN input gives NaN; a negative x (normal or -inf)
+     gives NaN; a zero or subnormal x (of either sign) gives NaN for a zero or
+     subnormal y, +inf for a negative y and +0 for a positive one; x = +inf
+     gives NaN for a zero or subnormal y, +0 for a negative y and +inf for a
+     positive one; a zero or subnormal y gives 1; an infinite y gives +inf or
+     +0 depending on its sign and on whether x is above or below one, and NaN
+     for x = 1. For x = 1 and finite y the result is 1, except that the IP's
+     logarithm of one is 2^-57 rather than 0, which shows when the exponential
+     of y * 2^-57 overflows or underflows: for 2^63 <= |y| < 2^66 (+inf or +0
+     as for that exponential) and for y <= -1.365 * 2^127 (about; +0, as if
+     y were 2^64 times smaller).
+
+This was found as follows. The synthesis report shows two cubic tables (512
+entries for the logarithm, 256 for the exponential), the exponential's
+multipliers equal those of the generator's own 33 bit exponential (whose
+standalone build gives 42 bit results, which pinned down its datapath on
+both kinds of multipliers), a 36x26 product (z * P) and a 24x34 one (y * L).
+For x = 2^E, L is E * ln 2 rounded, which fixed the product's truncation and
+the exponential's constants. The logarithm cannot be observed directly: for
+each x, about 40 values of y with |y * ln x| between 40 and 85 give
+intervals for y * L, and their intersection on the 34 bit grid gives L
+exactly (more values of y where it doesn't). From L and z, every such x then
+gives P on its 33 bit grid exactly, and the polynomial's formats and
+truncations were fitted to these values of P, on both datapaths. The
+coefficients reproduce from first principles (see the module of the tables).
+The special cases were read off all combinations of special values, and the
+thresholds for x = 1 off sweeps of y.
 
 The IP generates the NaN 0x7F800001.
 -}
@@ -1581,3 +1653,219 @@ piMinus t = (fromIntegral (len - 74) `shiftL` 23) .|. (fromInteger (v `shiftR` (
   v = piFixed - tv
   -- pi / 2 <= v * 2^-200 < 4
   len = if v >= bit 201 then 202 else 201 :: Int
+
+-- * Power
+
+-- | A table of cubic coefficients as four arrays: C0, C1, C2, C3
+data Table4 = Table4 !(UArray Int Int64) !(UArray Int Int64) !(UArray Int Int64) !(UArray Int Int64)
+
+mkTable4 :: [(Integer, Integer, Integer, Integer)] -> Table4
+mkTable4 cs =
+  Table4 (arr [c | (c, _, _, _) <- cs]) (arr [c | (_, c, _, _) <- cs])
+         (arr [c | (_, _, c, _) <- cs]) (arr [c | (_, _, _, c) <- cs])
+ where
+  arr xs = listArray (0, length cs - 1) (map fromIntegral xs)
+
+-- | Look up the coefficients (C0, C1, C2, C3) of a segment. Callers guarantee
+-- that the index is in range.
+coefs4 :: Table4 -> Int -> (Integer, Integer, Integer, Integer)
+coefs4 (Table4 c0 c1 c2 c3) i =
+  (toInteger (unsafeAt c0 i), toInteger (unsafeAt c1 i), toInteger (unsafeAt c2 i), toInteger (unsafeAt c3 i))
+{-# INLINE coefs4 #-}
+
+powLogTable, powExpTable :: Table4
+powLogTable = mkTable4 powLogCoefficients
+{-# NOINLINE powLogTable #-}
+powExpTable = mkTable4 powExpCoefficients
+{-# NOINLINE powExpTable #-}
+
+-- | The IP's power function @x ** y@ in single precision, on bit patterns
+powSingle :: Multipliers -> Word32 -> Word32 -> Word32
+powSingle m x y
+  | xe == 0xFF && xf /= 0 || ye == 0xFF && yf /= 0 = nanSingle
+  | xe == 0 = if ye == 0 then nanSingle else if ys then infSingle else 0
+  | xs = nanSingle
+  | xe == 0xFF = if ye == 0 then nanSingle else if ys then 0 else infSingle
+  | ye == 0 = one
+  | x == one = if ye == 0xFF then nanSingle else powOfOne
+  | ye == 0xFF = if (x > one) /= ys then infSingle else 0
+  | otherwise = powResult (powExp m (powProduct y (powLog m x)))
+ where
+  one = 0x3F800000
+  xs = testBit x 31
+  ys = testBit y 31
+  xe = (x `shiftR` 23) .&. 0xFF
+  ye = (y `shiftR` 23) .&. 0xFF
+  xf = x .&. 0x7FFFFF
+  yf = y .&. 0x7FFFFF
+  -- The logarithm of one is 2^-57 inside the IP; only an overflow or underflow
+  -- of the exponential of y * 2^-57 shows in the result.
+  powOfOne
+    | ye' >= 58
+    , r <- powExp m (mkWide ys (ye' - 57) (toInteger yf `shiftL` 10))
+    , r == wideInf || r == 0
+    = powResult r
+    | otherwise = one
+   where
+    ye' | ye <= 192 = fromIntegral ye
+        | ye == 254 && ys = 190
+        | otherwise = 0 :: Int
+
+-- ** The internal floating point format
+-- A 42 bit floating point number: sign, 8 bit biased exponent, 33 bit fraction.
+
+mkWide :: Bool -> Int -> Integer -> Word64
+mkWide s e f = (if s then bit 41 else 0) .|. (fromIntegral e `shiftL` 33) .|. fromInteger (f .&. (bit 33 - 1))
+
+wideInf :: Word64
+wideInf = 0xFF `shiftL` 33
+
+-- | The result: the exponential's 42 bit result truncated to single precision
+powResult :: Word64 -> Word32
+powResult r = fromIntegral (r `shiftR` 10)
+
+-- | Round a positive @v * 2^ve@ to 34 significant bits, to nearest with ties
+-- away from zero
+round34 :: Bool -> Integer -> Int -> Word64
+round34 s v ve
+  | n > 34 =
+      let sh = n - 34
+          r = (v + bit (sh - 1)) `shiftR` sh
+      in if testBit r 34 then mkWide s (ve + sh + 1 + 33 + 127) (r `shiftR` 1)
+                         else mkWide s (ve + sh + 33 + 127) r
+  | otherwise = mkWide s (ve - (34 - n) + 33 + 127) (v `shiftL` (34 - n))
+ where
+  n = integerLog2' v + 1
+
+integerLog2' :: Integer -> Int
+integerLog2' v = go 0 v where go k w = if w <= 1 then k else go (k + 1) (w `shiftR` 1)
+
+-- ** Logarithm
+
+-- | The IP's natural logarithm of a positive normal number other than one, to
+-- 34 bits
+powLog :: Multipliers -> Word32 -> Word64
+powLog m x
+  | e == 127 = round34 False (f * powLogPoly m idx0 t) (-23 - 33)
+  | e == 126 = round34 True ((bit 23 - f) * powLogPoly m idx1 t) (-24 - 32)
+  | otherwise =
+      let s = toInteger (e - 127) * ln2Up * bit 20 + f * powLogPoly m idx0 t
+      in round34 (s < 0) (abs s) (-56)
+ where
+  e = fromIntegral ((x `shiftR` 23) .&. 0xFF) :: Int
+  f = toInteger (x .&. 0x7FFFFF)
+  t = f .&. 0x7FFF
+  idx0 = fromInteger (f `shiftR` 15)
+  idx1 = 256 + fromInteger (((f `shiftR` 22) .&. 1) * 128 + ((f `shiftR` 15) .&. 127))
+  -- ln 2 rounded up to 36 fraction bits
+  ln2Up = 0xB17217F7E
+
+-- | @ln (1 + z) / z@ on a segment, truncated to 33 significant bits: on the
+-- 2^-33 grid for the regions with @P < 1@ (indices below 256), on 2^-32 for
+-- the others
+powLogPoly :: Multipliers -> Int -> Integer -> Integer
+powLogPoly m idx t = (c0 `shiftL` k + t3 + bit (k + 2)) `shiftR` 6
+ where
+  (c0, c1, c2, c3) = coefs4 powLogTable idx
+  -- coefficient LSBs 2^-37 (C3 2^-38) to the datapath's 2^-39 (2^-38)
+  k = if idx < 256 then 2 else 1
+  t14 = t `shiftR` 1
+  (_, _, t3) = case m of
+    FullMultipliers ->
+      let p1 = (c3 * t14) `shiftR` (15 - k)
+          p2 = ((c2 `shiftL` k + p1) * t) `shiftR` 15
+          p3 = ((c1 `shiftL` k + p2) * t) `shiftR` 15
+      in (p1, p2, p3)
+    TruncatedMultipliers ->
+      let p1 = (c3 * (k' * t14) + bit 13) `shiftR` 14
+          s1 = c2 `shiftL` k + p1
+          p2 = (logStaircase s1 t + bit 14) `shiftR` 15
+          p3 = ((c1 `shiftL` k + p2) * t + bit 13) `shiftR` 15
+      in (p1, p2, p3)
+  k' = if idx < 256 then 2 else 1
+
+
+-- | The truncated multiplier of the logarithm: S1 * t without the partial
+-- products S1_i * t_j with (i < 7, j < 5) or (i < 4, j < 8)
+logStaircase :: Integer -> Integer -> Integer
+logStaircase s1 t =
+    s1 * (t `shiftR` 8 `shiftL` 8)
+  + (s1 `shiftR` 4 `shiftL` 4) * (t .&. 0xE0)
+  + (s1 `shiftR` 7 `shiftL` 7) * (t .&. 0x1F)
+
+-- ** Product
+
+-- | @y * L@ with the exact product's significand truncated to 34 bits
+powProduct :: Word32 -> Word64 -> Word64
+powProduct y l
+  | le == 0 = mkWide s 0 0
+  | be <= 0 = mkWide s 0 0
+  | be >= 255 = mkWide s 255 0
+  | otherwise = mkWide s be (p `shiftR` (n - 34))
+ where
+  s = testBit y 31 /= testBit l 41
+  ye = fromIntegral ((y `shiftR` 23) .&. 0xFF) :: Int
+  le = fromIntegral ((l `shiftR` 33) .&. 0xFF) :: Int
+  p = toInteger ((y .&. 0x7FFFFF) .|. bit 23) * toInteger ((l .&. (bit 33 - 1)) .|. bit 33)
+  n = integerLog2' p + 1
+  be = (ye - 150) + (le - 160) + n - 34 + 33 + 127
+
+-- ** Exponential
+
+-- | The IP's exponential of a 42 bit number, to 34 bits
+powExp :: Multipliers -> Word64 -> Word64
+powExp m a
+  | e == 0xFF = if fr /= 0 then wideInf .|. 1 else if s then 0 else wideInf
+  | sh > 9 = if s then 0 else wideInf
+  | ex >= 255 = wideInf
+  | ex <= 0 = 0
+  | otherwise = mkWide False ex o'
+ where
+  s = testBit a 41
+  e = fromIntegral ((a `shiftR` 33) .&. 0xFF) :: Int
+  fr = toInteger (a .&. (bit 33 - 1))
+  mant = fr .|. bit 33
+  sh = e - 126
+  -- x * 2^34, rounded down
+  xFix | sh >= 0 = (if s then negate else id) (mant `shiftL` sh)
+       | s = negate ((mant + bit (-sh) - 1) `shiftR` (-sh))
+       | otherwise = mant `shiftR` (-sh)
+  -- k: the significand times 1/ln 2 (rounded up, 2^-40) floored at 2^-37
+  q = (mant * invLn2) `shiftR` 36
+  k = (if s then negate q else q) `shiftR` (37 - (e - 127))
+  r = max 0 (4 * xFix - k * ln2Down)
+  j = fromInteger (r `shiftR` 28)
+  y30 = (r .&. (bit 28 - 1)) `shiftL` 2
+  o = powExpPoly m j y30 `shiftR` 7
+  (o', ex0) = if testBit o 34 then (o `shiftR` 1, k + 128) else (o, k + 127)
+  ex = fromInteger ex0
+  invLn2 = 0x171547652B9    -- floor(2^40 / ln 2) + 1
+  ln2Down = 0xB17217F7D     -- ln 2 rounded down to 36 fraction bits
+
+-- | @exp ((j + y / 2^28) / 256)@ for a 28 bit @y@ (given as @y30 = 4 y@), on
+-- the 2^-40 grid, plus the rounding constant 2^-36
+powExpPoly :: Multipliers -> Int -> Integer -> Integer
+powExpPoly m j y30 = (c0 `shiftL` 2) + t3 + 16
+ where
+  (c0, c1, c2, c3) = coefs4 powExpTable j
+  y1 = y30 `shiftR` 15
+  y2 = y30 `shiftR` 6
+  t3 = case m of
+    FullMultipliers ->
+      let s1 = (c2 `shiftL` 1) + ((c3 * y1) `shiftR` 15)
+          s2 = (c1 `shiftL` 1) + ((s1 * y2) `shiftR` 24)
+      in truncMul expCut3Full s2 ((y30 `shiftR` 2) .&. complement 3) `shiftR` 27
+    TruncatedMultipliers ->
+      let s1 = (c2 `shiftL` 1) + ((c3 * y1 + bit 14) `shiftR` 15)
+          s2 = (c1 `shiftL` 1) + (truncMul expCut2 s1 y2 + bit 23) `shiftR` 24
+      in (truncMul expCut3 s2 ((y30 `shiftR` 2) .&. complement 3) + bit 26) `shiftR` 27
+
+-- | A truncated multiplier: @a * b@ without the partial products @a_i * b_j@
+-- with @i@ below the cut of row @j@
+truncMul :: [Int] -> Integer -> Integer -> Integer
+truncMul cuts a b = sum [ ((a `shiftR` c) `shiftL` c) `shiftL` jj | (jj, c) <- zip [0..] cuts, testBit b jj ]
+
+expCut2, expCut3, expCut3Full :: [Int]
+expCut2 = replicate 8 9 ++ replicate 16 0
+expCut3 = replicate 4 18 ++ replicate 8 10 ++ replicate 9 1 ++ replicate 7 0
+expCut3Full = replicate 8 17 ++ replicate 3 14 ++ replicate 17 0

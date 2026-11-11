@@ -200,6 +200,7 @@ library
     Clash.Cores.Intel.Floating.Internal.Coefficients
     Clash.Cores.Intel.Floating.Internal.CoefficientsDouble
     Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
+    Clash.Cores.Intel.Floating.Internal.CoefficientsPow
     Clash.Cores.Intel.Floating.Internal.Double
     Clash.Cores.Intel.Floating.Internal.Half
     Clash.Cores.Intel.Divide

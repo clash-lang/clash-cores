@@ -151,3 +151,7 @@ atanPiTB = romTB simLibraries atanPiDut $(memBlobTH (Just 0) (trace atanPiDut (c
 atan2TB :: Signal Dom Bool
 atan2TB = romTB simLibraries atan2Dut $(memBlobTH (Just 0) (trace atan2Dut (cycles (floatPairs 2500 86 <> atan2Ties))))
 {-# ANN atan2TB (Synthesize "atan2TB" [] (PortName "done")) #-}
+
+powTB :: Signal Dom Bool
+powTB = romTB simLibraries powDut $(memBlobTH (Just 0) (trace powDut (cycles (floatPairs 0 87 <> powPairs 2500 88))))
+{-# ANN powTB (Synthesize "powTB" [] (PortName "done")) #-}

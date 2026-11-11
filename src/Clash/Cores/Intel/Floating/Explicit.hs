@@ -67,7 +67,9 @@ E, Cyclone 10 LP and Cyclone V, at several latencies. The results of these
 functions depend on the multipliers of the device family, so they take a
 'DeviceFamily' argument. The cube root ('cbrt') and the three-dimensional
 hypotenuse ('hypot') are modelled in the same way; the cube root is faithfully
-rounded too, the hypotenuse not always, see 'hypotModel'. The reciprocal
+rounded too, the hypotenuse not always, see 'hypotModel'. So is the power
+function ('pow', the IP's \"POWR\": @x ** y@ for @x >= 0@), which is not
+always faithfully rounded either, see 'powModel'. The reciprocal
 ('recip') is correctly rounded (with a quirk just below the smallest normal
 number, see 'recipModel').
 
@@ -174,6 +176,9 @@ module Clash.Cores.Intel.Floating.Explicit
   , atan2With
   , atan2
   , Atan2DefDelay
+  , powWith
+  , pow
+  , PowDefDelay
     -- * Comparison
   , Ordering(..)
   , toMaybeOrdering
@@ -242,6 +247,7 @@ module Clash.Cores.Intel.Floating.Explicit
   , atanModel
   , atanPiModel
   , atan2Model
+  , powModel
   ) where
 
 import Clash.Explicit.Prelude hiding
@@ -1543,6 +1549,64 @@ atan2 = withFrozenCallStack $ atan2With defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type Atan2DefDelay = 51
+
+-- | Customizable floating point power function @x ** y@, see 'powModel'. Like
+-- IEEE 754's @powr@, it is defined for @x >= 0@: a negative @x@ gives NaN. The
+-- IP's result is bit-exactly modelled. This is the IP's \"POWR\" function.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+powWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom (n + d) Float
+powWith cfg fam clk rst en x y
+  | clashSimulation = pipeline und clk rst en (powModel fam <$> x <*> y)
+  | otherwise = binaryInst "fp_pow" ip clk rst en x y
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of pow"
+  ip = fpFunctions cfg "EXP_LOG" "POWR" (natToNum @d) Nil
+{-# INLINE powWith #-}
+
+-- | Floating point power function @x ** y@ (for @x >= 0@), with the default configuration and delay.
+-- See 'powWith'.
+pow
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom (n + PowDefDelay) Float
+pow = withFrozenCallStack $ powWith defConfig
+{-# INLINE pow #-}
+
+-- | The default delay of 'pow': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type PowDefDelay = 63
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@.
 --
