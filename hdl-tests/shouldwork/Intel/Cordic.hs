@@ -62,6 +62,18 @@ atan2UnsignedTB :: Signal Dom Bool
 atan2UnsignedTB = romTB simLibraries atan2UnsignedDut $(memBlobTH (Just 0) (trace atan2UnsignedDut (cycles (vectorsU Atan2Function 12 1500 36))))
 {-# ANN atan2UnsignedTB (Synthesize "atan2UnsignedTB" [] (PortName "done")) #-}
 
+atan2LutTB :: Signal Dom Bool
+atan2LutTB = romTB simLibraries atan2LutDut $(memBlobTH (Just 0) (trace atan2LutDut (cycles (vectorsS Atan2LutFunction 6 1500 44))))
+{-# ANN atan2LutTB (Synthesize "atan2LutTB" [] (PortName "done")) #-}
+
+atan2LutW16TB :: Signal Dom Bool
+atan2LutW16TB = romTB simLibraries atan2LutW16Dut $(memBlobTH (Just 0) (trace atan2LutW16Dut (cycles (vectorsS Atan2LutFunction 14 1500 45))))
+{-# ANN atan2LutW16TB (Synthesize "atan2LutW16TB" [] (PortName "done")) #-}
+
+atan2UnsignedLutTB :: Signal Dom Bool
+atan2UnsignedLutTB = romTB simLibraries atan2UnsignedLutDut $(memBlobTH (Just 0) (trace atan2UnsignedLutDut (cycles (vectorsU Atan2LutFunction 16 1500 46))))
+{-# ANN atan2UnsignedLutTB (Synthesize "atan2UnsignedLutTB" [] (PortName "done")) #-}
+
 vecTranslateTB :: Signal Dom Bool
 vecTranslateTB = romTB simLibraries vecTranslateDut $(memBlobTH (Just 0) (trace vecTranslateDut (cycles (vectorsS VecTranslateFunction 12 1500 37))))
 {-# ANN vecTranslateTB (Synthesize "vecTranslateTB" [] (PortName "done")) #-}

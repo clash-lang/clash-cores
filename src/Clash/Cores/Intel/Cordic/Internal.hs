@@ -10,6 +10,8 @@ derived.
 __NB__: None of the functions in this module are synthesizable.
 -}
 
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -20,6 +22,9 @@ module Clash.Cores.Intel.Cordic.Internal
   , sinCosWidths
   , sinCosModel
   , sinCosMargins
+    -- * Device families
+  , DeviceFamily(..)
+  , familyTableSize
     -- * Arctangent and vector translation
   , AtanFunction(..)
   , AtanWidths(..)
@@ -55,7 +60,9 @@ import Prelude
 
 import Data.Bits (shiftL, shiftR)
 import Data.Ratio (denominator, numerator, (%))
+import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
+import Language.Haskell.TH.Syntax (Lift)
 
 import Clash.Explicit.Prelude
   (BitVector, Clock, Enable, KnownDomain, KnownNat, NFDataX, Reset, Signal, SNat(..),
@@ -178,9 +185,16 @@ inputs) and @wm@ the magnitude bits of the inputs (@w - 1@ and @w@):
    @2^-(fZ + 2 i)@, where @fZ = n0 + 4 + ceil(log2(n0 + 1))@: the same
    formula as for sine and cosine, and the angle's registers in the
    synthesis reports grow by two bits per iteration. VECTRANSLATE instead
-   looks up the sum of the signed constants of each group of four iterations
-   in a table, with entries rounded to the nearest multiple of @2^-(fOut + 2 +
-   ceil(n / 4))@, and adds those.
+   looks up the sum of the signed constants of each group of @k@ iterations
+   in a table, with entries rounded to the nearest multiple of @2^-fT@, and
+   adds those. @k@ is the number of inputs of the device family's LUTs: four
+   on MAX 10, Cyclone IV E and Cyclone 10 LP, six on Cyclone V. The entries
+   have @fT = fOut + 2 + t@ fractional bits, with @t = ceil((fOut + 3) / k)@
+   the number of tables of signed inputs (@n = fOut + 3@), also for unsigned
+   ones (on Cyclone V, unsigned inputs with 16 fractional output bits need
+   that). With a single table (@t = 1@, Cyclone V with 2 or 3 fractional
+   output bits), @fT = 7@: the results of signed inputs match any @fT >= 7@
+   and no smaller one.
 
 6. For signed inputs, the angle is truncated to @fOut + 2@ fractional bits,
    subtracted from pi, truncated to @fOut + 3@ fractional bits, if @x < 0@,
@@ -216,9 +230,25 @@ iterations, the guard bits and the table precision reproduced them. The API
 only accepts formats where these rules were measured, see 'atanWidths'. With more than 45 (signed) or 40 (unsigned) fractional output
 bits, ATAN2's generator makes other choices that no rule here covers.
 
-The IP's @useLUTs@ option makes ATAN2 compute the angle with tables like
-VECTRANSLATE. That matched for the three configurations tried, but the width
-requirement of such configurations was not measured, so it isn't offered.
+The IP's option \"LUT Size Optimization\" (@useLUTs@) makes ATAN2 compute
+the angle exactly like VECTRANSLATE: the same iterations, widths and tables.
+'atanWidths' accepts the formats of VECTRANSLATE for it. With the device
+family's table size, the model reproduced all results of ATAN2 with this
+option for 454 formats (signed and unsigned inputs of 5 to 64 bits, 1 to 16
+fractional output bits; exhaustively for inputs of up to 8 bits, 44,000
+random, scaled-down and special pairs otherwise): 206 on Cyclone V, 165 on
+MAX 10, 41 on Cyclone IV E and 42 on Cyclone 10 LP, 21 million pairs in all.
+It also reproduced the angle and the magnitude of VECTRANSLATE for 110
+formats on Cyclone V (42 with scale factor compensation), and ATAN2 without
+the option gave the same results on Cyclone V, Cyclone IV E and Cyclone 10
+LP as on MAX 10 (34 formats).
+
+The tables of six directions on Cyclone V were found by simulating the IP
+generated for each family on the same inputs: on Cyclone V, results of signed
+inputs differed from the tables of four (by one unit in the last place, for
+about 6% of the pairs of 8 bit inputs with 6 fractional output bits).
+Fitting the table size and the precision of the entries to those results
+gave @k = 6@ and the formula above.
 
 The vector rotation (VECROTATE, signed inputs only: the generator of Quartus
 21.1 fails for unsigned ones) was inferred the same way, from exhaustive
@@ -482,9 +512,35 @@ sinCosMargins SinCosWidths{..} = \a ->
 data AtanFunction
   = Atan2Function
   -- ^ @ATAN2@: the angle
+  | Atan2LutFunction
+  -- ^ @ATAN2@ with the option \"LUT Size Optimization\" (@useLUTs@): the angle,
+  -- computed exactly like the angle of @VECTRANSLATE@
   | VecTranslateFunction
   -- ^ @VECTRANSLATE@: the angle and the magnitude
   deriving (Eq, Show)
+
+-- | The device families of Quartus Prime Lite. Some results of the IP depend on
+-- the family's logic: the vector translation adds up its arctangent constants
+-- with tables of as many rotation directions as the family's LUTs have inputs.
+data DeviceFamily
+  = CycloneIVE
+  -- ^ Cyclone IV E (logic elements with four-input LUTs)
+  | CycloneV
+  -- ^ Cyclone V (adaptive logic modules with six-input LUTs)
+  | Cyclone10LP
+  -- ^ Cyclone 10 LP (logic elements with four-input LUTs)
+  | Max10
+  -- ^ MAX 10 (logic elements with four-input LUTs)
+  deriving (Eq, Show, Enum, Bounded, Generic, NFDataX, Lift)
+
+-- | The number of rotation directions per table of the angle of
+-- @VECTRANSLATE@ (and of @ATAN2@ with LUT size optimization): the number of
+-- inputs of the family's LUTs.
+familyTableSize :: DeviceFamily -> Int
+familyTableSize CycloneV = 6
+familyTableSize CycloneIVE = 4
+familyTableSize Cyclone10LP = 4
+familyTableSize Max10 = 4
 
 -- | Parameters of the datapath of the arctangent and the vector translation,
 -- see @Note [Inferring the datapath of ALTERA_CORDIC]@
@@ -507,6 +563,9 @@ data AtanWidths = AtanWidths
   -- ^ Fractional bits of the angle in the iterations: of the constant of the
   -- first iteration for ATAN2 (the constant of iteration @i@ has
   -- @atFracZ + 2 * i@), of the table entries for VECTRANSLATE
+  , atTableSize :: Int
+  -- ^ VECTRANSLATE: the number of rotation directions per table, see
+  -- 'familyTableSize'
   } deriving (Eq, Show)
 
 -- | The width requirement of X and Y, indexed by the nominal number of
@@ -523,6 +582,7 @@ lambdaTable fun signed n0 =
     (Atan2Function, _) -> from 9 atan2Lambdas
     (VecTranslateFunction, True) -> from 9 vtLambdasSigned
     (VecTranslateFunction, False) -> from 8 vtLambdasUnsigned
+    (Atan2LutFunction, _) -> lambdaTable VecTranslateFunction signed n0
  where
   from k xs
     | n0 >= k && n0 < k + length xs = xs !! (n0 - k)
@@ -549,10 +609,12 @@ transitions =
   , ((27, 38), (1, 10)), ((29, 40), (1, 10)) ]
 
 -- | Parameters of the datapath of the arctangent (or the vector translation)
--- for signed or unsigned inputs of width @w@ and an angle with @fOut@
--- fractional bits, or the reason why the model doesn't cover that format.
-atanWidths :: AtanFunction -> Bool -> Int -> Int -> Either String AtanWidths
-atanWidths fun signed w fOut
+-- on a device family for signed or unsigned inputs of width @w@ and an angle
+-- with @fOut@ fractional bits, or the reason why the model doesn't cover that
+-- format. For 'Atan2LutFunction', the result describes the datapath of
+-- 'VecTranslateFunction'.
+atanWidths :: DeviceFamily -> AtanFunction -> Bool -> Int -> Int -> Either String AtanWidths
+atanWidths fam fun0 signed w fOut
   | w < 4 || w > 64 = Left "input width outside 4 .. 64"
   | fOut < 1 = Left "no fractional bits in the angle"
   | fOut > maxA = Left ("more than " <> show maxA <> " fractional bits in the angle")
@@ -566,11 +628,13 @@ atanWidths fun signed w fOut
   | Just (dn, dg) <- lookup (wm, n0) transitions = Right (mk (n0 + dn) (n0 + dg))
   | otherwise = Right (mk (fOut + 8) n0)
  where
+  -- ATAN2 with LUT size optimization has the datapath of VECTRANSLATE
+  fun = if fun0 == Atan2LutFunction then VecTranslateFunction else fun0
   -- The largest fOut covered
   maxA = case (fun, signed) of
-    (Atan2Function, True) -> 45
-    (Atan2Function, False) -> 40
     (VecTranslateFunction, _) -> 16
+    (_, True) -> 45
+    (_, False) -> 40
   n0 = fOut + (if signed then 3 else 2)
   wm = if signed then w - 1 else w
   g0 = max n0 (lambdaTable fun signed n0 - 1 - wm)
@@ -583,14 +647,22 @@ atanWidths fun signed w fOut
     , atGuard = g
     , atXFreeze = (wm + g + 5) `div` 2
     , atFracZ = case fun of
-        Atan2Function -> n0 + 4 + ceilLog2 (n0 + 1)
-        VecTranslateFunction -> fOut + 2 + tables n
+        -- The number of tables of the signed format, also for unsigned
+        -- inputs. With a single table (on Cyclone V), at least 7 bits: the
+        -- results only match from 7 bits on.
+        VecTranslateFunction
+          | tSig == 1 -> max 7 (fOut + 3)
+          | otherwise -> fOut + 2 + tSig
+        _ -> n0 + 4 + ceilLog2 (n0 + 1)
+    , atTableSize = tSize
     }
+  tSize = familyTableSize fam
+  tSig = tables tSize (fOut + 3)
 
 -- | 'atanWidths', or an error naming the unsupported format
-atanWidthsOrError :: HasCallStack => AtanFunction -> Bool -> Int -> Int -> AtanWidths
-atanWidthsOrError fun signed w fOut =
-  either err id (atanWidths fun signed w fOut)
+atanWidthsOrError :: HasCallStack => DeviceFamily -> AtanFunction -> Bool -> Int -> Int -> AtanWidths
+atanWidthsOrError fam fun signed w fOut =
+  either err id (atanWidths fam fun signed w fOut)
  where
   err msg = error $
     "Clash.Cores.Intel.Cordic: no simulation model for " <> name <> " with "
@@ -598,11 +670,13 @@ atanWidthsOrError fun signed w fOut =
       <> " bits and " <> show fOut <> " fractional output bits: " <> msg
   name = case fun of
     Atan2Function -> "ATAN2"
+    Atan2LutFunction -> "ATAN2 with LUT size optimization"
     VecTranslateFunction -> "VECTRANSLATE"
 
--- | Number of tables of four rotation directions of VECTRANSLATE
-tables :: Int -> Int
-tables n = (n + 3) `div` 4
+-- | Number of tables of VECTRANSLATE for @n@ iterations, with the given number
+-- of rotation directions per table
+tables :: Int -> Int -> Int
+tables k n = (n + k - 1) `div` k
 
 -- | Model of the arctangent and the vector translation. The inputs are the
 -- raw integer values of @x@ and @y@ (two's complement values for signed
@@ -667,8 +741,8 @@ vecTranslateMagnitude widths@AtanWidths{..} sfc = \xF ->
 atanFracZ :: AtanWidths -> Int
 atanFracZ AtanWidths{..} = case atFunction of
   -- ATAN2 accumulates the constants exactly, at the precision of the last one
-  Atan2Function -> atFracZ + 2 * (atIterations - 1)
   VecTranslateFunction -> atFracZ
+  _ -> atFracZ + 2 * (atIterations - 1)
 
 -- | The iterations of 'atanModel' on @|x|@ and @|y|@: the final X, the
 -- rotation directions (@True@ for a clockwise rotation), and the angle with
@@ -688,19 +762,20 @@ atanCore widths@AtanWidths{..} = \x y ->
     -- Beyond atXFreeze, the generator leaves X alone
     upd x' = if i < atXFreeze then x' else x
   angle = case atFunction of
-    Atan2Function -> \ds -> sum (zipWith (\d c -> if d then c else negate c) ds consts)
     VecTranslateFunction -> \ds -> sum (zipWith (!!) tabs (map index (chunks ds)))
+    _ -> \ds -> sum (zipWith (\d c -> if d then c else negate c) ds consts)
   -- ATAN2: the constant of iteration i is rounded at atFracZ + 2 i bits
   consts =
     [ atanRounded i fi `shiftL` (fZ - fi)
     | i <- [0 .. atIterations - 1], let fi = atFracZ + 2 * i ]
-  -- VECTRANSLATE: tables of the sum of four constants, for all directions
+  -- VECTRANSLATE: tables of the sum of atTableSize constants, for all
+  -- directions
   tabs =
     [ [ atanSumRounded [ (i, odd (v `shiftR` (i - a))) | i <- [a .. b - 1] ] atFracZ
       | v <- [0 .. 2 ^ (b - a) - 1 :: Int] ]
-    | a <- [0, 4 .. atIterations - 1], let b = min atIterations (a + 4) ]
+    | a <- [0, atTableSize .. atIterations - 1], let b = min atIterations (a + atTableSize) ]
   chunks [] = []
-  chunks ds = let (c, rest) = splitAt 4 ds in c : chunks rest
+  chunks ds = let (c, rest) = splitAt atTableSize ds in c : chunks rest
   index c = sum [ if d then 2 ^ j else 0 | (j, d) <- zip [0 :: Int ..] c ]
 
 -- | How close a pair of inputs of 'atanModel' is to changing the result when
@@ -877,8 +952,9 @@ cordicIpSinCos signed fIn fOut latency =
     :> Nil )
 {-# INLINE cordicIpSinCos #-}
 
--- | The ALTERA_CORDIC IP computing the arctangent (@ATAN2@) or the vector
--- translation (@VECTRANSLATE@, with or without scale factor compensation)
+-- | The ALTERA_CORDIC IP computing the arctangent (@ATAN2@, with or without
+-- LUT size optimization) or the vector translation (@VECTRANSLATE@, with or
+-- without scale factor compensation)
 cordicIpAtan ::
   AtanFunction ->
   -- | Signed inputs?
@@ -895,13 +971,19 @@ cordicIpAtan ::
   Integer ->
   IntelIp 10
 cordicIpAtan fun signed w fIn fOut sfc latency =
-  cordicIp (case fun of Atan2Function -> "ATAN2"; VecTranslateFunction -> "VECTRANSLATE") latency
+  cordicIp (if fun == VecTranslateFunction then "VECTRANSLATE" else "ATAN2") latency
     (  ("fxpt_in_width", IntegerParam w)
     :> ("fxpt_in_fraction", IntegerParam fIn)
     :> ("fxpt_in_sign", StrParam (if signed then "1" else "0"))
     :> ("fxpt_out_fraction", IntegerParam fOut)
-    :> ("SFCompensation", BoolParam (fun == VecTranslateFunction && sfc))
+    :> option
     :> Nil )
+ where
+  -- LUT size optimization (with the LUT size the generator picks), or scale
+  -- factor compensation
+  option
+    | fun == Atan2LutFunction = ("useLUTs", BoolParam True)
+    | otherwise = ("SFCompensation", BoolParam (fun == VecTranslateFunction && sfc))
 {-# INLINE cordicIpAtan #-}
 
 -- | The ALTERA_CORDIC IP rotating a vector (@VECROTATE@), without scale

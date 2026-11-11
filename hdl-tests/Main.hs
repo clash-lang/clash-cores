@@ -254,7 +254,8 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 [ "sinCos10TB", "sinCos12TB", "sinCos16x8TB", "sinCos20x16TB"
                 , "sinCos4TB", "sinCosUnsignedTB"
                 , "atan2W10TB", "atan2W8F14TB", "atan2W6F20TB", "atan2W12F20TB", "atan2W32TB"
-                , "atan2UnsignedTB", "vecTranslateTB", "vecTranslateCompTB"
+                , "atan2UnsignedTB", "atan2LutTB", "atan2LutW16TB", "atan2UnsignedLutTB"
+                , "vecTranslateTB", "vecTranslateCompTB"
                 , "vecTranslateUnsignedCompTB", "vecRotate4TB", "vecRotate8TB"
                 , "vecRotate16x20TB" ]
             }

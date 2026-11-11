@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 {- | Functions under test for "Cordic", and their stimuli. They are defined
 here, as the Template Haskell in "Cordic" simulates them to create reference
 traces.
@@ -12,10 +14,29 @@ import Data.Word (Word64)
 
 import qualified Clash.Cores.Intel.Cordic.Explicit as E
 import Clash.Cores.Intel.Cordic.Internal
-  (AtanFunction(..), SinCosWidths, atanMargins, atanWidthsOrError, rotateWidths, sinCosMargins,
+  (AtanFunction(..), DeviceFamily(..), SinCosWidths, atanMargins, atanWidthsOrError, rotateWidths, sinCosMargins,
    sinCosWidths, vecRotateMargins, vecTranslateFracR)
 
 import IpTestCommon
+
+import Data.Char (isSpace, toLower)
+import Language.Haskell.TH.Syntax (lift, runIO)
+import System.Environment (lookupEnv)
+
+{- | The device family the IP's simulation models are generated for, from
+@CLASH_INTEL_SIM_FAMILY@ (see "IntelSimLib"), read when this module is
+compiled. The angle of the vector translation (and of the arctangent with LUT
+size optimization) differs on Cyclone V.
+-}
+simFamily :: DeviceFamily
+simFamily = $(do
+  fam <- runIO (lookupEnv "CLASH_INTEL_SIM_FAMILY")
+  let norm = P.map toLower . P.filter (P.not . isSpace)
+  lift $ case norm <$> fam of
+    Just "cyclonev" -> CycloneV
+    Just "cycloneive" -> CycloneIVE
+    Just "cyclone10lp" -> Cyclone10LP
+    _ -> Max10)
 
 -- * Stimuli
 
@@ -82,7 +103,7 @@ vectors fun signed w fOut n seed = edges <> P.take n randomIn <> hard
         sh = if k `mod` 3 == 0 then fromIntegral (k `shiftR` 8) `mod` w else 0
     in (v a `P.div` 2 P.^ sh, v b `P.div` 2 P.^ sh) : go rs
   go _ = []
-  widths = atanWidthsOrError fun signed w fOut
+  widths = atanWidthsOrError simFamily fun signed w fOut
   margins = atanMargins widths (vecTranslateFracR widths)
   cands = P.take (20 * n) (P.drop n randomIn)
   pick sel = P.take (n `P.div` 3) (P.map snd (sortOn fst [(sel (margins x y), (x, y)) | (x, y) <- cands]))
@@ -219,22 +240,47 @@ atan2UnsignedDut clk rst en i =
     :> Nil )
 {-# OPAQUE atan2UnsignedDut #-}
 
+-- | E.atan2Lut @3 and @0 on 8 bit inputs, 6 fractional output bits (tables of
+-- four and of six directions give different results for this format)
+atan2LutDut :: Dut (SFixed 2 6, SFixed 2 6) (Vec 2 (SFixed 3 6))
+atan2LutDut clk rst en i =
+  bundle
+    (  atanOf (E.atan2Lut @3 simFamily) clk rst en i
+    :> atanOf (E.atan2Lut @0 simFamily) clk rst en i
+    :> Nil )
+{-# OPAQUE atan2LutDut #-}
+
+-- | E.atan2Lut @9 on 16 bit inputs, 14 fractional output bits
+atan2LutW16Dut :: Dut (SFixed 4 12, SFixed 4 12) (Vec 1 (SFixed 3 14))
+atan2LutW16Dut clk rst en i = bundle (atanOf (E.atan2Lut @9 simFamily) clk rst en i :> Nil)
+{-# OPAQUE atan2LutW16Dut #-}
+
+-- | E.atan2UnsignedLut @4 on 8 bit inputs, 16 and 15 fractional output bits
+-- (formats whose results depend on the precision and the size of the tables)
+atan2UnsignedLutDut :: Dut (UFixed 0 8, UFixed 0 8) (Vec 2 (SFixed 2 16))
+atan2UnsignedLutDut clk rst en i =
+  bundle
+    (  atanOf (E.atan2UnsignedLut @4 simFamily) clk rst en i
+    :> fmap resizeF (atanOf (E.atan2UnsignedLut @3 @_ @_ @0 @8 @15 simFamily) clk rst en i)
+    :> Nil )
+{-# OPAQUE atan2UnsignedLutDut #-}
+
 -- | E.vectorTranslate @5 on 8 bit inputs, 12 fractional output bits
 vecTranslateDut :: Dut (SFixed 2 6, SFixed 2 6) (Vec 1 (SFixed 3 12, UFixed 3 12))
-vecTranslateDut clk rst en i = bundle (binary (E.vectorTranslate @5) clk rst en i :> Nil)
+vecTranslateDut clk rst en i = bundle (binary (E.vectorTranslate @5 simFamily) clk rst en i :> Nil)
 {-# OPAQUE vecTranslateDut #-}
 
 -- | E.vectorTranslateCompensated @7 on 8 bit inputs, 8 fractional output
 -- bits (X and Y wider than for ATAN2 with the same format)
 vecTranslateCompDut :: Dut (SFixed 2 6, SFixed 2 6) (Vec 1 (SFixed 3 8, UFixed 2 8))
-vecTranslateCompDut clk rst en i = bundle (binary (E.vectorTranslateCompensated @7) clk rst en i :> Nil)
+vecTranslateCompDut clk rst en i = bundle (binary (E.vectorTranslateCompensated @7 simFamily) clk rst en i :> Nil)
 {-# OPAQUE vecTranslateCompDut #-}
 
 -- | E.vectorTranslateUnsignedCompensated @4 on 8 bit inputs, 10 fractional
 -- output bits
 vecTranslateUnsignedCompDut :: Dut (UFixed 0 8, UFixed 0 8) (Vec 1 (SFixed 2 10, UFixed 1 11))
 vecTranslateUnsignedCompDut clk rst en i =
-  bundle (binary (E.vectorTranslateUnsignedCompensated @4) clk rst en i :> Nil)
+  bundle (binary (E.vectorTranslateUnsignedCompensated @4 simFamily) clk rst en i :> Nil)
 {-# OPAQUE vecTranslateUnsignedCompDut #-}
 
 -- | E.vectorRotate @2 and @0 with 4 fractional bits in and out
