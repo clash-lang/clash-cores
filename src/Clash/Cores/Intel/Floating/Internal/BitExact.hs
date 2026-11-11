@@ -5,8 +5,9 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of the square root, cube root, three-dimensional
 hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
-(natural, base 2, base 10 and @log (1 + x)@) and the sine, cosine and
-tangent of x and of pi times x of Intel's Floating Point Functions IP (@altera_fp_functions@) in
+(natural, base 2, base 10 and @log (1 + x)@), the sine, cosine and
+tangent of x and of pi times x and the arctangent (in radians and divided by
+pi) of Intel's Floating Point Functions IP (@altera_fp_functions@) in
 single precision, see Note [Bit-exact models].
 -}
 
@@ -32,6 +33,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , sinSingle
   , cosSingle
   , tanSingle
+  , atanSingle
+  , atanPiSingle
   ) where
 
 import Prelude
@@ -45,7 +48,7 @@ import Data.Word (Word32)
 import Clash.Cores.Intel.Floating.Internal.Coefficients
   ( cbrtCoefficients, exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
   , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients, sinPiCoefficients
-  , tanPiRecipCoefficients, sinCoefficients )
+  , tanPiRecipCoefficients, sinCoefficients, atanCoefficients, atanRecipCoefficients )
 
 {- Note [Bit-exact models]
 The Floating Point Functions user guide documents the latency and the
@@ -420,6 +423,55 @@ lattice reduction. The use of P(0) explained the last mismatches on random
 inputs, all with r < 2^-12 above an even half period. The cosine and tangent
 were then checked against the IP without further changes, apart from their
 special cases.
+
+Arctangent (the IP's \"ARCTAN\"), with r = |x|:
+
+  1. For r <= 1: P(r) approximates atan r / r at 2^-26, with a 256-entry
+     table indexed by the top 8 bits of X = floor (r * 2^26) (r = 1 is
+     segment 255 with y = 2^18), y the 18 bits below them, T1 from the top 13
+     bits of y; coefficients at 2^-29, T1, S1 and A at 2^-30, P truncated to
+     2^-26 with a rounding constant of 2^-27 in C0. On 18x18 families T1 is
+     rounded half up and S1 * y is the truncated multiplier of the base-10
+     exponential, compensated by 2^-32. The result is m * P, with m the
+     significand of x, rounded to nearest, ties away from zero.
+  2. For r > 1, r = (1 + f * 2^-23) * 2^k: R approximates 1 / (1 + f * 2^-23)
+     at 2^-24 (in (2^23, 2^24]), with a 256-entry table indexed by the top 8
+     bits of f, y the low 15 bits, T1 from the top 12 bits of y; coefficients
+     at 2^-27, T1, S1 and A at 2^-28, R truncated with a rounding constant of
+     2^-25 in C0. On 18x18 families T1 is rounded half up and S1 * y is the
+     truncated multiplier of the base-2 logarithm, compensated by 2^-30. Then
+     z = R * 2^-24 * 2^-k, and atan z = R * P(X) exactly, with
+     X = R * 2^(2 - min (k, 12)) rounded down: the IP shifts z into the
+     polynomial's argument by at most 12 places, so for k > 12 it uses P at
+     z * 2^(k - 12). atan z is zero for z < 2^-23.
+  3. The result is pi / 2 rounded up to 2^-24 (0x3FC90FDB) minus atan z
+     rounded down to 2^-24, truncated to single precision.
+  4. |x| < 2^-12 gives x; zero and subnormal inputs give a zero of the same
+     sign; the infinities give pi / 2 rounded down (0x3FC90FDA) with the sign
+     of x, NaN gives NaN.
+
+The arctangent divided by pi (\"ARCTAN\" with the angle represented as a
+multiple of pi) is the arctangent above, rounded to single precision, times
+1 / pi rounded to single precision (0x3EA2F983), rounded to nearest with ties
+away from zero; results below the smallest normal number flush to zero. On
+18x18 families the product is the truncated multiplier of the cosine of pi
+times x (an 18x18, two 9x9 and two 2x2 tiles, as in the synthesis report),
+with the constant as a 25-bit operand, 0xA2F983 * 2, and no compensation
+(any constant up to 2^13 gives the same results on all inputs).
+
+This was found as follows: the outputs depend on floor (r * 2^26) only for
+r <= 1; the format search on the intervals of P, and for r > 1 on the
+intervals of R (with the polynomial of r <= 1 fixed), found the formats with
+unique coefficients for all segments of both tables, identical to the ones
+generated from first principles. The constant and the rounding of step 3
+followed from the outputs for r > 1, and the truncated multipliers were
+fitted by coordinate descent over per-row cuts of the partial products. With
+that, only inputs whose results are exact ties at 2^-24 (z an odd multiple of
+2^-24, r >= 2^12) were left: they round down below a threshold of R that
+differs between the datapaths and is not monotone on 18x18 families. That
+threshold is where P(R * 2^(2 - 12)), at k = 12, drops one unit below one:
+using P at that argument for all k > 12 rounds every tie as the IP does. Away
+from ties the difference is invisible.
 
 The IP generates the NaN 0x7F800001.
 -}
@@ -1109,13 +1161,18 @@ sinPiPoly mults j0 y0 = (2 * (c0 + 4) + t2) `shiftR` 4
 -- | The truncated 24x25 multiplier of the cosine on 18x18 families: m times p
 -- without the partial products below a staircase of tiles, plus 2^22
 cosPiProduct :: Int64 -> Int64 -> Int64
-cosPiProduct m p =
+cosPiProduct m p = truncatedProduct24x25 m p + bit 22
+
+-- | The tiles of the truncated 24x25 multiplier of the cosine (and the
+-- arctangent divided by pi) on 18x18 families: an 18x18, two 9x9 and two 2x2
+-- multipliers, without a compensation constant
+truncatedProduct24x25 :: Int64 -> Int64 -> Int64
+truncatedProduct24x25 m p =
     ((m `shiftR` 6) * (p `shiftR` 7)) `shiftL` 13
   + ((m .&. 63) * (p `shiftR` 16)) `shiftL` 16
   + ((m `shiftR` 15) * (p .&. 127)) `shiftL` 15
   + (((m `shiftR` 4) .&. 3) * ((p `shiftR` 14) .&. 3)) `shiftL` 18
   + (((m `shiftR` 13) .&. 3) * ((p `shiftR` 5) .&. 3)) `shiftL` 18
-  + bit 22
 
 -- * Tangent of pi times x
 
@@ -1287,3 +1344,125 @@ tanSingle mults w
   | otherwise = tanQuotient mults (sinSingle mults w) (cosSingle mults w)
  where
   (_, e, _) = fields w
+
+-- * Arctangent
+
+-- | The table of 'atanSingle'
+atanTable :: Table
+atanTable = mkTable atanCoefficients
+{-# NOINLINE atanTable #-}
+
+-- | The reciprocal table of 'atanSingle'
+atanRecipTable :: Table
+atanRecipTable = mkTable atanRecipCoefficients
+{-# NOINLINE atanRecipTable #-}
+
+-- | The IP's arctangent in single precision, on bit patterns
+atanSingle :: Multipliers -> Word32 -> Word32
+atanSingle mults w
+  -- The infinities give pi / 2 rounded down, NaN gives NaN
+  | e == 255 = if f /= 0 then nanSingle else sgn .|. 0x3FC90FDA
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = sgn
+  -- |x| < 2^-12: x
+  | e <= 115 = w
+  -- |x| <= 1: x * P(x), rounded once
+  | e < 127 || e == 127 && f == 0 = sgn .|. roundAt (176 - e) (m * atanPoly mults xFix)
+  | otherwise = sgn .|. atanLarge mults (e - 127) f
+ where
+  (_, e, f) = fields w
+  sgn = w .&. bit 31
+  m = bit 23 .|. f
+  -- floor (|x| * 2^26)
+  xFix | e >= 124 = m `shiftL` (e - 124)
+       | otherwise = m `shiftR` (124 - e)
+
+-- | @atan x@ for @x = (1 + f * 2^-23) * 2^k > 1@ (positive): pi / 2 - atan z
+-- with z = 1 / x
+atanLarge :: Multipliers -> Int -> Int64 -> Word32
+atanLarge mults k f
+  | d < bit 24 = (126 `shiftL` 23) .|. fromIntegral (d - bit 23)
+  | otherwise = (127 `shiftL` 23) .|. fromIntegral ((d `shiftR` 1) - bit 23)
+ where
+  -- z = r * 2^-24 * 2^-k, r in (2^23, 2^24]
+  r = atanRecip mults f
+  -- The argument of the polynomial, floor (z * 2^26), but shifted by at most
+  -- 12 places: for k > 12 the polynomial gets z * 2^(k - 12) (where it is
+  -- one, or one unit below it), see Note [Bit-exact models]
+  p = atanPoly mults ((r `shiftL` 2) `shiftR` min k 12)
+  -- atan z = r * p at 2^-(50 + k); zero below 2^-23
+  v | k >= 24 || k == 23 && r < bit 24 = 0
+    | otherwise = r * p
+  -- pi / 2 rounded up to 2^-24, minus atan z rounded down to 2^-24; the
+  -- result is truncated
+  d = 26353590 - (v `shiftR` (26 + k))
+
+-- | P = atan r / r at 2^-26 for r = X * 2^-26 in [0, 1]: 256 segments, y the
+-- low 18 bits of X; r = 1 is segment 255 with y = 2^18. The coefficients are
+-- at 2^-29, T1 (from the top 13 bits of y) at 2^-30.
+atanPoly :: Multipliers -> Int64 -> Int64
+atanPoly mults xx = (2 * (c0 + 4) + t2) `shiftR` 4
+ where
+  (j, y) | xx >= bit 26 = (255, bit 18)
+         | otherwise = (fromIntegral (xx `shiftR` 18), xx .&. (bit 18 - 1))
+  (c2, c1, c0) = coefs atanTable j
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 5)) `shiftR` 12)
+      in  (s1 * y) `shiftR` 18
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 5) + bit 11) `shiftR` 12)
+          -- The truncated multiplier of the base-10 exponential
+          dropped = (s1 .&. 0x3) * (y .&. 0x7FF)
+                  + (s1 .&. 0x3C) * (y .&. 0x7F)
+                  + (s1 .&. 0x7C0) * (y .&. 0x3)
+      -- Compensation constant 2^16 (2^-32)
+      in  (s1 * y - dropped + bit 16) `shiftR` 18
+
+-- | The reciprocal @1 / (1 + f * 2^-23)@ at 2^-24, in (2^23, 2^24]: 256
+-- segments, y the low 15 bits of f, coefficients at 2^-27, T1 (from the top
+-- 12 bits of y), S1 and A at 2^-28
+atanRecip :: Multipliers -> Int64 -> Int64
+atanRecip mults f = (2 * c0 + 8 + t2) `shiftR` 4
+ where
+  (c2, c1, c0) = coefs atanRecipTable (fromIntegral (f `shiftR` 15))
+  y = f .&. 0x7FFF
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((2 * c2 * (y `shiftR` 3)) `shiftR` 12)
+      in  (s1 * y) `shiftR` 15
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((2 * c2 * (y `shiftR` 3) + bit 11) `shiftR` 12)
+          -- The truncated multiplier of the base-2 logarithm
+          dropped = (s1 .&. 0x7) * (y .&. 0xFF) + (s1 .&. 0x18) * (y .&. 0x3F)
+      -- Compensation constant 2^13 (2^-30)
+      in  (s1 * y - dropped + bit 13) `shiftR` 15
+
+-- | The IP's arctangent divided by pi in single precision, on bit patterns:
+-- 'atanSingle' times 1 / pi rounded to single precision (0x3EA2F983), rounded
+-- to nearest, ties away from zero, with results below the smallest normal
+-- number flushed to zero. On 18x18 families the product is the truncated
+-- multiplier of the cosine of pi times x, with 1 / pi as the 25-bit
+-- 0xA2F983 * 2; any compensation constant up to 2^13 gives the same results
+-- on all inputs, the model adds none.
+atanPiSingle :: Multipliers -> Word32 -> Word32
+atanPiSingle mults w
+  | e == 255 && f /= 0 = nanSingle
+  | ea == 0 = sa
+  | be <= 0 = sa
+  | otherwise = sa .|. (fromIntegral be `shiftL` 23) .|. fromIntegral (q .&. 0x7FFFFF)
+ where
+  (_, e, f) = fields w
+  a = atanSingle mults w
+  sa = a .&. bit 31
+  (_, ea, fa) = fields a
+  ma = bit 23 .|. fa
+  -- The product of the significands at 2^-47 (relative to the result's
+  -- exponent before normalisation), 2^47 <= p < 2^49
+  p = case mults of
+    FullMultipliers -> ma * (2 * 0xA2F983)
+    TruncatedMultipliers -> truncatedProduct24x25 ma (2 * 0xA2F983)
+  sh = if p >= bit 48 then 25 else 24
+  q0 = (p + bit (sh - 1)) `shiftR` sh
+  (q, carry) = if q0 == bit 24 then (q0 `shiftR` 1, 1) else (q0, 0)
+  be = ea - 2 + (sh - 24) + carry

@@ -74,9 +74,10 @@ number, see 'recipModel').
 Of the trigonometric functions, the sine, cosine and tangent of pi times the
 argument ('sinPi', 'cosPi' and 'tanPi', the IP's functions with the angle
 represented as a multiple of pi) are supported, and so are the sine, cosine
-and tangent of an angle in radians ('sin', 'cos' and 'tan'), with bit-exact
-models obtained in the same way. The IP's option \"Inputs are within range
--2pi to +2pi\" has no effect on these device families. The other
+and tangent of an angle in radians ('sin', 'cos' and 'tan') and the
+arctangent, in radians and as a multiple of pi ('atan' and 'atanPi'), with
+bit-exact models obtained in the same way. The IP's option \"Inputs are
+within range -2pi to +2pi\" has no effect on these device families. The other
 trigonometric functions of the IP are not supported.
 
 For each customizable operation, there also exists a function that uses the
@@ -160,6 +161,12 @@ module Clash.Cores.Intel.Floating.Explicit
   , tanWith
   , tan
   , TanDefDelay
+  , atanWith
+  , atan
+  , AtanDefDelay
+  , atanPiWith
+  , atanPi
+  , AtanPiDefDelay
     -- * Comparison
   , Ordering(..)
   , toMaybeOrdering
@@ -225,10 +232,12 @@ module Clash.Cores.Intel.Floating.Explicit
   , sinModel
   , cosModel
   , tanModel
+  , atanModel
+  , atanPiModel
   ) where
 
 import Clash.Explicit.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -1367,6 +1376,107 @@ tan = withFrozenCallStack $ tanWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type TanDefDelay = 51
+
+-- | Customizable floating point arctangent, @atan x@, in radians, see 'atanModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"ARCTAN\" function.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+atanWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+atanWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (atanModel fam <$> x)
+  | otherwise = unaryInst "fp_atan" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of atan"
+  ip = fpFunctions cfg "TRIG" "ARCTAN" (natToNum @d) Nil
+{-# INLINE atanWith #-}
+
+-- | Floating point arctangent, @atan x@, in radians, with the default configuration and delay. See 'atanWith'.
+atan
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + AtanDefDelay) Float
+atan = withFrozenCallStack $ atanWith defConfig
+{-# INLINE atan #-}
+
+-- | The default delay of 'atan': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type AtanDefDelay = 30
+
+-- | Customizable floating point arctangent divided by pi, @atan x / pi@, see 'atanPiModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"ARCTAN\" function with
+-- the angle represented as a multiple of pi.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+atanPiWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+atanPiWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (atanPiModel fam <$> x)
+  | otherwise = unaryInst "fp_atanpi" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of atanPi"
+  ip = fpFunctions cfg "TRIG" "ARCTAN" (natToNum @d) (scaleByPi :> Nil)
+{-# INLINE atanPiWith #-}
+
+-- | Floating point arctangent divided by pi, @atan x / pi@, with the default configuration and delay. See 'atanPiWith'.
+atanPi
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + AtanPiDefDelay) Float
+atanPi = withFrozenCallStack $ atanPiWith defConfig
+{-# INLINE atanPi #-}
+
+-- | The default delay of 'atanPi': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type AtanPiDefDelay = 37
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@.
 --

@@ -86,6 +86,12 @@ module Clash.Cores.Intel.Floating
   , tanWith
   , tan
   , E.TanDefDelay
+  , atanWith
+  , atan
+  , E.AtanDefDelay
+  , atanPiWith
+  , atanPi
+  , E.AtanPiDefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -122,7 +128,7 @@ module Clash.Cores.Intel.Floating
   ) where
 
 import Clash.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -707,6 +713,56 @@ tan
   -> DSignal dom (n + E.TanDefDelay) Float
 tan fam = withFrozenCallStack $ hideClockResetEnable (E.tan fam)
 {-# INLINE tan #-}
+
+-- | Customizable floating point arctangent, @atan x@, in radians. See 'E.atanWith'.
+atanWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+atanWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.atanWith cfg fam)
+{-# INLINE atanWith #-}
+
+-- | Floating point arctangent, @atan x@, in radians, with the default configuration and delay. See
+-- 'E.atan'.
+atan
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.AtanDefDelay) Float
+atan fam = withFrozenCallStack $ hideClockResetEnable (E.atan fam)
+{-# INLINE atan #-}
+
+-- | Customizable floating point arctangent divided by pi, @atan x / pi@. See 'E.atanPiWith'.
+atanPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+atanPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.atanPiWith cfg fam)
+{-# INLINE atanPiWith #-}
+
+-- | Floating point arctangent divided by pi, @atan x / pi@, with the default configuration and
+-- delay. See 'E.atanPi'.
+atanPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.AtanPiDefDelay) Float
+atanPi fam = withFrozenCallStack $ hideClockResetEnable (E.atanPi fam)
+{-# INLINE atanPi #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With

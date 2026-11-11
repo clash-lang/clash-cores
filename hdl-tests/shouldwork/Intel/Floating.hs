@@ -139,3 +139,11 @@ exp2TB = romTB simLibraries exp2Dut $(memBlobTH (Just 0) (trace exp2Dut (cycles 
 exp10TB :: Signal Dom Bool
 exp10TB = romTB simLibraries exp10Dut $(memBlobTH (Just 0) (trace exp10Dut (cycles (floats 500 52 <> signedFloatsIn 100 34 3500 53))))
 {-# ANN exp10TB (Synthesize "exp10TB" [] (PortName "done")) #-}
+
+atanTB :: Signal Dom Bool
+atanTB = romTB simLibraries atanDut $(memBlobTH (Just 0) (trace atanDut (cycles (floats 1000 82 <> atanTies <> signedFloatsIn 100 60 3000 83))))
+{-# ANN atanTB (Synthesize "atanTB" [] (PortName "done")) #-}
+
+atanPiTB :: Signal Dom Bool
+atanPiTB = romTB simLibraries atanPiDut $(memBlobTH (Just 0) (trace atanPiDut (cycles (floats 1000 84 <> atanTies <> signedFloatsIn 100 60 3000 85))))
+{-# ANN atanPiTB (Synthesize "atanPiTB" [] (PortName "done")) #-}

@@ -188,6 +188,26 @@ tanDut :: Dut Float (Vec 2 Float)
 tanDut clk rst en i = bundle (unary (E.tan simFamily) clk rst en i :> unary (E.tanWith @21 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE tanDut #-}
 
+-- | E.atan, E.atanWith @16
+atanDut :: Dut Float (Vec 2 Float)
+atanDut clk rst en i = bundle (unary (E.atan simFamily) clk rst en i :> unary (E.atanWith @16 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE atanDut #-}
+
+-- | E.atanPi, E.atanPiWith @20
+atanPiDut :: Dut Float (Vec 2 Float)
+atanPiDut clk rst en i = bundle (unary (E.atanPi simFamily) clk rst en i :> unary (E.atanPiWith @20 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE atanPiDut #-}
+
+-- | Inputs of 'E.atan' above 2^12 whose results are exact ties before the IP
+-- truncates them, on both sides of the reciprocal where the rounding of
+-- these ties changes (for both datapaths), with both signs
+atanTies :: [Float]
+atanTies = P.concatMap (\w -> [castWord32ToFloat w, castWord32ToFloat (w .|. bit 31)])
+  [ 0x45ccb854, 0x45cd5c8d, 0x45cd5c8e, 0x45cf7977, 0x45cfa389, 0x45cfcdac, 0x45cff7e0
+  , 0x45d02225, 0x45d02226, 0x45d04c7c, 0x45d076e4, 0x45d0a15d, 0x464c5235, 0x464ca3df
+  , 0x464cf5cb, 0x464d47f8, 0x464ee6be, 0x464f3a7c, 0x464f8e7e, 0x46cc7b02, 0x46cd1ed9
+  , 0x474c2978 ]
+
 -- | Positive floats with exponents (biased) in @[lo, lo + n)@ and random
 -- fractions, after the 'specials'
 floatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]
