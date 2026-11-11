@@ -73,11 +73,11 @@ number, see 'recipModel').
 
 Of the trigonometric functions, the sine, cosine and tangent of pi times the
 argument ('sinPi', 'cosPi' and 'tanPi', the IP's functions with the angle
-represented as a multiple of pi) are supported, with bit-exact models obtained
-in the same way.
-The IP's option \"Inputs are within range -2pi to +2pi\" has no effect on
-these device families. The sine, cosine and tangent of an angle in radians and
-the other functions of the IP are not supported.
+represented as a multiple of pi) are supported, and so are the sine, cosine
+and tangent of an angle in radians ('sin', 'cos' and 'tan'), with bit-exact
+models obtained in the same way. The IP's option \"Inputs are within range
+-2pi to +2pi\" has no effect on these device families. The other
+trigonometric functions of the IP are not supported.
 
 For each customizable operation, there also exists a function that uses the
 default configuration and a default latency, which is defined as a type.
@@ -151,6 +151,15 @@ module Clash.Cores.Intel.Floating.Explicit
   , tanPiWith
   , tanPi
   , TanPiDefDelay
+  , sinWith
+  , sin
+  , SinDefDelay
+  , cosWith
+  , cos
+  , CosDefDelay
+  , tanWith
+  , tan
+  , TanDefDelay
     -- * Comparison
   , Ordering(..)
   , toMaybeOrdering
@@ -213,9 +222,13 @@ module Clash.Cores.Intel.Floating.Explicit
   , sinPiModel
   , cosPiModel
   , tanPiModel
+  , sinModel
+  , cosModel
+  , tanModel
   ) where
 
-import Clash.Explicit.Prelude hiding (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log)
+import Clash.Explicit.Prelude hiding
+  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -1204,6 +1217,156 @@ tanPi = withFrozenCallStack $ tanPiWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type TanPiDefDelay = 36
+
+-- | Customizable floating point sine of its argument in radians, @sin x@, see 'sinModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"SIN\" function.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+sinWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+sinWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (sinModel fam <$> x)
+  | otherwise = unaryInst "fp_sin" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of sin"
+  ip = fpFunctions cfg "TRIG" "SIN" (natToNum @d) Nil
+{-# INLINE sinWith #-}
+
+-- | Floating point sine of its argument in radians, @sin x@, with the default configuration and delay. See 'sinWith'.
+sin
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + SinDefDelay) Float
+sin = withFrozenCallStack $ sinWith defConfig
+{-# INLINE sin #-}
+
+-- | The default delay of 'sin': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type SinDefDelay = 35
+
+-- | Customizable floating point cosine of its argument in radians, @cos x@, see 'cosModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"COS\" function.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+cosWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+cosWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (cosModel fam <$> x)
+  | otherwise = unaryInst "fp_cos" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of cos"
+  ip = fpFunctions cfg "TRIG" "COS" (natToNum @d) Nil
+{-# INLINE cosWith #-}
+
+-- | Floating point cosine of its argument in radians, @cos x@, with the default configuration and delay. See 'cosWith'.
+cos
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + CosDefDelay) Float
+cos = withFrozenCallStack $ cosWith defConfig
+{-# INLINE cos #-}
+
+-- | The default delay of 'cos': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type CosDefDelay = 34
+
+-- | Customizable floating point tangent of its argument in radians, @tan x@, see 'tanModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"TAN\" function.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+tanWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+tanWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (tanModel fam <$> x)
+  | otherwise = unaryInst "fp_tan" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of tan"
+  ip = fpFunctions cfg "TRIG" "TAN" (natToNum @d) Nil
+{-# INLINE tanWith #-}
+
+-- | Floating point tangent of its argument in radians, @tan x@, with the default configuration and delay. See 'tanWith'.
+tan
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + TanDefDelay) Float
+tan = withFrozenCallStack $ tanWith defConfig
+{-# INLINE tan #-}
+
+-- | The default delay of 'tan': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type TanDefDelay = 51
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@.
 --

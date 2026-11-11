@@ -6,7 +6,7 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 Bit-exact models of the square root, cube root, three-dimensional
 hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
 (natural, base 2, base 10 and @log (1 + x)@) and the sine, cosine and
-tangent of pi times x of Intel's Floating Point Functions IP (@altera_fp_functions@) in
+tangent of x and of pi times x of Intel's Floating Point Functions IP (@altera_fp_functions@) in
 single precision, see Note [Bit-exact models].
 -}
 
@@ -29,6 +29,9 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , sinPiSingle
   , cosPiSingle
   , tanPiSingle
+  , sinSingle
+  , cosSingle
+  , tanSingle
   ) where
 
 import Prelude
@@ -42,7 +45,7 @@ import Data.Word (Word32)
 import Clash.Cores.Intel.Floating.Internal.Coefficients
   ( cbrtCoefficients, exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
   , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients, sinPiCoefficients
-  , tanPiRecipCoefficients )
+  , tanPiRecipCoefficients, sinCoefficients )
 
 {- Note [Bit-exact models]
 The Floating Point Functions user guide documents the latency and the
@@ -368,6 +371,56 @@ for all 512 segments; with the truncated product of the cosine, the
 reciprocal of the 18x18 families was fitted by coordinate descent over
 per-row cuts of the partial products.
 
+Sine, cosine and tangent of x in radians (the IP's \"SIN\", \"COS\" and
+\"TAN\"). The IP reduces x with a window of the bits of 1 / pi and then
+computes the sine of pi times the reduced argument as above, with a finer
+table:
+
+  1. z = |x| / pi modulo 2 is computed with 77 fraction bits as m * W modulo
+     2^78, with m the 24-bit significand of x and W = floor (2^(e - 73) / pi)
+     for its biased exponent e (of which only the low 78 bits matter), and
+     then truncated to 54 fraction bits for the sine and 55 for the cosine.
+     q, the half period of z, and r in [0, 1/2], the distance to the nearest
+     integer (sine) or half integer (cosine), follow as for the sine and
+     cosine of pi times x, as do the signs. The infinities and NaNs (e = 255)
+     are reduced in the same way.
+  2. P: a 256-entry table for sin (pi * r) / r indexed by the top 8 bits of r
+     (r = 1/2 is segment 255 with y = 2^18), y the 18 bits below them, T1 from
+     the top 13 bits of y; coefficients at 2^-27, T1, S1 and A at 2^-28,
+     truncated to 2^-24 with a rounding constant of 2^-25 in C0. On 18x18
+     families T1 is rounded half up and S1 * y is the truncated multiplier of
+     the base-10 exponential, compensated by 2^-46.
+  3. The result is m' * P, with m' = r truncated to 26 significant bits, as
+     an exact product on all families, rounded to nearest, ties away from
+     zero. Where z is less than 2^-12 above an integer, the sine uses P(0)
+     instead of P(r); just below an integer it uses P(r).
+  4. The sine of |x| < 2^-11 is x, as is the sine of |x| < 2^-10 with
+     |x| / pi < 2^-12; the cosine of |x| < 2^-11 is one, and so is the cosine
+     where z is less than 2^-13 above an integer (with the sign of the half
+     period). An exact zero of the sine (z = 0) has the sign of x, of the
+     cosine (a half integer) it is positive. The sine of a zero or subnormal
+     number is a zero of the same sign; the sine of NaN or an infinity is NaN
+     with the sign the reduction gives, the cosine's is the positive NaN.
+  5. The tangent is the sine divided by the cosine, both as above, with the
+     reciprocal and the product of the tangent of pi times x. |x| < 2^-11
+     gives x, zeros and subnormal numbers give a zero of the same sign, NaN
+     and the infinities give NaN.
+
+This was found as follows: the 80-bit window of 1 / pi and the 24x80 product
+are in the synthesis report. The format search of the sine of pi times x, on
+the intervals for P per r, found the table format with unique coefficients
+for all segments, and m' = r truncated to 26 bits as the only width that
+matches. The precision of the reduction only shows on a few inputs: those
+were found by comparing the model with variants (76 to 99 fraction bits for
+the product, truncation to 53 to 56 bits) on all inputs, and on all of them
+only the combination above matches the IP. The
+coefficients are those of the fpminimax method (see 'sinCoefficients'):
+Chebyshev nodes left three segments off by one LSB, on exact ties in the
+lattice reduction. The use of P(0) explained the last mismatches on random
+inputs, all with r < 2^-12 above an even half period. The cosine and tangent
+were then checked against the IP without further changes, apart from their
+special cases.
+
 The IP generates the NaN 0x7F800001.
 -}
 
@@ -432,6 +485,11 @@ sinPiTable = mkTable sinPiCoefficients
 tanPiRecipTable :: Table
 tanPiRecipTable = mkTable tanPiRecipCoefficients
 {-# NOINLINE tanPiRecipTable #-}
+
+-- | The table of 'sinSingle', 'cosSingle' and 'tanSingle'
+sinTable :: Table
+sinTable = mkTable sinCoefficients
+{-# NOINLINE sinTable #-}
 
 -- | Fields of a single precision number: sign bit, biased exponent, fraction
 fields :: Word32 -> (Bool, Int, Int64)
@@ -1070,16 +1128,21 @@ tanPiSingle mults w
   | e == 0 = w
   -- |x| < 2^-13: x times pi rounded to single precision (0x40490FDB), rounded
   | e <= 113 = (w .&. bit 31) .|. roundAt (173 - e) ((bit 23 .|. f) * 26353590)
-  -- Integers: a zero
+  | otherwise = tanQuotient mults (sinPiSingle mults w) (cosPiSingle mults w)
+ where
+  (_, e, f) = fields w
+
+-- | The tangent from the IP's sine and cosine rounded to single precision:
+-- the sine's significand times the reciprocal of the cosine's significand
+tanQuotient :: Multipliers -> Word32 -> Word32 -> Word32
+tanQuotient mults s c
+  -- The sine is zero: a zero
   | s .&. 0x7FFFFFFF == 0 = sgn
-  -- Half integers: an infinity
+  -- The cosine is zero: an infinity
   | c .&. 0x7FFFFFFF == 0 = sgn .|. infSingle
   -- The quotient at 2^-g
   | otherwise = sgn .|. roundAt (49 - es + ec) p
  where
-  (_, e, f) = fields w
-  s = sinPiSingle mults w
-  c = cosPiSingle mults w
   sgn = (s `xor` c) .&. bit 31
   (_, es, fs) = fields s
   (_, ec, fc) = fields c
@@ -1117,3 +1180,110 @@ tanPiProduct a b =
   + ((a `shiftR` 15) * (b .&. 255)) `shiftL` 15
   + (((a `shiftR` 4) .&. 3) * ((b `shiftR` 15) .&. 3)) `shiftL` 19
   + (((a `shiftR` 13) .&. 3) * ((b `shiftR` 6) .&. 3)) `shiftL` 19
+
+-- * Sine, cosine and tangent
+
+-- | @floor (2^200 / pi)@: 1 / pi to 200 fraction bits
+invPi :: Integer
+invPi = 0x517cc1b727220a94fe13abe8fa9a6ee06db14acc9e21c820ff
+
+-- | The reduced argument of the sine and cosine for the biased exponent @e@
+-- (116 to 255) and the fraction @f@: the half period @q@ (0 to 3) and the
+-- fraction @z@ in it (in units of 2^-77) of @|x| / pi@ modulo 2. It is
+-- computed with 77 fraction bits as the significand times
+-- @floor (2^(e - 73) / pi)@, modulo 2^78, and then truncated to @t@ fraction
+-- bits.
+trigReduce :: Int -> Int -> Int64 -> (Int, Integer)
+trigReduce t e f = (fromInteger (zz `shiftR` 76), zz .&. (bit 76 - bit (77 - t)))
+ where
+  zz = (toInteger (bit 23 .|. f) * (invPi `shiftR` (273 - e))) .&. (bit 78 - 1)
+
+-- | @sin (pi * r)@ for @r@ in @(0, 1/2]@ in units of 2^-77, with sign @s@,
+-- using the polynomial at @r@ or, if @p0@, at 0
+trigSinPi :: Multipliers -> Word32 -> Bool -> Integer -> Word32
+trigSinPi mults s p0 r = s .|. roundAt (24 - em) (m * sinPoly mults j y)
+ where
+  -- r at 2^-27
+  rr = fromInteger (r `shiftR` 50) :: Int64
+  (j, y) | p0 = (0, 0)
+         -- r = 1/2: the last segment at y = 2^18
+         | rr >= bit 26 = (255, bit 18)
+         | otherwise = (fromIntegral (rr `shiftR` 18), rr .&. (bit 18 - 1))
+  -- r truncated to 26 significant bits: m * 2^em
+  nb | rr /= 0 = 114 - countLeadingZeros rr
+     | otherwise = 64 - countLeadingZeros (fromInteger r :: Int64)
+  m | nb >= 26 = fromInteger (r `shiftR` (nb - 26))
+    | otherwise = fromInteger (r `shiftL` (26 - nb))
+  em = nb - 26 - 77
+
+-- | P = sin (pi * r) / r at 2^-24 for @r = (j + y * 2^-18) / 512@. The
+-- coefficients have their LSBs at 2^-27; T1 (from the top 13 bits of y), S1
+-- and A are at 2^-28, and C0 has a rounding constant of 2^-25.
+sinPoly :: Multipliers -> Int -> Int64 -> Int64
+sinPoly mults j y = (2 * (c0 + 4) + t2) `shiftR` 4
+ where
+  (c2, c1, c0) = coefs sinTable j
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((2 * c2 * (y `shiftR` 5)) `shiftR` 13)
+      in  (s1 * y) `shiftR` 18
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((2 * c2 * (y `shiftR` 5) + bit 12) `shiftR` 13)
+          -- The partial products S1_i * y_j left out by the truncated
+          -- multiplier of the base-10 exponential (see 'exp10Single'): i < 2
+          -- and j < 11, 2 <= i < 6 and j < 7, 6 <= i < 11 and j < 2
+          drop' = (s1 .&. 0x3) * (y .&. 0x7FF)
+                + (s1 .&. 0x3C) * (y .&. 0x7F)
+                + (s1 .&. 0x7C0) * (y .&. 0x3)
+      -- Compensation constant 2^16 (2^-46)
+      in  (s1 * y - drop' + bit 16) `shiftR` 18
+
+-- | The IP's sine in single precision, on bit patterns
+sinSingle :: Multipliers -> Word32 -> Word32
+sinSingle mults w
+  -- NaN, with the sign the reduction of its bit pattern gives
+  | e == 255 = sgn .|. nanSingle
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = w .&. bit 31
+  -- |x| < 2^-11, and |x| < 2^-10 with |x| / pi < 2^-12: x
+  | e <= 115 || (e == 116 && q == 0 && z < bit 65) = w
+  | z == 0 = w .&. bit 31
+  -- Less than 2^-12 above an integer: the polynomial at 0
+  | even q = trigSinPi mults sgn (z < bit 65) z
+  | otherwise = trigSinPi mults sgn False (bit 76 - z)
+ where
+  (neg, e, f) = fields w
+  -- With 54 fraction bits
+  (q, z) = trigReduce 54 e f
+  sgn = if neg /= (q >= 2) then bit 31 else 0
+
+-- | The IP's cosine in single precision, on bit patterns
+cosSingle :: Multipliers -> Word32 -> Word32
+cosSingle mults w
+  | e == 255 = nanSingle
+  -- |x| < 2^-11, including zeros and subnormal numbers
+  | e <= 115 = 0x3F800000
+  -- Less than 2^-13 above an integer: +-1
+  | even q && z < bit 64 = sgn .|. 0x3F800000
+  | even q = trigSinPi mults sgn False (bit 76 - z)
+  -- A half integer: +0
+  | z == 0 = 0
+  | otherwise = trigSinPi mults sgn False z
+ where
+  (_, e, f) = fields w
+  -- With 55 fraction bits
+  (q, z) = trigReduce 55 e f
+  sgn = if q == 1 || q == 2 then bit 31 else 0
+
+-- | The IP's tangent in single precision, on bit patterns: its sine divided
+-- by its cosine as for 'tanPiSingle'
+tanSingle :: Multipliers -> Word32 -> Word32
+tanSingle mults w
+  | e == 255 = nanSingle
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = w .&. bit 31
+  -- |x| < 2^-11: x
+  | e <= 115 = w
+  | otherwise = tanQuotient mults (sinSingle mults w) (cosSingle mults w)
+ where
+  (_, e, _) = fields w

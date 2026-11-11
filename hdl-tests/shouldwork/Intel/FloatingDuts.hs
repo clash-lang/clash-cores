@@ -173,6 +173,21 @@ tanPiDut :: Dut Float (Vec 2 Float)
 tanPiDut clk rst en i = bundle (unary (E.tanPi simFamily) clk rst en i :> unary (E.tanPiWith @16 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE tanPiDut #-}
 
+-- | E.sin, E.sinWith @13
+sinDut :: Dut Float (Vec 2 Float)
+sinDut clk rst en i = bundle (unary (E.sin simFamily) clk rst en i :> unary (E.sinWith @13 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE sinDut #-}
+
+-- | E.cos, E.cosWith @13
+cosDut :: Dut Float (Vec 2 Float)
+cosDut clk rst en i = bundle (unary (E.cos simFamily) clk rst en i :> unary (E.cosWith @13 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE cosDut #-}
+
+-- | E.tan, E.tanWith @21
+tanDut :: Dut Float (Vec 2 Float)
+tanDut clk rst en i = bundle (unary (E.tan simFamily) clk rst en i :> unary (E.tanWith @21 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE tanDut #-}
+
 -- | Positive floats with exponents (biased) in @[lo, lo + n)@ and random
 -- fractions, after the 'specials'
 floatsIn :: Word32 -> Word32 -> Int -> Word64 -> [Float]
