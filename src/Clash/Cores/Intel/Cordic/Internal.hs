@@ -209,8 +209,11 @@ formats (output fractions 3 to 16, 9 of them with scale factor compensation)
 and of 4 sampled ones. For VECTRANSLATE with more than 16 fractional output
 bits, the compensated magnitude (from about 30 bits) and the angle's tables
 (in one of six formats tried) differ from these rules, so the API stops at
-16. The API only accepts formats where these rules were measured, see
-'atanWidths'. With more than 45 (signed) or 40 (unsigned) fractional output
+16. Nor do they hold for the angle of VECTRANSLATE with one fractional bit
+(signed inputs) or two (unsigned inputs): about 7% (signed) and 18%
+(unsigned) of its results differ from them, and no variant of the number of
+iterations, the guard bits and the table precision reproduced them. The API
+only accepts formats where these rules were measured, see 'atanWidths'. With more than 45 (signed) or 40 (unsigned) fractional output
 bits, ATAN2's generator makes other choices that no rule here covers.
 
 The IP's @useLUTs@ option makes ATAN2 compute the angle with tables like
@@ -555,6 +558,8 @@ atanWidths fun signed w fOut
   | fOut > maxA = Left ("more than " <> show maxA <> " fractional bits in the angle")
   | fun == VecTranslateFunction && n0 < (if signed then 9 else 8) && w < 8 = Left
       "inputs of fewer than 8 bits with this output format were not measured"
+  | fun == VecTranslateFunction && n0 == 4 = Left
+      "the IP's angle differs from the model for this output format"
   | g0 <= n0 + 10 = Right (mk n0 g0)
   | fun == VecTranslateFunction || fOut > 40 = Left
       "the generator uses more iterations for this format, which was not measured"

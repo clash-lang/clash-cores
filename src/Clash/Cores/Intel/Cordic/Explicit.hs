@@ -384,7 +384,9 @@ atan2UnsignedModel =
 -- magnitude with scale factor compensation and the angle's tables differ). For
 -- a few formats with many more output bits than input bits, and for inputs of
 -- fewer than 8 bits with up to 5 fractional bits in the angle, the IP's
--- datapath wasn't measured: simulation raises an error for those, see
+-- datapath wasn't measured, and with one fractional bit in the angle (two for
+-- unsigned inputs) the IP's angle differs from the model: simulation raises an
+-- error for those, see
 -- "Clash.Cores.Intel.Cordic.Internal". The IP itself can be instantiated for
 -- any format.
 --
