@@ -75,8 +75,9 @@ Of the trigonometric functions, the sine, cosine and tangent of pi times the
 argument ('sinPi', 'cosPi' and 'tanPi', the IP's functions with the angle
 represented as a multiple of pi) are supported, and so are the sine, cosine
 and tangent of an angle in radians ('sin', 'cos' and 'tan') and the
-arctangent, in radians and as a multiple of pi ('atan' and 'atanPi'), with
-bit-exact models obtained in the same way. The IP's option \"Inputs are
+arctangent, in radians and as a multiple of pi ('atan' and 'atanPi'), and
+the two-argument arctangent ('atan2'), with bit-exact models obtained in the
+same way. The IP's option \"Inputs are
 within range -2pi to +2pi\" has no effect on these device families. The other
 trigonometric functions of the IP are not supported.
 
@@ -167,6 +168,9 @@ module Clash.Cores.Intel.Floating.Explicit
   , atanPiWith
   , atanPi
   , AtanPiDefDelay
+  , atan2With
+  , atan2
+  , Atan2DefDelay
     -- * Comparison
   , Ordering(..)
   , toMaybeOrdering
@@ -234,10 +238,11 @@ module Clash.Cores.Intel.Floating.Explicit
   , tanModel
   , atanModel
   , atanPiModel
+  , atan2Model
   ) where
 
 import Clash.Explicit.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan, atan2)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -1477,6 +1482,64 @@ atanPi = withFrozenCallStack $ atanPiWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type AtanPiDefDelay = 37
+
+-- | Customizable floating point two-argument arctangent, @atan2 y x@, see 'atan2Model'. Like
+-- @atan2@ in the Prelude, the first argument is @y@. The IP's result is
+-- bit-exactly modelled. This is the IP's \"ARCTAN2\" function.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+atan2With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom (n + d) Float
+atan2With cfg fam clk rst en y x
+  | clashSimulation = pipeline und clk rst en (atan2Model fam <$> y <*> x)
+  | otherwise = binaryInst "fp_atan2" ip clk rst en y x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of atan2"
+  ip = fpFunctions cfg "TRIG" "ARCTAN2" (natToNum @d) Nil
+{-# INLINE atan2With #-}
+
+-- | Floating point two-argument arctangent, @atan2 y x@, with the default configuration and delay. See
+-- 'atan2With'.
+atan2
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom (n + Atan2DefDelay) Float
+atan2 = withFrozenCallStack $ atan2With defConfig
+{-# INLINE atan2 #-}
+
+-- | The default delay of 'atan2': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type Atan2DefDelay = 51
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@.
 --

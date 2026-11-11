@@ -92,6 +92,9 @@ module Clash.Cores.Intel.Floating
   , atanPiWith
   , atanPi
   , E.AtanPiDefDelay
+  , atan2With
+  , atan2
+  , E.Atan2DefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -128,7 +131,7 @@ module Clash.Cores.Intel.Floating
   ) where
 
 import Clash.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan, atan2)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -763,6 +766,37 @@ atanPi
   -> DSignal dom (n + E.AtanPiDefDelay) Float
 atanPi fam = withFrozenCallStack $ hideClockResetEnable (E.atanPi fam)
 {-# INLINE atanPi #-}
+
+-- | Customizable floating point two-argument arctangent, @atan2 y x@. See 'E.atan2With'.
+atan2With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom (n + d) Float
+atan2With cfg fam = withFrozenCallStack $ hideClockResetEnable (E.atan2With cfg fam)
+{-# INLINE atan2With #-}
+
+-- | Floating point two-argument arctangent, @atan2 y x@, with the default configuration and delay.
+-- See 'E.atan2'.
+atan2
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -- ^ y
+  -> DSignal dom n Float
+  -- ^ x
+  -> DSignal dom (n + E.Atan2DefDelay) Float
+atan2 fam = withFrozenCallStack $ hideClockResetEnable (E.atan2 fam)
+{-# INLINE atan2 #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With

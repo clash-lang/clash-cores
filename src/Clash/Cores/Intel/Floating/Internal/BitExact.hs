@@ -6,8 +6,9 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 Bit-exact models of the square root, cube root, three-dimensional
 hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
 (natural, base 2, base 10 and @log (1 + x)@), the sine, cosine and
-tangent of x and of pi times x and the arctangent (in radians and divided by
-pi) of Intel's Floating Point Functions IP (@altera_fp_functions@) in
+tangent of x and of pi times x, the arctangent (in radians and divided by
+pi) and the two-argument arctangent of Intel's Floating Point Functions IP
+(@altera_fp_functions@) in
 single precision, see Note [Bit-exact models].
 -}
 
@@ -35,6 +36,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , tanSingle
   , atanSingle
   , atanPiSingle
+  , atan2Single
   ) where
 
 import Prelude
@@ -472,6 +474,39 @@ differs between the datapaths and is not monotone on 18x18 families. That
 threshold is where P(R * 2^(2 - 12)), at k = 12, drops one unit below one:
 using P at that argument for all k > 12 rounds every tie as the IP does. Away
 from ties the difference is invisible.
+
+Two-argument arctangent atan2 y x (the IP's \"ARCTAN2\"):
+
+  1. q = |y| / |x| is computed like the tangent of pi times x divides the
+     sine by the cosine: the significand of y times the reciprocal of the
+     significand of x (the same 512-entry table, and on 18x18 families the
+     same truncated multipliers), rounded to nearest, ties away from zero.
+     A quotient above the largest finite number becomes +inf, one below the
+     smallest normal number +0.
+  2. t is the arctangent of q as above (with its own copy of both tables).
+     An infinite y gives t = pi / 2 rounded down, an infinite x t = 0, two
+     infinities t = pi / 4 rounded up.
+  3. For a negative x the result is pi - t, computed exactly and truncated;
+     the result has the sign of y.
+  4. Zeros and subnormal numbers (biased exponent 0): if only y is one, the
+     result is 0 for x > 0 and pi rounded down for x < 0. If only x is one,
+     it is pi / 2 rounded down for a positive subnormal x and pi / 2 rounded
+     up for a zero or a negative x. If both are, it is: for y = 0, 0 for
+     x = +0, pi / 2 - 1 (0x3F121FB4) for a positive subnormal x and pi
+     rounded down for a negative x; for a subnormal y, pi / 2 - 1 for a
+     positive subnormal x and pi - (pi / 2 - 1), truncated, otherwise. Any
+     NaN input gives NaN.
+
+This was found as follows: the synthesis report shows the reciprocal table
+of the tangent of pi times x, the arctangent's two tables and a 26x24
+product; the hypothesis "the arctangent of the tangent's quotient" matched
+all random pairs of positive normal numbers at once; for a negative x, the
+IP's results on pairs where pi - t is close to a rounding boundary (t a
+small quotient q, with an exact division by a power of two) require pi to
+at least 44 bits and t exactly, so the model uses pi to 200 bits. The
+special cases were read off a table of all combinations of signed zeros,
+subnormal numbers, the smallest normal number, one, the largest finite
+number and infinity, and checked on random pairs of such inputs.
 
 The IP generates the NaN 0x7F800001.
 -}
@@ -1466,3 +1501,83 @@ atanPiSingle mults w
   q0 = (p + bit (sh - 1)) `shiftR` sh
   (q, carry) = if q0 == bit 24 then (q0 `shiftR` 1, 1) else (q0, 0)
   be = ea - 2 + (sh - 24) + carry
+
+-- * Two-argument arctangent
+
+-- | @floor (pi * 2^200)@: pi to 200 fraction bits
+piFixed :: Integer
+piFixed = 0x3243f6a8885a308d313198a2e03707344a4093822299f31d008
+
+-- | pi rounded down to single precision
+piDown :: Word32
+piDown = 0x40490FDA
+
+-- | pi / 2 - 1, as the IP gives it for some combinations of zeros and
+-- subnormal numbers
+halfPiMinusOne :: Word32
+halfPiMinusOne = 0x3F121FB4
+
+-- | The IP's two-argument arctangent @atan2 y x@ in single precision, on bit
+-- patterns: the arctangent ('atanSingle') of the quotient @|y| / |x|@, computed
+-- like the tangent of pi times x divides the sine by the cosine, subtracted
+-- from pi for a negative @x@, with the sign of @y@
+atan2Single :: Multipliers -> Word32 -> Word32 -> Word32
+atan2Single mults y x
+  | ey == 255 && fy /= 0 || ex == 255 && fx /= 0 = nanSingle
+  | ey == 0 || ex == 0 = sy .|. zeroish
+  | negX = sy .|. piMinus t
+  | otherwise = sy .|. t
+ where
+  (_, ey, fy) = fields y
+  (negX, ex, fx) = fields x
+  sy = y .&. bit 31
+  t | ey == 255 && ex == 255 = 0x3F490FDB
+    | ey == 255 = 0x3FC90FDA
+    | ex == 255 = 0
+    | otherwise = atanSingle mults (atan2Quotient mults ey fy ex fx)
+  -- Zeros and subnormal numbers: y = 0 gives 0 or pi as usual, x = 0 gives
+  -- pi / 2 rounded up, but the IP's results depend on whether the other input
+  -- is a zero or a subnormal number
+  zeroish
+    | ey == 0 && ex /= 0 = if negX then piDown else 0
+    | ey == 0 && fy == 0 =
+        if negX then piDown else if fx /= 0 then halfPiMinusOne else 0
+    | ey == 0 = if negX || fx == 0 then piMinus halfPiMinusOne else halfPiMinusOne
+    | fx /= 0 && not negX = 0x3FC90FDA
+    | otherwise = 0x3FC90FDB
+
+-- | The quotient @|y| / |x|@ of two normal numbers, from their biased
+-- exponents and fractions, as the tangent of pi times x computes it
+-- ('tanQuotient'): rounded to nearest, ties away from zero, +inf above the
+-- largest finite number and +0 below the smallest normal number
+atan2Quotient :: Multipliers -> Int -> Int64 -> Int -> Int64 -> Word32
+atan2Quotient mults ey fy ex fx
+  | be >= 255 = infSingle
+  | be <= 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 23) .|. fromIntegral (o .&. 0x7FFFFF)
+ where
+  sm = bit 23 .|. fy
+  r = tanPiRecip mults fx
+  p = case mults of
+    TruncatedMultipliers | fx /= 0 -> tanPiProduct sm r
+    _ -> sm * r
+  -- p at 2^-g, rounded to 24 significant bits
+  g = 49 - ey + ex
+  d = 64 - countLeadingZeros p - 24
+  o0 | d <= 0 = p `shiftL` negate d
+     | otherwise = (p + bit (d - 1)) `shiftR` d
+  (o, be) | o0 >= bit 24 = (o0 `shiftR` 1, d - g + 151)
+          | otherwise = (o0, d - g + 150)
+
+-- | pi minus a non-negative number below pi / 2, truncated to single
+-- precision
+piMinus :: Word32 -> Word32
+piMinus t = (fromIntegral (len - 74) `shiftL` 23) .|. (fromInteger (v `shiftR` (len - 24)) .&. 0x7FFFFF)
+ where
+  (_, e, f) = fields t
+  -- At 2^-200
+  tv | e == 0 = 0
+     | otherwise = toInteger (bit 23 .|. f) `shiftL` (e + 50)
+  v = piFixed - tv
+  -- pi / 2 <= v * 2^-200 < 4
+  len = if v >= bit 201 then 202 else 201 :: Int

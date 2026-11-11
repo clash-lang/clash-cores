@@ -198,6 +198,18 @@ atanPiDut :: Dut Float (Vec 2 Float)
 atanPiDut clk rst en i = bundle (unary (E.atanPi simFamily) clk rst en i :> unary (E.atanPiWith @20 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE atanPiDut #-}
 
+-- | E.atan2, E.atan2With @24
+atan2Dut :: Dut (Float, Float) (Vec 2 Float)
+atan2Dut clk rst en i = bundle (binary (E.atan2 simFamily) clk rst en i :> binary (E.atan2With @24 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE atan2Dut #-}
+
+-- | Pairs for 'E.atan2' whose quotient is one of 'atanTies' (divided by
+-- powers of two), with both signs of the divisor
+atan2Ties :: [(Float, Float)]
+atan2Ties = P.concat
+  [ [(y * d, d), (y * d, negate d)]
+  | (y, d) <- P.zip atanTies (P.cycle [1, 0.25, 8, 2 ^^ (-20 :: Int), 2 ^^ (17 :: Int)]) ]
+
 -- | Inputs of 'E.atan' above 2^12 whose results are exact ties before the IP
 -- truncates them, on both sides of the reciprocal where the rounding of
 -- these ties changes (for both datapaths), with both signs
