@@ -10,6 +10,21 @@ see the /FIFO Intel FPGA IP User Guide/
 
 The FIFOs are mapped to block RAM (@use_eab = \"ON\"@). Different read and write
 widths, ECC and the @allow_rwcycle_when_full@ option are not supported.
+
+#differences#
+
+= Differences from Intel's documentation
+
+* /Almost full and almost empty./ The FIFO user guide (UG-MFNALT_FIFO,
+  version 2019.11.21, Table 2 \"Input and Output Ports Description\") says
+  @almost_full@ is \"asserted when the usedw signal is greater than or equal
+  to the almost_full_value parameter\", and @almost_empty@ \"when the usedw
+  signal is less than the almost_empty_value parameter\". In @scfifo@ both
+  flags are state machines driven by the read and write /requests/, whether
+  the FIFO accepts them or not, so they deviate from these definitions when
+  it ignores a request (a write while it is full, a read while no word is
+  available to read): see 'scfifo'. Found in Intel's simulation model
+  (@altera_mf@), whose behavior the HDL tests of 'scfifo' check.
 -}
 
 {-# LANGUAGE MultiWayIf #-}
