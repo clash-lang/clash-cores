@@ -75,6 +75,14 @@ tanPiTB :: Signal Dom Bool
 tanPiTB = romTB simLibraries tanPiDut $(memBlobTH (Just 0) (trace tanPiDut (cycles (everyNth 17 13 <> binades False 14 2 <> binades True 9 1))))
 {-# ANN tanPiTB (Synthesize "tanPiTB" [] (PortName "done")) #-}
 
+asinTB :: Signal Dom Bool
+asinTB = romTB simLibraries asinDut $(memBlobTH (Just 0) (trace asinDut (cycles (everyNth 17 15 <> binades False 13 2 <> binades True 14 1))))
+{-# ANN asinTB (Synthesize "asinTB" [] (PortName "done")) #-}
+
+asinPiTB :: Signal Dom Bool
+asinPiTB = romTB simLibraries asinPiDut $(memBlobTH (Just 0) (trace asinPiDut (cycles (everyNth 17 16 <> binades False 13 2 <> binades True 14 1))))
+{-# ANN asinPiTB (Synthesize "asinPiTB" [] (PortName "done")) #-}
+
 hypotTB :: Signal Dom Bool
 hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycles (halfTriples 4000 14))))
 {-# ANN hypotTB (Synthesize "hypotTB" [] (PortName "done")) #-}

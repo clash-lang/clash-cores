@@ -27,6 +27,8 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , sinPiModel
   , cosPiModel
   , tanPiModel
+  , asinModel
+  , asinPiModel
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -227,6 +229,37 @@ cosPiModel fam = onBits (cosPiHalf (familyMultipliers fam))
 -- Verified like 'sqrtModel'.
 tanPiModel :: DeviceFamily -> Half -> Half
 tanPiModel fam = onBits (tanPiHalf (familyMultipliers fam))
+
+-- | Model of the IP's arcsine in half precision (the \"ARCSIN\" function), in
+-- radians, see 'sqrtModel'. The IP's arcsine is odd. For @|x| <= 1/2@ it
+-- multiplies @x@ by a polynomial approximation of degree two of @asin x / x@
+-- at @|x|@ truncated to @2^-13@, rounding to nearest with ties away from zero.
+-- For @1/2 < |x| < 1@ it computes @pi / 2 - 2 asin z@ in fixed point, with a
+-- polynomial approximation of @2 asin z@ at @z = sqrt ((1 - |x|) / 2)@ (half
+-- the correctly rounded @2 z@, truncated to @2^-12@), rounding to nearest with
+-- ties away from zero. The result can be off by up to 1.14 units in the last
+-- place. @asin 1@ is pi / 2 rounded to nearest; zero and subnormal inputs give
+-- a zero of the same sign; NaN, the infinities and @|x| > 1@ give 'intelNaN'.
+-- See Note [Bit-exact half precision arcsine].
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at a latency of 8 cycles.
+asinModel :: DeviceFamily -> Half -> Half
+asinModel fam = onBits (asinHalf (familyMultipliers fam))
+
+-- | Model of the IP's arcsine divided by pi in half precision (the \"ARCSIN\"
+-- function with the angle represented as a multiple of pi), see 'sqrtModel':
+-- the IP multiplies its arcsine ('asinModel'), rounded to half precision, by
+-- 1 \/ pi rounded to half precision (@0x3518@), rounding to nearest with ties
+-- away from zero, so the result can be off by up to 1.68 units in the last
+-- place. Results below the smallest normal number become a zero of the same
+-- sign; NaN, the infinities and @|x| > 1@ give 'intelNaN'.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at a latency of 10 cycles (9
+-- on Cyclone V).
+asinPiModel :: DeviceFamily -> Half -> Half
+asinPiModel fam = onBits (asinPiHalf (familyMultipliers fam))
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'

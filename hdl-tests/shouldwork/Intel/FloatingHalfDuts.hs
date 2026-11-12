@@ -86,6 +86,16 @@ tanPiDut :: Dut Half (Vec 2 Half)
 tanPiDut clk rst en i = bundle (unary (E.tanPi simFamily) clk rst en i :> unary (E.tanPiWith @11 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE tanPiDut #-}
 
+-- | E.asin, E.asinWith @8
+asinDut :: Dut Half (Vec 2 Half)
+asinDut clk rst en i = bundle (unary (E.asin simFamily) clk rst en i :> unary (E.asinWith @8 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE asinDut #-}
+
+-- | E.asinPi, E.asinPiWith @10
+asinPiDut :: Dut Half (Vec 2 Half)
+asinPiDut clk rst en i = bundle (unary (E.asinPi simFamily) clk rst en i :> unary (E.asinPiWith @10 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE asinPiDut #-}
+
 -- | E.hypot, E.hypotWith @6
 hypotDut :: Dut (Half, Half, Half) (Vec 2 Half)
 hypotDut clk rst en i = bundle (ternary (E.hypot simFamily) clk rst en i :> ternary (E.hypotWith @6 E.defConfig simFamily) clk rst en i :> Nil)

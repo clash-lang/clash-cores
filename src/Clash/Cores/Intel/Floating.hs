@@ -33,7 +33,8 @@ models document the details.
   ("Clash.Cores.Intel.Floating.Half") only the square root, the reciprocal
   square root, the cube root and the base 2
   logarithm keep within one unit; the other exponentials and logarithms, the
-  hypotenuse, 'sinPi', 'cosPi' and 'tanPi' don't. Found with the bit-exact
+  hypotenuse, 'sinPi', 'cosPi', 'tanPi', 'asin' (1.1) and 'asinPi' (1.7)
+  don't. Found with the bit-exact
   models, on all inputs of whole binades and millions of other inputs per
   function, on all four families. In double
   precision, the exponential

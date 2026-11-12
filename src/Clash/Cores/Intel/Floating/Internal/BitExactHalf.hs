@@ -5,8 +5,9 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in half precision: square root, cube root, hypotenuse, reciprocal square
-root, reciprocal, exponentials, logarithms and the sine, cosine and tangent
-of pi times x, see Note [Bit-exact half precision models].
+root, reciprocal, exponentials, logarithms, the sine, cosine and tangent
+of pi times x and the arcsine (in radians and divided by pi), see
+Note [Bit-exact half precision models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -27,6 +28,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExactHalf
   , sinPiHalf
   , cosPiHalf
   , tanPiHalf
+  , asinHalf
+  , asinPiHalf
   ) where
 
 import Prelude
@@ -41,7 +44,8 @@ import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
 import Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
   ( cbrtHalfCoefficients, exp10HalfCoefficients, exp2HalfCoefficients, expHalfCoefficients
   , log10HalfCoefficients, log2HalfCoefficients, logHalfCoefficients, rsqrtHalfCoefficients
-  , sinPiHalfCoefficients, sqrtHalfCoefficients, tanPiRecipHalfCoefficients )
+  , sinPiHalfCoefficients, sqrtHalfCoefficients, tanPiRecipHalfCoefficients
+  , asinHalfCoefficients, asinLargeHalfCoefficients )
 
 {- Note [Bit-exact half precision models]
 The IP supports half precision as a custom format with 5 exponent and 10
@@ -707,3 +711,167 @@ tanPiHalf mults w
   -- 1 / (1 + fc * 2^-10) at 2^-13; coefficients at 2^-16, rounding constant 4
   r | fc == 0 = bit 13
     | otherwise = poly1 tanPiRecipTable mults 4 3 (fromIntegral (fc `shiftR` 3)) (fc .&. 7) `shiftR` 3
+
+-- * Arcsine
+
+{- Note [Bit-exact half precision arcsine]
+The arcsine ('asinHalf', the \"ARCSIN\" function) has the two paths of the
+single precision arcsine (Note [Bit-exact arcsine] in
+"Clash.Cores.Intel.Floating.Internal.BitExact"), scaled down, and is odd.
+
+For |x| <= 1/2 the polynomial of @asin r / r@ keeps degree two: X =
+floor (|x| * 2^13), the top 4 bits of X (16 segments of [0, 1), of which
+segments 0 to 8 are used, 8 only for x = 1/2) select the coefficients (on the
+grid 2^-15, 'asinHalfCoefficients') and its 9 low bits are y:
+
+  T1 = floor (C2 * (y >> 2) / 2^6)    (at 2^-16)
+  S1 = 2 C1 + T1
+  T2 = floor (S1 * y / 2^8)           (at 2^-17)
+  P  = floor ((4 C0 + 16 + T2) / 2^5) (asin r / r at 2^-12)
+
+and the result is the significand of x times P, rounded to nearest with ties
+away from zero. On the families with 18x18 multipliers T1 and T2 are rounded
+to nearest (ties up) instead of down.
+
+For 1/2 < |x| < 1, s is the correctly rounded half precision square root of
+@2 (1 - |x|)@ and @Z = floor (s * 2^11)@ (z = s / 2 truncated to 2^-12). The
+top 6 bits of Z (64 segments of [0, 1/2)) select a degree-one approximation of
+@2 asin z@ ('asinLargeHalfCoefficients', coefficients at 2^-15) and y is its
+5 low bits. On Cyclone V
+
+  D = floor (pi / 2 * 2^15) - C0 - floor (C1 * y / 2^5) - 2   (at 2^-15)
+
+and on the families with 18x18 multipliers the product is kept whole:
+
+  D = floor (pi / 2 * 2^20) - 2^5 C0 - C1 * y - 2^6           (at 2^-20)
+
+D is rounded to half precision, to nearest with ties away from zero.
+@asin 1@ is pi / 2 rounded to nearest (0x3E48), subnormal inputs give a zero
+of the same sign and NaN, the infinities and |x| > 1 give NaN.
+
+The structure was found as for single precision. The synthesis report shows a
+degree-two polynomial (two multipliers) for the first path and a degree-one
+polynomial with a 128-entry table for the second; the coefficient formats,
+the segment counts and the rounding constants are the ones for which the
+coefficients computed from first principles reproduce the IP's outputs on all
+inputs of each path (searched over the formats; the result is unique).
+
+The arcsine divided by pi ('asinPiHalf') multiplies the arcsine, rounded to
+half precision, by 1 / pi rounded to half precision (0x3518), rounding to
+nearest with ties away from zero; results below the smallest normal number
+become a zero of the same sign.
+-}
+
+-- | A degree-two table: @(C2, C1, C0)@ per segment
+data Table2 = Table2 !(UArray Int Int64) !(UArray Int Int64) !(UArray Int Int64)
+
+mkTable2 :: [(Int, Int, Int)] -> Table2
+mkTable2 cs =
+  Table2 (arr [c | (c, _, _) <- cs]) (arr [c | (_, c, _) <- cs]) (arr [c | (_, _, c) <- cs])
+ where
+  arr xs = listArray (0, length cs - 1) (map fromIntegral xs)
+
+-- | The coefficients @(C2, C1, C0)@ of a segment
+coefs2 :: Table2 -> Int -> (Int64, Int64, Int64)
+coefs2 (Table2 c2 c1 c0) i = (unsafeAt c2 i, unsafeAt c1 i, unsafeAt c0 i)
+{-# INLINE coefs2 #-}
+
+asinHalfTable :: Table2
+asinHalfTable = mkTable2 asinHalfCoefficients
+{-# NOINLINE asinHalfTable #-}
+
+asinLargeHalfTable :: Table1
+asinLargeHalfTable = mkTable1 asinLargeHalfCoefficients
+{-# NOINLINE asinLargeHalfTable #-}
+
+-- | The IP's arcsine in half precision, on bit patterns, see
+-- Note [Bit-exact half precision arcsine]
+asinHalf :: Multipliers -> Word16 -> Word16
+asinHalf mults w
+  | e == 31 || e > 15 || (e == 15 && f /= 0) = nanHalf
+  | e == 0 = sign
+  -- pi / 2 rounded to nearest
+  | e == 15 = sign .|. 0x3E48
+  | e < 14 || f == 0 = sign .|. asinSmallHalf mults e f
+  -- 2^11 (1 - |x|) = 2^10 - f
+  | otherwise = sign .|. asinLargeHalf mults (bit 10 - f)
+ where
+  (neg, e, f) = fields w
+  sign = if neg then bit 15 else 0
+
+-- | @asin x@ for x in [2^-14, 1/2], given its biased exponent and fraction
+asinSmallHalf :: Multipliers -> Int -> Int64 -> Word16
+asinSmallHalf mults e f =
+  fromIntegral (e + sh - 12) `shiftL` 10 .|. fromIntegral (q .&. 0x3FF)
+ where
+  m = bit 10 .|. f
+  -- |x| at 2^-13
+  xx | e >= 12 = m `shiftL` (e - 12)
+     | otherwise = m `shiftR` (12 - e)
+  (c2, c1, c0) = coefs2 asinHalfTable (fromIntegral (xx `shiftR` 9))
+  y = xx .&. 0x1FF
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 2)) `shiftR` 6)
+      in  (s1 * y) `shiftR` 8
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 2) + bit 5) `shiftR` 6)
+      in  (s1 * y + bit 7) `shiftR` 8
+  -- asin x / x at 2^-12, in [2^12, 2^13)
+  p = m * ((4 * c0 + 16 + t2) `shiftR` 5)
+  sh0 = if p >= bit 23 then 13 else 12
+  q0 = (p + bit (sh0 - 1)) `shiftR` sh0
+  (q, sh) = if q0 == bit 11 then (q0 `shiftR` 1, sh0 + 1) else (q0, sh0)
+
+-- | @asin x@ for x in (1/2, 1), given @k = 2^11 (1 - x)@
+asinLargeHalf :: Multipliers -> Int64 -> Word16
+asinLargeHalf mults k = case mults of
+  FullMultipliers ->
+    roundAt 15 (51471 - c0 - ((c1 * y) `shiftR` 5) - 2)
+  TruncatedMultipliers ->
+    roundAt 20 (1647099 - 32 * c0 - c1 * y - 64)
+ where
+  -- s = sqrt (2 (1 - x)) = sqrt (k * 2^-10), correctly rounded: sm * 2^se
+  (sm, se) = crSqrtHalf k (-10)
+  -- z = s / 2 at 2^-12
+  zz | se + 11 >= 0 = sm `shiftL` (se + 11)
+     | otherwise = sm `shiftR` negate (se + 11)
+  (c1, c0) = coefs1 asinLargeHalfTable (fromIntegral (zz `shiftR` 5))
+  y = zz .&. 0x1F
+
+-- | The correctly rounded half precision square root of @v * 2^ev@ (@v > 0@)
+-- as an 11 bit significand @m@ and an exponent @e@: @m * 2^e@
+crSqrtHalf :: Int64 -> Int -> (Int64, Int)
+crSqrtHalf v0 ev0 = (m, e)
+ where
+  -- Scale v by a power of four to 25 or 26 bits, so that its root has 13 bits
+  k = (25 - (64 - countLeadingZeros v0)) `div` 2 + 1
+  v = v0 `shiftL` (2 * k)
+  r0 = floor (sqrt (fromIntegral v :: Double)) :: Int64
+  r = until (\c -> c * c <= v) (subtract 1) (r0 + 1)
+  drop1 = 64 - countLeadingZeros r - 11
+  keep = r `shiftR` drop1
+  rest = r .&. (bit drop1 - 1)
+  half = bit (drop1 - 1)
+  up = rest > half || (rest == half && (r * r /= v || odd keep))
+  keep' = if up then keep + 1 else keep
+  (m, e) | keep' == bit 11 = (keep' `shiftR` 1, (ev0 - 2 * k) `div` 2 + drop1 + 1)
+         | otherwise = (keep', (ev0 - 2 * k) `div` 2 + drop1)
+
+-- | The IP's arcsine divided by pi in half precision, on bit patterns:
+-- 'asinHalf' times 1 / pi rounded to half precision (0x3518), rounded to
+-- nearest, ties away from zero
+asinPiHalf :: Multipliers -> Word16 -> Word16
+asinPiHalf mults w
+  | ea == 31 = a
+  | ea == 0 || be <= 0 = sign
+  | otherwise = sign .|. (fromIntegral be `shiftL` 10) .|. fromIntegral (q .&. 0x3FF)
+ where
+  a = asinHalf mults w
+  sign = a .&. bit 15
+  (_, ea, fa) = fields a
+  p = (bit 10 .|. fa) * 0x518
+  sh = if p >= bit 21 then 11 else 10
+  q0 = (p + bit (sh - 1)) `shiftR` sh
+  (q, carry) = if q0 == bit 11 then (q0 `shiftR` 1, 1) else (q0, 0)
+  be = ea - 2 + (sh - 10) + carry

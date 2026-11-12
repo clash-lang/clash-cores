@@ -62,6 +62,12 @@ module Clash.Cores.Intel.Floating.Half
   , tanPiWith
   , tanPi
   , E.TanPiDefDelay
+  , asinWith
+  , asin
+  , E.AsinDefDelay
+  , asinPiWith
+  , asinPi
+  , E.AsinPiDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -82,9 +88,11 @@ module Clash.Cores.Intel.Floating.Half
   , E.sinPiModel
   , E.cosPiModel
   , E.tanPiModel
+  , E.asinModel
+  , E.asinPiModel
   ) where
 
-import Clash.Prelude hiding (sqrt, recip, exp, log)
+import Clash.Prelude hiding (sqrt, recip, exp, log, asin)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -482,3 +490,55 @@ tanPi
   -> DSignal dom (n + E.TanPiDefDelay) Half
 tanPi fam = withFrozenCallStack $ hideClockResetEnable (E.tanPi fam)
 {-# INLINE tanPi #-}
+
+-- | Customizable floating point arcsine, @asin x@, in radians, in half precision. See
+-- 'E.asinWith'.
+asinWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+asinWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.asinWith cfg fam)
+{-# INLINE asinWith #-}
+
+-- | Floating point arcsine, @asin x@, in radians, in half precision, with the default configuration
+-- and delay. See 'E.asin'.
+asin
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AsinDefDelay) Half
+asin fam = withFrozenCallStack $ hideClockResetEnable (E.asin fam)
+{-# INLINE asin #-}
+
+-- | Customizable floating point arcsine divided by pi, @asin x / pi@, in half precision. See
+-- 'E.asinPiWith'.
+asinPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+asinPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.asinPiWith cfg fam)
+{-# INLINE asinPiWith #-}
+
+-- | Floating point arcsine divided by pi, @asin x / pi@, in half precision, with the default configuration
+-- and delay. See 'E.asinPi'.
+asinPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AsinPiDefDelay) Half
+asinPi fam = withFrozenCallStack $ hideClockResetEnable (E.asinPi fam)
+{-# INLINE asinPi #-}
