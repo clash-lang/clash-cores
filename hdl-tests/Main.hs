@@ -247,7 +247,7 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 , "toDoubleTB", "fromDoubleTB", "sqrtTB", "recipTB", "rsqrtTB"
                 , "expTB", "logTB", "log2TB", "log10TB", "log1pTB", "exp2TB", "exp10TB", "cbrtTB", "hypotTB"
                 , "sinPiTB", "cosPiTB", "tanPiTB", "sinTB", "cosTB", "tanTB", "atanTB", "atanPiTB", "atan2TB", "powTB"
-                , "acosTB", "acosPiTB" ]
+                , "acosTB", "acosPiTB", "asinTB", "asinPiTB" ]
             }
           -- The same in half precision
         , runTest "FloatingHalf" def

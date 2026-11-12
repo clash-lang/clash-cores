@@ -326,3 +326,29 @@ acosDiffs = P.map castWord32ToFloat
   , 0x3e9fd34b, 0xbeb3be5d, 0xbeb19ce9, 0x3ed7ecc1, 0xbef9ba25, 0xbedf5bfd, 0xbed34fb9
   , 0xbebbbe35
   ]
+
+-- | E.asin, E.asinWith @14
+asinDut :: Dut Float (Vec 2 Float)
+asinDut clk rst en i = bundle (unary (E.asin simFamily) clk rst en i :> unary (E.asinWith @14 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE asinDut #-}
+
+-- | E.asinPi, E.asinPiWith @16
+asinPiDut :: Dut Float (Vec 2 Float)
+asinPiDut clk rst en i = bundle (unary (E.asinPi simFamily) clk rst en i :> unary (E.asinPiWith @16 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE asinPiDut #-}
+
+-- | Inputs of 'E.asin' where the two datapaths ('E.Max10' and 'E.CycloneV')
+-- give different results, on both paths of the IP and of either sign
+asinDiffs :: [Float]
+asinDiffs = P.map castWord32ToFloat
+  [ 0x3e6aa2fc, 0x3def694a, 0x3ea03226, 0x3dad0e9a, 0x3dbe9e14, 0x3cf27a05, 0x3dcded8a
+  , 0x3e85781a, 0x3db4a76c, 0x3eed21e9, 0x3e1f8d1b, 0x3da3ebca, 0x3dc7c9ba, 0x3ebe4b43
+  , 0x3eb30f8f, 0x3dbd2854, 0xbe5df2b1, 0xbd850991, 0xbedc674b, 0xbdb09d01, 0xbdd7b446
+  , 0xbe3ab5cc, 0xbdecdd66, 0xbe8327e7, 0xbd9b5523, 0xbe75ad67, 0xbdab770a, 0xbdc4c72c
+  , 0xbe009ddb, 0xbed35e9b, 0xbde171ec, 0xbe3ad4b6, 0x3f0f1dbd, 0x3f48fbf4, 0x3f2793c3
+  , 0x3f47a5c9, 0x3f79344a, 0x3f573e10, 0x3f17373a, 0x3f0d2eb2, 0x3f4a5413, 0x3f4903f8
+  , 0x3f51cd18, 0x3f180ead, 0x3f2f914b, 0x3f0c6e7a, 0x3f4601d5, 0x3f5edb50, 0xbf081d71
+  , 0xbf480d93, 0xbf07a4fd, 0xbf4f4332, 0xbf1a9356, 0xbf3f8951, 0xbf56fdbd, 0xbf43e284
+  , 0xbf36ace0, 0xbf6f466c, 0xbf2866fa, 0xbf3b7abe, 0xbf4abab6, 0xbf39e9ae, 0xbf2e38fd
+  , 0xbf269b3a
+  ]

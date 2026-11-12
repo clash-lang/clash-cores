@@ -160,6 +160,14 @@ acosPiTB :: Signal Dom Bool
 acosPiTB = romTB simLibraries acosPiDut $(memBlobTH (Just 0) (trace acosPiDut (cycles (floats 500 91 <> acosDiffs <> signedFloatsIn 118 10 3000 92))))
 {-# ANN acosPiTB (Synthesize "acosPiTB" [] (PortName "done")) #-}
 
+asinTB :: Signal Dom Bool
+asinTB = romTB simLibraries asinDut $(memBlobTH (Just 0) (trace asinDut (cycles (floats 500 93 <> asinDiffs <> signedFloatsIn 118 10 3000 94))))
+{-# ANN asinTB (Synthesize "asinTB" [] (PortName "done")) #-}
+
+asinPiTB :: Signal Dom Bool
+asinPiTB = romTB simLibraries asinPiDut $(memBlobTH (Just 0) (trace asinPiDut (cycles (floats 500 95 <> asinDiffs <> signedFloatsIn 118 10 3000 96))))
+{-# ANN asinPiTB (Synthesize "asinPiTB" [] (PortName "done")) #-}
+
 powTB :: Signal Dom Bool
 powTB = romTB simLibraries powDut $(memBlobTH (Just 0) (trace powDut (cycles (floatPairs 0 87 <> powPairs 2500 88))))
 {-# ANN powTB (Synthesize "powTB" [] (PortName "done")) #-}

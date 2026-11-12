@@ -78,9 +78,9 @@ argument ('sinPi', 'cosPi' and 'tanPi', the IP's functions with the angle
 represented as a multiple of pi) are supported, and so are the sine, cosine
 and tangent of an angle in radians ('sin', 'cos' and 'tan') and the
 arctangent, in radians and as a multiple of pi ('atan' and 'atanPi'), and
-the two-argument arctangent ('atan2') and the arccosine, in radians and as a
-multiple of pi ('acos' and 'acosPi'), with bit-exact models obtained in the
-same way. The IP's option \"Inputs are
+the two-argument arctangent ('atan2') and the arccosine and arcsine, in
+radians and as a multiple of pi ('acos', 'acosPi', 'asin' and 'asinPi'), with
+bit-exact models obtained in the same way. The IP's option \"Inputs are
 within range -2pi to +2pi\" has no effect on these device families. The other
 trigonometric functions of the IP are not supported.
 
@@ -186,6 +186,12 @@ module Clash.Cores.Intel.Floating.Explicit
   , acosPiWith
   , acosPi
   , AcosPiDefDelay
+  , asinWith
+  , asin
+  , AsinDefDelay
+  , asinPiWith
+  , asinPi
+  , AsinPiDefDelay
     -- * Comparison
   , Ordering(..)
   , toMaybeOrdering
@@ -257,10 +263,12 @@ module Clash.Cores.Intel.Floating.Explicit
   , powModel
   , acosModel
   , acosPiModel
+  , asinModel
+  , asinPiModel
   ) where
 
 import Clash.Explicit.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan, atan2, acos)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan, atan2, acos, asin)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -1719,6 +1727,109 @@ acosPi = withFrozenCallStack $ acosPiWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type AcosPiDefDelay = 52
+
+-- | Customizable floating point arcsine, @asin x@, in radians, see 'asinModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"ARCSIN\" function.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (14
+-- cycles for the device families of Quartus Prime Lite).
+asinWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+asinWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (asinModel fam <$> x)
+  | otherwise = unaryInst "fp_asin" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of asin"
+  ip = fpFunctions cfg "TRIG" "ARCSIN" (natToNum @d) Nil
+{-# INLINE asinWith #-}
+
+-- | Floating point arcsine, @asin x@, in radians, with the default configuration and delay. See 'asinWith'.
+asin
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + AsinDefDelay) Float
+asin = withFrozenCallStack $ asinWith defConfig
+{-# INLINE asin #-}
+
+-- | The default delay of 'asin': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type AsinDefDelay = 36
+
+-- | Customizable floating point arcsine divided by pi, @asin x / pi@, see 'asinPiModel'. The
+-- IP's result is bit-exactly modelled. This is the IP's \"ARCSIN\" function with
+-- the angle represented as a multiple of pi.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (16
+-- cycles for the device families of Quartus Prime Lite).
+asinPiWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+asinPiWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (asinPiModel fam <$> x)
+  | otherwise = unaryInst "fp_asinpi" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of asinPi"
+  ip = fpFunctions cfg "TRIG" "ARCSIN" (natToNum @d) (scaleByPi :> Nil)
+{-# INLINE asinPiWith #-}
+
+-- | Floating point arcsine divided by pi, @asin x / pi@, with the default configuration and delay. See 'asinPiWith'.
+asinPi
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Float
+  -> DSignal dom (n + AsinPiDefDelay) Float
+asinPi = withFrozenCallStack $ asinPiWith defConfig
+{-# INLINE asinPi #-}
+
+-- | The default delay of 'asinPi': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type AsinPiDefDelay = 43
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@.
 --
