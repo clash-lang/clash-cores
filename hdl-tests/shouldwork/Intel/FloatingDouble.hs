@@ -49,3 +49,8 @@ recipTB = romTB simLibraries recipDut $(memBlobTH (Just 0) (trace recipDut (cycl
 expTB :: Signal Dom Bool
 expTB = romTB simLibraries expDut $(memBlobTH (Just 0) (trace expDut (cycles (expDoublesIn 2000 72))))
 {-# ANN expTB (Synthesize "expTB" [] (PortName "done")) #-}
+
+hypotTB :: Signal Dom Bool
+hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycles (hypotDoublesIn 1000 75))))
+{-# ANN hypotTB (Synthesize "hypotTB" [] (PortName "done")) #-}
+

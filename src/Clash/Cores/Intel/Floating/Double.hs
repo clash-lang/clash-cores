@@ -42,6 +42,9 @@ module Clash.Cores.Intel.Floating.Double
   , expWith
   , exp
   , E.ExpDefDelay
+  , hypotWith
+  , hypot
+  , E.HypotDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -55,6 +58,7 @@ module Clash.Cores.Intel.Floating.Double
   , E.rsqrtModel
   , E.recipModel
   , E.expModel
+  , E.hypotModel
   ) where
 
 import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
@@ -268,3 +272,34 @@ exp
   -> DSignal dom (n + E.ExpDefDelay) Double
 exp fam = withFrozenCallStack $ hideClockResetEnable (E.exp fam)
 {-# INLINE exp #-}
+
+-- | Customizable floating point three-dimensional hypotenuse,
+-- @sqrt (x^2 + y^2 + z^2)@, in double precision. See 'E.hypotWith'.
+hypotWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+hypotWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.hypotWith cfg fam)
+{-# INLINE hypotWith #-}
+
+-- | Floating point three-dimensional hypotenuse, @sqrt (x^2 + y^2 + z^2)@, in
+-- double precision, with the default configuration and delay. See 'E.hypot'.
+hypot
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.HypotDefDelay) Double
+hypot fam = withFrozenCallStack $ hideClockResetEnable (E.hypot fam)
+{-# INLINE hypot #-}
+

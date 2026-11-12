@@ -14,14 +14,15 @@ subnormal numbers. "Clash.Cores.Intel.Floating.Double" has the same functions
 with a hidden clock, reset and enable.
 
 The supported functions are the arithmetic ('add', 'sub', 'mul' and 'div'),
-'sqrt', 'rsqrt', 'recip' and 'exp'. The arithmetic and the reciprocal are correctly rounded,
+'sqrt', 'rsqrt', 'recip', 'exp' and 'hypot'. The arithmetic and the reciprocal are correctly rounded,
 with the deviations from IEEE 754 described in
 "Clash.Cores.Intel.Floating.Explicit" (subnormal inputs are treated as zero
 and results below the smallest normal number are flushed to zero, after
 rounding with an unbounded exponent). In double precision the IP
 computes them with the algorithms of single precision, scaled up: the square
 root with a polynomial of degree five instead of two. Clash simulation gives
-the IP's results bit for bit: the models ('sqrtModel', 'rsqrtModel', 'recipModel' and 'expModel') were
+the IP's results bit for bit: the models ('sqrtModel', 'rsqrtModel', 'recipModel', 'expModel'
+and 'hypotModel') were
 obtained by black-box testing of the IP, see Note [Bit-exact double precision
 models] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble", and were
 verified against the simulated IP on millions of inputs for MAX 10, Cyclone IV
@@ -63,6 +64,9 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , expWith
   , exp
   , ExpDefDelay
+  , hypotWith
+  , hypot
+  , HypotDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -76,6 +80,7 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , rsqrtModel
   , recipModel
   , expModel
+  , hypotModel
   ) where
 
 import Clash.Explicit.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
@@ -83,7 +88,7 @@ import Clash.Explicit.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
 import Clash.Cores.Intel.Floating.Internal
-  (Config(..), DeviceFamily(..), binaryInst, defConfig, pipeline, unaryInst)
+  (Config(..), DeviceFamily(..), binaryInst, defConfig, pipeline, ternaryInst, unaryInst)
 import Clash.Cores.Intel.Floating.Internal.Double
 
 -- | Customizable floating point addition, in double precision, see
@@ -475,3 +480,61 @@ exp = withFrozenCallStack $ expWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type ExpDefDelay = 57
+
+-- | Customizable floating point three-dimensional hypotenuse,
+-- @sqrt (x^2 + y^2 + z^2)@, in double precision, see 'hypotModel'. The IP's
+-- result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+hypotWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+hypotWith cfg fam clk rst en x y z
+  | clashSimulation = pipeline und clk rst en (hypotModel fam <$> x <*> y <*> z)
+  | otherwise = ternaryInst "fp_hypot_double" ip clk rst en x y z
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of hypot"
+  ip = fpFunctionsDouble cfg "ROOTS" "HYPOT" (natToNum @d) Nil
+{-# INLINE hypotWith #-}
+
+-- | Floating point three-dimensional hypotenuse, @sqrt (x^2 + y^2 + z^2)@, in
+-- double precision, with the default configuration and delay. See
+-- 'hypotWith'.
+hypot
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom n Double
+  -> DSignal dom (n + HypotDefDelay) Double
+hypot = withFrozenCallStack $ hypotWith defConfig
+{-# INLINE hypot #-}
+
+-- | The default delay of 'hypot': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest (MAX 10; Cyclone IV E and Cyclone 10 LP: 50, Cyclone V: 44).
+type HypotDefDelay = 52
+

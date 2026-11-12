@@ -20,6 +20,7 @@ module Clash.Cores.Intel.Floating.Internal.Double
   , rsqrtModel
   , recipModel
   , expModel
+  , hypotModel
     -- * Instantiation
   , fpFunctionsDouble
   ) where
@@ -176,3 +177,26 @@ fpFunctionsDouble ::
   IntelIp (n + 7)
 fpFunctionsDouble = fpFunctionsFormat (("fp_format", StrParam "double") :> Nil)
 {-# INLINE fpFunctionsDouble #-}
+
+-- | Model of the three-dimensional hypotenuse, @sqrt (x^2 + y^2 + z^2)@, of the
+-- IP in double precision. It gives the IP's results bit for bit, see Note
+-- [Bit-exact double precision hypotenuse] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": the squares are
+-- truncated to 53 bits and added (aligned to the largest one, truncated 54
+-- bits below it), the sum is rounded to nearest with ties away from zero, and
+-- the square root's polynomial gives the result with an extra half unit in the
+-- last place. The result is not always faithful: it is up to 1.1 units in the
+-- last place below and 1.25 above the exact result. Subnormal inputs are
+-- treated as zero and signs are ignored; any NaN input gives 'intelNaN',
+-- otherwise any infinite input gives +inf; results that overflow give +inf.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E, Cyclone 10 LP and Cyclone V, at 200 MHz, 100 MHz and
+-- latencies of 14 and 16 cycles, on 400,000 input triples each: all
+-- combinations of special values, exponent differences up to 70, sums with few
+-- bits (ties), inputs near overflow and underflow, and random triples.
+hypotModel :: DeviceFamily -> Double -> Double -> Double -> Double
+hypotModel fam x y z =
+  castWord64ToDouble
+    (hypotDouble (familyMultipliers fam) (castDoubleToWord64 x) (castDoubleToWord64 y) (castDoubleToWord64 z))
+

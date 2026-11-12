@@ -5,7 +5,8 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in double precision: square root, reciprocal square root, reciprocal,
-exponential and the arithmetic, see Note [Bit-exact double precision models],
+exponential, the hypotenuse and the arithmetic, see Note [Bit-exact double
+precision models], Note [Bit-exact double precision hypotenuse],
 Note [Bit-exact double precision reciprocal square root] and Note [Bit-exact
 double precision exponential].
 -}
@@ -17,6 +18,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   , recipDouble
   , expDouble
   , rsqrtDouble
+  , hypotDouble
   , addDouble
   , subDouble
   , mulDouble
@@ -201,7 +203,18 @@ sqrtDouble mults w
 -- | Significand of sqrt (m * 2^p) in units of 2^-52 (2^52 to 2^53), for the
 -- fraction @f@ of m
 sqrtSig :: Multipliers -> Int -> Integer -> Integer
-sqrtSig mults p f = case mults of
+sqrtSig mults p f = sqrtA mults p f `shiftR` sqrtShift mults
+
+-- | The position of the least significant bit of 'sqrtA': A is at 2^-(52 +
+-- 'sqrtShift')
+sqrtShift :: Multipliers -> Int
+sqrtShift FullMultipliers = 4
+sqrtShift TruncatedMultipliers = 6
+
+-- | The square root's polynomial with its rounding constant, before the final
+-- truncation (see 'sqrtSig')
+sqrtA :: Multipliers -> Int -> Integer -> Integer
+sqrtA mults p f = case mults of
   FullMultipliers ->
     let (cut3, cut4, cut5) = sqrtCutsCycloneV
         s1 = 2 * c4 + (c5 * y1) `shiftR` 16           -- 2^-28
@@ -209,8 +222,7 @@ sqrtSig mults p f = case mults of
         s3 = 2 * c2 + truncMul cut3 y3 s2 `shiftR` 34 -- 2^-42
         s4 = 2 * c1 + truncMul cut4 s3 y4 `shiftR` 40 -- 2^-49
         -- At 2^-56, with the rounding constant 2^-53
-        a = 2 * c0 + 8 + truncMul cut5 s4 y `shiftR` 45
-    in  a `shiftR` 4
+    in  2 * c0 + 8 + truncMul cut5 s4 y `shiftR` 45
   TruncatedMultipliers ->
     let (cut1, cut2, cut3, cut4, cut5) = sqrtCutsMax10
         -- Rounded half up, at the same positions as on Cyclone V
@@ -219,8 +231,7 @@ sqrtSig mults p f = case mults of
         s3 = 2 * c2 + (truncMul cut3 y3 s2 + bit 33) `shiftR` 34
         s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 39) `shiftR` 40
         -- At 2^-58, with the rounding constant 2^-53 + 2^-58
-        a = 8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 43
-    in  a `shiftR` 6
+    in  8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 43
  where
   (c0, c1, c2, c3, c4, c5) = sqrtTable ! (p * 128 + fromInteger (f `shiftR` 45))
   y = f .&. (bit 45 - 1)
@@ -699,3 +710,58 @@ divDouble x y = case (value x, value y) of
 -- | Set the sign bit of a bit pattern if the flag is set
 signed :: Bool -> Word64 -> Word64
 signed s w = if s then w .|. bit 63 else w
+
+{- Note [Bit-exact double precision hypotenuse]
+The three-dimensional hypotenuse sqrt (x^2 + y^2 + z^2) works like the single
+precision one (see Note [Bit-exact models] in
+"Clash.Cores.Intel.Floating.Internal.BitExact"), scaled up, and uses the
+square root's datapath (see Note [Bit-exact double precision models]):
+
+  * Each square m^2 of a nonzero input's significand m = 1.f is truncated to 53
+    bits: a significand M (2^52 <= M < 2^53) with exponent E = 2 (e - 1023) + h,
+    h = 1 when m^2 >= 2. Zero and subnormal inputs contribute nothing.
+  * With Emax the largest E, each square is aligned to 2^Emax, truncated at
+    2^(Emax - 54); squares more than 53 binades below Emax are left out. The
+    sum is exact.
+  * The sum is rounded to nearest, ties away from zero, to 53 significant bits,
+    and its square root is computed with the square root's polynomial ('sqrtA')
+    plus an extra half unit in the last place: 2^-53 on top of the square
+    root's own rounding constant.
+  * Any NaN gives the IP's NaN, otherwise any infinity gives +inf, and three
+    zeros give +0. Results with an exponent field of 2047 or more are +inf.
+    Signs are ignored.
+
+How it was found: the single precision recipe with every width scaled to
+double precision matched all outputs at once, on MAX 10 and Cyclone V
+(random inputs, special values, exponent differences up to 70, sums with few
+bits, inputs near overflow and underflow).
+-}
+
+-- | The IP's three-dimensional hypotenuse in double precision, on bit patterns
+hypotDouble :: Multipliers -> Word64 -> Word64 -> Word64 -> Word64
+hypotDouble mults a b c
+  | any (\(e, f) -> e == 2047 && f /= 0) xs = nanDouble
+  | any (\(e, _) -> e == 2047) xs = infDouble
+  | null sqs = 0
+  | be >= 2047 = infDouble
+  | otherwise = (fromIntegral be `shiftL` 52) .|. fromInteger (o .&. (bit 52 - 1))
+ where
+  xs = [(e, f) | w <- [a, b, c], let (_, e, f) = fields w]
+  -- The squares, truncated to 53 bits: (exponent, significand)
+  sqs =
+    [ (2 * (e - 1023) + h, m2 `shiftR` (52 + h))
+    | (e, f) <- xs, e /= 0
+    , let m = f .|. bit 52
+    , let m2 = m * m
+    , let h = fromInteger (m2 `shiftR` 105)
+    ]
+  emax = maximum (map fst sqs)
+  -- Aligned at 2^(emax - 54)
+  s = sum [(m `shiftL` 2) `shiftR` d | (e, m) <- sqs, let d = emax - e, d <= 53]
+  n = bitLength s
+  q0 = (s + bit (n - 54)) `shiftR` (n - 53)
+  (q, et) = if q0 >= bit 53 then (q0 `shiftR` 1, emax + n - 54) else (q0, emax + n - 55)
+  p = et .&. 1
+  k = et `shiftR` 1
+  o0 = (sqrtA mults p (q - bit 52) + bit (sqrtShift mults - 1)) `shiftR` sqrtShift mults
+  (o, be) = if o0 >= bit 53 then (o0 `shiftR` 1, k + 1024) else (o0, k + 1023)

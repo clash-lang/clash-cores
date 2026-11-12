@@ -239,3 +239,63 @@ doublePairs n seed =
           _ -> (castWord64ToDouble a, castWord64ToDouble (withExp y (0x3c0 + (k `shiftR` 16) `mod` 0x80)))
      in pair : go rs
   go _ = []
+
+-- | E.hypot, E.hypotWith @14
+hypotDut :: Dut (Double, Double, Double) (Vec 2 Double)
+hypotDut clk rst en i = bundle (ternary (E.hypot simFamily) clk rst en i :> ternary (E.hypotWith @14 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE hypotDut #-}
+
+-- | Inputs of the hypotenuse: all triples of a few special values, triples
+-- whose results differ between the MAX 10 and Cyclone V datapaths, and @n@
+-- random triples of either sign whose (biased) exponents are @e@, @e - d1@ and
+-- @e - d2@ in a random order, with @d1@ and @d2@ below 64, so that their
+-- squares overlap or just miss each other when 'E.hypot' adds them
+hypotDoublesIn :: Int -> Word64 -> [(Double, Double, Double)]
+hypotDoublesIn n seed =
+  [(f x, f y, f z) | x <- sp, y <- sp, z <- sp]
+    <> P.map (\(x, y, z) -> (f x, f y, f z)) hypotDatapathWords
+    <> P.take n (go (randoms seed))
+ where
+  f = castWord64ToDouble
+  sp = [0, 0x8000000000000001, 0x7ff0000000000000, 0x7ff8000000000000, 0x3ff0000000000000, 0x7fefffffffffffff, 0x0010000000000000, 0xbff8000000000000]
+  go (k : a : b : c : rs) =
+    let e = 64 + k `P.mod` 1980
+        d1 = (k `shiftR` 32) `P.mod` 64
+        d2 = (k `shiftR` 40) `P.mod` 64
+        mk r d = f ((r .&. 0x800fffffffffffff) .|. ((e - d) `shiftL` 52))
+        (x, y, z) = (mk a 0, mk b d1, mk c d2)
+     in (case (k `shiftR` 48) `P.mod` 3 of
+           0 -> (x, y, z)
+           1 -> (y, z, x)
+           _ -> (z, x, y)) : go rs
+  go _ = []
+
+-- | Input triples whose results differ between the MAX 10 and Cyclone V
+-- datapaths
+hypotDatapathWords :: [(Word64, Word64, Word64)]
+hypotDatapathWords =
+  [ (0x768bda9424b90690, 0xf68b49f1574ca113, 0x76c5e498b6450d3f)
+  , (0xdd4518fd5053f427, 0x5d8dc0ad8737311f, 0x5d94d0f97084ecf8)
+  , (0x8afc120665e31d14, 0x0b18011cf80a2044, 0x8ac6e815ccd2e9b6)
+  , (0x4b5abd8a475ceab4, 0xcb7953b11b917c1d, 0xcb31dc1738e7746c)
+  , (0x48a4c48acc4dcafd, 0x4863e0ad75b83bac, 0x48b494dc74bb449c)
+  , (0xd8cae3bc7fff3ca8, 0xd8e142c0905c3e2e, 0xd8e1c74e6198cf15)
+  , (0xfe015df73d4e8e7d, 0x7e44d1838d1ea8fa, 0xfe520ad33ce193de)
+  , (0xb88feb4f10256ad6, 0x389c89acf028ecd1, 0xb8c45aa40f7294e6)
+  , (0xeec5ef844dc99b0b, 0xeeda12abcf407205, 0x6edd54d1f0ca099c)
+  , (0x96f1b0b4d2e1d578, 0x170a186479ead60c, 0x170bf63f48d287c8)
+  , (0x0b1418c207a8bcc8, 0x8b229b57ee366064, 0x0b2c065c28016f96)
+  , (0x597ef9acea34dc00, 0xd97c4259c51f87ea, 0x598e51d5d7a212dc)
+  , (0x0510d91e4ca9ac00, 0x85531116c65d1a98, 0x856817e54ea88a94)
+  , (0x400f7b1e15ba4d8e, 0xbfc20fb4fcd6b00c, 0x3fb8d8d773b30148)
+  , (0xd947709bc148d219, 0xd9515ff473f46f7f, 0x595602700bceb121)
+  , (0xe1ea33b660772eed, 0xe2088d2cf0edd96f, 0xe1f55d6cafb191d7)
+  , (0xb77bce6473edc184, 0xb75feea81c5bd4e4, 0xb784266eab7f7e88)
+  , (0x47b8e0c9ab665632, 0xc7f313f7ede2270d, 0x47bb9aaceca00ea4)
+  , (0x67bbcb302b72a39f, 0x67951a6cd6d452c0, 0xe797e278c88dd234)
+  , (0x5f078010c4ad6537, 0xdf5a7e331873bece, 0x5f22a17963eba5cc)
+  , (0x70c0c5cf63c6596c, 0x70e0d5e9cfb7bedf, 0xf0b715561b124df0)
+  , (0x3517d1910b8f4cdb, 0xb4ff1c446875d368, 0x351299ffca798ffc)
+  , (0xe30c0e36a4188aae, 0x630318b551f220e9, 0xe30fecfc8143a321)
+  , (0x42e5df5d15e0a626, 0x42dc912a5ef289bb, 0x42bc479cdb43bc9b) ]
+

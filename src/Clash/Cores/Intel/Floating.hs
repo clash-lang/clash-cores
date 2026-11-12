@@ -41,7 +41,9 @@ models document the details.
   ('Clash.Cores.Intel.Floating.Double.Explicit.expModel') is off by up to 1.8
   units in the last place, and by up to 30 units for the double just below
   about one in 35 multiples of ln 2, where it returns the power of two above
-  (all four families; 2.7 million inputs per family).
+  (all four families; 2.7 million inputs per family), and the hypotenuse
+  ('Clash.Cores.Intel.Floating.Double.Explicit.hypotModel') by up to 1.25
+  units (all four families; 400,000 input triples per family).
 
 * /Power of one./ IEEE 754's @powr@, which the IP's POWR follows otherwise,
   gives one for @1 ** y@ with a finite @y@. The IP gives @+inf@ or @+0@ for
