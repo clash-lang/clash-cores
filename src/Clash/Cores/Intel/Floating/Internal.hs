@@ -612,9 +612,8 @@ asinModel fam = onBits (asinSingle (familyMultipliers fam))
 --
 -- Verified against the simulated IP (Quartus Prime Lite 21.1) on 12 million
 -- inputs (the random and special inputs of 'asinModel''s verification set
--- and every eighth of the others) for Cyclone IV E and Cyclone 10 LP at
--- 200 MHz and MAX 10 at the minimum latency (16), and on the 6.7 million
--- random and special ones for MAX 10 and Cyclone V at 200 MHz.
+-- and every eighth of the others) for all four families at 200 MHz and at
+-- the minimum latency (16).
 asinPiModel :: DeviceFamily -> Float -> Float
 asinPiModel fam = onBits (asinPiSingle (familyMultipliers fam))
 
