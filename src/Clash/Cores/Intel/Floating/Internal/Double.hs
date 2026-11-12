@@ -18,6 +18,7 @@ module Clash.Cores.Intel.Floating.Internal.Double
   , divModel
   , sqrtModel
   , recipModel
+  , expModel
     -- * Instantiation
   , fpFunctionsDouble
   ) where
@@ -109,6 +110,30 @@ sqrtModel fam = onBits (sqrtDouble (familyMultipliers fam))
 -- exponent, and inputs whose reciprocal is very close to a rounding boundary.
 recipModel :: Double -> Double
 recipModel = onBits recipDouble
+
+-- | Model of the exponential, @e^x@, of the IP in double precision. It gives
+-- the IP's results bit for bit, see Note [Bit-exact double precision
+-- exponential] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble": the
+-- argument is reduced to @r = x - k * ln 2@ in @[0, ln 2)@ and @e^r@ is
+-- computed with a polynomial of degree five. The result is not always rounded
+-- to nearest, nor always faithful: it is up to 1.8 units in the last place
+-- below and 0.6 above the exact result. For about one in 35 multiples
+-- @k * ln 2@, the IP's estimate of @k@ is one too high for the double closest
+-- to and just below it: the result is then exactly @2^k@, up to 30 units in the
+-- last place above the exact result. Results below the smallest normal number
+-- are flushed to +0 and results that overflow give +inf; @e^(-inf) = 0@, NaN
+-- inputs give 'intelNaN'. Subnormal inputs are treated as zero, but as a zero with a
+-- leading one: @e^(-0)@ and @e^x@ for a negative subnormal @x@ are the
+-- largest double below one.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E, Cyclone 10 LP and Cyclone V, at 200 MHz, 100 MHz and a latency
+-- of 20 cycles, on 2.7 million inputs each: special values, random inputs of
+-- several kinds, the 41 doubles around every multiple of @ln 2@ in the range,
+-- inputs in every segment of its table, and 600,000 inputs whose results
+-- differ between the families.
+expModel :: DeviceFamily -> Double -> Double
+expModel fam = onBits (expDouble (familyMultipliers fam))
 
 -- | Parameters of an @altera_fp_functions@ IP in double precision, see
 -- 'fpFunctionsFormat'

@@ -36,6 +36,9 @@ module Clash.Cores.Intel.Floating.Double
   , recipWith
   , recip
   , E.RecipDefDelay
+  , expWith
+  , exp
+  , E.ExpDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -47,9 +50,10 @@ module Clash.Cores.Intel.Floating.Double
   , E.divModel
   , E.sqrtModel
   , E.recipModel
+  , E.expModel
   ) where
 
-import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip)
+import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -208,3 +212,29 @@ recip
   -> DSignal dom (n + E.RecipDefDelay) Double
 recip = withFrozenCallStack $ hideClockResetEnable E.recip
 {-# INLINE recip #-}
+
+-- | Customizable floating point exponential, @e^x@, in double precision. See
+-- 'E.expWith'.
+expWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+expWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.expWith cfg fam)
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, in double precision, with the default
+-- configuration and delay. See 'E.exp'.
+exp
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.ExpDefDelay) Double
+exp fam = withFrozenCallStack $ hideClockResetEnable (E.exp fam)
+{-# INLINE exp #-}

@@ -4,8 +4,9 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
-in double precision: square root, reciprocal and the arithmetic, see Note
-[Bit-exact double precision models].
+in double precision: square root, reciprocal, exponential and the arithmetic,
+see Note [Bit-exact double precision models] and Note [Bit-exact double
+precision exponential].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -13,6 +14,7 @@ in double precision: square root, reciprocal and the arithmetic, see Note
 module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   ( sqrtDouble
   , recipDouble
+  , expDouble
   , addDouble
   , subDouble
   , mulDouble
@@ -27,7 +29,8 @@ import Data.Ratio (denominator, numerator)
 import Data.Word (Word64)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
-import Clash.Cores.Intel.Floating.Internal.CoefficientsDouble (sqrtDoubleCoefficients)
+import Clash.Cores.Intel.Floating.Internal.CoefficientsDouble
+  (expDoubleCoefficients, sqrtDoubleCoefficients)
 
 {- Note [Bit-exact double precision models]
 In double precision, the IP computes its functions with the algorithms of
@@ -222,6 +225,191 @@ sqrtSig mults p f = case mults of
   y1 = y `shiftR` 28
   y2 = y `shiftR` 21
   y3 = y `shiftR` 12
+  y4 = y `shiftR` 5
+
+{- Note [Bit-exact double precision exponential]
+The exponential reduces its argument like the single precision one (see Note
+[Bit-exact models] in "Clash.Cores.Intel.Floating.Internal.BitExact"):
+e^x = 2^k * e^r with k = floor (x / ln 2) and r = x - k * ln 2 in [0, ln 2),
+and evaluates e^r with a piecewise polynomial of degree five. In detail:
+
+  * X = floor (x * 2^53), as a two's complement number.
+  * The estimate of k is a table-based constant multiplier (KCM, as in
+    FloPoCo and Intel's DSP Builder) of the significand by 1/ln 2: the
+    significand m = 1.f (in units of 2^-52), negated for a negative x, is a
+    54-bit two's complement number I. It is cut into digits of 4 bits (6 bits
+    on Cyclone V), from the least significant end; the top digit is signed.
+    Each digit d at position i looks up d * 2^i * C * 2^-52, rounded down to
+    a multiple of 2^-60, in a table of its own, where C is 1/ln 2 rounded to
+    nearest at 2^-57. The sum of the table outputs is rounded to nearest at
+    2^-55 (sR), and k = floor (sR * 2^(e - 1023)), with e the biased
+    exponent of x. This estimate is never below floor (x / ln 2), but it is
+    one above it for the doubles within about 2/3 of 2^-56 (relative) below a
+    multiple of ln 2: then r below is negative and clamped to zero, and the
+    result is exactly 2^k.
+  * K = k * ln 2 in units of 2^-55: ln 2 rounded to nearest at 2^-63, the
+    product rounded down to 2^-62 and then up to 2^-55.
+  * r = 4 X - K at 2^-55, clamped to 0 when negative; the table index j is
+    r divided by 2^48 (0 to 88) and y the low 48 bits, t = y * 2^-48.
+  * The polynomial, in Horner form with the coefficients C0 .. C5 of segment j
+    (see "Clash.Cores.Intel.Floating.Internal.CoefficientsDouble"):
+
+      S1 = 2 C4 + T1,  T1 = C5 * (y >> 32)   at 2^-56
+      S2 = 2 C3 + T2,  T2 = S1 * (y >> 23)   at 2^-57
+      S3 = 2 C2 + T3,  T3 = S2 * (y >> 13)   at 2^-56
+      S4 = 2 C1 + T4,  T4 = S3 * (y >> 5)    at 2^-56
+      A  = 8 C0 + T5 + rc,  T5 = y * S4      at 2^-58
+
+    and the significand is A >> 6, at 2^-52, in [2^52, 2^53]. A significand
+    of 2^53 carries into the exponent k + 1023.
+  * Results with an exponent field of 2047 or more are +inf; 0 or less give
+    +0. NaN gives the IP's NaN, +inf gives +inf and -inf gives +0, and
+    |x| >= 1024 gives +inf or +0.
+
+The products are truncated multipliers as in the square root (see Note
+[Bit-exact double precision models]):
+
+  * Cyclone V: T1 and T2 are exact products, rounded down. T3, T4 and T5 leave
+    out the partial products of 'expCutsCycloneV' (staircases of the
+    device's 27x27 and 18x18 multipliers), and are rounded down. rc = 2^-53.
+  * MAX 10, Cyclone IV E and Cyclone 10 LP: the tiling of the square root
+    (17-bit chunks, tiles of low weight left out except for a corner), see
+    'expCutsMax10'. T1 to T4 are rounded to nearest (half up), T5 is rounded
+    down, rc = 2^-53 + 2^-58.
+
+How the structure was inferred:
+
+  * The coefficients and the datapath with full multipliers (Intel's generator
+    option) were found as for the square root: for k = 0, inputs just above
+    j / 128 isolate C0, C1 and the rounding constant; a coordinate descent over
+    the truncation of each product gave the rest. The table sizes and widths
+    come from the synthesis report.
+  * The truncated multipliers: the multiplier sizes and register widths of the
+    synthesis report gave each product's operand and output widths. Generating
+    the same products standalone with the IP's generator and simulating them
+    gave their staircases: on Cyclone V with operands that have only one
+    chunk of bits set (e.g. only the top 27 bits of both operands), which
+    isolates the partial products of each multiplier of the synthesis report.
+    Inside the IP, T5 keeps a few partial products less than the standalone
+    product (one row shorter on Cyclone V; the first row of each step on
+    MAX 10): inputs whose result lies exactly on a rounding boundary of the
+    model told which ones.
+  * The constant multiplier: the synthesis report names its digits and gives
+    their widths (13 of 4 bits and one of 2 bits, or 9 of 6 bits on Cyclone V,
+    and a 58-bit sum). Only the doubles closest to a
+    multiple of ln 2 (one per multiple at most, all in the test set) show
+    whether k is one too high; the table precision, the rounding of the
+    tables, of the sum and of the constant were chosen among the usual
+    choices for such a multiplier by matching those inputs.
+-}
+
+-- | Truncated products T3, T4 and T5 of the exponential on Cyclone V, as cut
+-- lists for 'truncMul'
+expCutsCycloneV :: ([Int], [Int], [Int])
+expCutsCycloneV =
+  ( -- T3 = S2 [37 bits] * (y >> 13) [35 bits]
+    runs [(9, 19), (9, 10), (17, 0)]
+    -- T4 = S3 [45 bits] * (y >> 5) [43 bits]: a 27x27 multiplier, a sum of
+    -- two 18x18 multipliers, two small ones and a 4x4 corner
+  , runs [(13, 27), (4, 23), (5, 18), (4, 14), (17, 0)]
+    -- T5 = y [49 bits] * S4 [51 bits]
+  , runs [(22, 22), (4, 18), (25, 0)]
+  )
+
+-- | Truncated products T2 to T5 of the exponential on MAX 10, Cyclone IV E
+-- and Cyclone 10 LP, as cut lists for 'truncMul' (T1 is exact)
+expCutsMax10 :: ([Int], [Int], [Int], [Int])
+expCutsMax10 =
+  ( -- T2 = S1 [27 bits] * (y >> 23) [25 bits]
+    runs [(9, 10), (16, 0)]
+    -- T3 = S2 [37 bits] * (y >> 13) [35 bits]
+  , runs [(2, 29), (9, 20), (8, 12), (9, 3), (7, 0)]
+    -- T4 = S3 [45 bits] * (y >> 5) [43 bits]
+  , runs [(10, 28), (17, 11), (16, 0)]
+    -- T5 = y [49 bits] * S4 [51 bits]: the tiling rule keeps the rows of S4
+    -- in steps of 8 or 9 (cuts 41, 32, 24, 15, 7 and 0); the IP leaves out
+    -- the partial products of the first row of each step with i + j < 41
+  , runs [(1, 41), (1, 40), (8, 32), (1, 31), (7, 24), (1, 23), (8, 15), (1, 14), (7, 7), (1, 6), (15, 0)]
+  )
+
+-- | The table of 'expDouble'
+expTable :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
+expTable = listArray (0, 88) expDoubleCoefficients
+{-# NOINLINE expTable #-}
+
+-- * Exponential
+
+-- | The IP's exponential in double precision, on bit patterns
+expDouble :: Multipliers -> Word64 -> Word64
+expDouble mults w
+  | e == 2047 = if f /= 0 then nanDouble else if neg then 0 else infDouble
+  | e > 1032 = if neg then 0 else infDouble
+  | be >= 2047 = infDouble
+  | be <= 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 52) .|. fromInteger (o .&. (bit 52 - 1))
+ where
+  (neg, e, f) = fields w
+  -- The significand (also for zeros and subnormal numbers) and x * 2^53,
+  -- rounded down
+  m = f .|. bit 52
+  mx = if neg then negate m else m
+  x53 = if e >= 1022 then mx `shiftL` (e - 1022) else mx `shiftR` (1022 - e)
+  k = expK mults mx e
+  -- k * ln 2 at 2^-55: ln 2 at 2^-63 (rounded to nearest), the product rounded
+  -- down to 2^-62 and then up to 2^-55
+  kln2 = negate (negate ((k * 0x58B90BFBE8E7BCD6) `shiftR` 1) `shiftR` 7)
+  r = max 0 (4 * x53 - kln2)
+  o0 = expSig mults (fromInteger (r `shiftR` 48)) (r .&. (bit 48 - 1))
+  (o, be) = if o0 >= bit 53 then (o0 `shiftR` 1, fromInteger k + 1024) else (o0, fromInteger k + 1023 :: Int)
+
+-- | The IP's estimate of floor (x / ln 2), for the significand @mx@ of x
+-- (negated for a negative x) and its biased exponent @e@: a table-based
+-- constant multiplier, see Note [Bit-exact double precision exponential]
+expK :: Multipliers -> Integer -> Int -> Integer
+expK mults mx e = sR `shiftR` (55 - (e - 1023))
+ where
+  -- 1/ln 2 at 2^-57, rounded to nearest
+  c = 0x2E2A8ECA5705FC3
+  -- The digit width: the size of the device's lookup tables
+  dw = case mults of
+    TruncatedMultipliers -> 4
+    FullMultipliers -> 6
+  nd = (54 + dw - 1) `quot` dw
+  digit i
+    | i == nd - 1 = mx `shiftR` (dw * i)
+    | otherwise = (mx `shiftR` (dw * i)) .&. (bit dw - 1)
+  -- d * 2^(dw i) * c * 2^-57 * 2^-52, rounded down at 2^-60
+  s = sum [((digit i * c) `shiftL` (dw * i)) `shiftR` 49 | i <- [0 .. nd - 1]]
+  sR = (s + 16) `shiftR` 5
+
+-- | Significand of e^r in units of 2^-52 (2^52 to 2^53), for the segment @j@
+-- and the 48 low bits @y@ of r
+expSig :: Multipliers -> Int -> Integer -> Integer
+expSig mults j y = case mults of
+  FullMultipliers ->
+    let (cut3, cut4, cut5) = expCutsCycloneV
+        s1 = 2 * c4 + (c5 * y1) `shiftR` 15            -- 2^-56
+        s2 = 2 * c3 + (s1 * y2) `shiftR` 24            -- 2^-57
+        s3 = 2 * c2 + truncMul cut3 s2 y3 `shiftR` 36  -- 2^-56
+        s4 = 2 * c1 + truncMul cut4 s3 y4 `shiftR` 43  -- 2^-56
+        -- At 2^-58, with the rounding constant 2^-53
+        a = 8 * c0 + 32 + truncMul cut5 y s4 `shiftR` 46
+    in  a `shiftR` 6
+  TruncatedMultipliers ->
+    let (cut2, cut3, cut4, cut5) = expCutsMax10
+        -- Rounded half up
+        s1 = 2 * c4 + (c5 * y1 + bit 14) `shiftR` 15            -- 2^-56
+        s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 23) `shiftR` 24  -- 2^-57
+        s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 35) `shiftR` 36  -- 2^-56
+        s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 42) `shiftR` 43  -- 2^-56
+        -- At 2^-58, with the rounding constant 2^-53 + 2^-58
+        a = 8 * c0 + 33 + truncMul cut5 y s4 `shiftR` 46
+    in  a `shiftR` 6
+ where
+  (c0, c1, c2, c3, c4, c5) = expTable ! j
+  y1 = y `shiftR` 32
+  y2 = y `shiftR` 23
+  y3 = y `shiftR` 13
   y4 = y `shiftR` 5
 
 -- * Reciprocal

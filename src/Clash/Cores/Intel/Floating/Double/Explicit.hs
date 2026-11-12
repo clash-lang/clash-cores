@@ -14,20 +14,20 @@ subnormal numbers. "Clash.Cores.Intel.Floating.Double" has the same functions
 with a hidden clock, reset and enable.
 
 The supported functions are the arithmetic ('add', 'sub', 'mul' and 'div'),
-'sqrt' and 'recip'. The arithmetic and the reciprocal are correctly rounded,
+'sqrt', 'recip' and 'exp'. The arithmetic and the reciprocal are correctly rounded,
 with the deviations from IEEE 754 described in
 "Clash.Cores.Intel.Floating.Explicit" (subnormal inputs are treated as zero
 and results below the smallest normal number are flushed to zero, after
 rounding with an unbounded exponent). In double precision the IP
 computes them with the algorithms of single precision, scaled up: the square
 root with a polynomial of degree five instead of two. Clash simulation gives
-the IP's results bit for bit: the models ('sqrtModel' and 'recipModel') were
+the IP's results bit for bit: the models ('sqrtModel', 'recipModel' and 'expModel') were
 obtained by black-box testing of the IP, see Note [Bit-exact double precision
 models] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble", and were
 verified against the simulated IP on millions of inputs for MAX 10, Cyclone IV
 E, Cyclone 10 LP and Cyclone V, at several latencies. The results of the
-square root depend on the multipliers of the device family, so it takes a
-'DeviceFamily' argument.
+square root and the exponential depend on the multipliers of the device
+family, so they take a 'DeviceFamily' argument.
 
 The other functions of the IP, its multiply-add, comparisons and conversions
 are not supported in double precision.
@@ -57,6 +57,9 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , recipWith
   , recip
   , RecipDefDelay
+  , expWith
+  , exp
+  , ExpDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -68,9 +71,10 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , divModel
   , sqrtModel
   , recipModel
+  , expModel
   ) where
 
-import Clash.Explicit.Prelude hiding (add, sub, mul, div, sqrt, recip)
+import Clash.Explicit.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -363,3 +367,54 @@ recip = withFrozenCallStack $ recipWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type RecipDefDelay = 45
+
+-- | Customizable floating point exponential, @e^x@, in double precision, see
+-- 'expModel'. The IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers and
+-- lookup tables, see 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+expWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+expWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (expModel fam <$> x)
+  | otherwise = unaryInst "fp_exp_double" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of exp"
+  ip = fpFunctionsDouble cfg "EXP_LOG" "EXPE" (natToNum @d) Nil
+{-# INLINE expWith #-}
+
+-- | Floating point exponential, @e^x@, in double precision, with the default
+-- configuration and delay. See 'expWith'.
+exp
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + ExpDefDelay) Double
+exp = withFrozenCallStack $ expWith defConfig
+{-# INLINE exp #-}
+
+-- | The default delay of 'exp': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type ExpDefDelay = 57

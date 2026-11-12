@@ -36,7 +36,12 @@ models document the details.
   models, on all inputs of whole binades and millions of other inputs per
   function, on all four families. The arcsine and arccosine (not supported by
   this module) are off by up to 1.3 and 3 units in the last place for inputs
-  in [0.5, 1) (all inputs of that binade, Cyclone V datapath).
+  in [0.5, 1) (all inputs of that binade, Cyclone V datapath). In double
+  precision, the exponential
+  ('Clash.Cores.Intel.Floating.Double.Explicit.expModel') is off by up to 1.8
+  units in the last place, and by up to 30 units for the double just below
+  about one in 35 multiples of ln 2, where it returns the power of two above
+  (all four families; 2.7 million inputs per family).
 
 * /Power of one./ IEEE 754's @powr@, which the IP's POWR follows otherwise,
   gives one for @1 ** y@ with a finite @y@. The IP gives @+inf@ or @+0@ for
