@@ -52,6 +52,49 @@ expDut :: Dut Double (Vec 2 Double)
 expDut clk rst en i = bundle (unary (E.exp simFamily) clk rst en i :> unary (E.expWith @20 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE expDut #-}
 
+-- | E.rsqrt, E.rsqrtWith @12
+rsqrtDut :: Dut Double (Vec 2 Double)
+rsqrtDut clk rst en i = bundle (unary (E.rsqrt simFamily) clk rst en i :> unary (E.rsqrtWith @12 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE rsqrtDut #-}
+
+-- | Inputs of the reciprocal square root: inputs in the two table segments
+-- whose coefficients were observed from the IP (where the computed
+-- coefficients would give other results on MAX 10), inputs for which the
+-- models of MAX 10 and Cyclone V differ, and 'doublesIn'
+rsqrtDoublesIn :: Int -> Word64 -> [Double]
+rsqrtDoublesIn n seed =
+  P.map castWord64ToDouble (rsqrtObservedWords <> rsqrtDatapathWords) <> doublesIn 1 2046 n seed
+
+-- | Inputs in segments 320 and 426 of the reciprocal square root (24 each),
+-- see Note [Observed double precision rsqrt coefficients] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble"
+rsqrtObservedWords :: [Word64]
+rsqrtObservedWords =
+  [ 0x31c40e9fab2d9aec, 0x3004096cee65ab4f, 0x45040d77e687ac1f, 0x3d840c4b1e72c37b
+  , 0x5c840fbcfeab438e, 0x73640f51f6925e9f, 0x2a240e896d930b6c, 0x26640e06647cb5d4
+  , 0x47840cd2e164a5ae, 0x50240c64b7e4db0d, 0x03a40893218b3867, 0x33840971f129e85d
+  , 0x01e40f2c1539940c, 0x0b640ef9131109c3, 0x10840e98f307099f, 0x0ac404859da65325
+  , 0x38e40d9b14a05bdd, 0x03c40dc26f25e2cc, 0x3b0405bdc8b1726e, 0x56a403a6c4df0737
+  , 0x49a40f4b8bc09e52, 0x40840a6a7fcf8de0, 0x53a4082ebca4d66f, 0x2b240f85736ec19b
+  , 0x496aaf6197a4488b, 0x1f6aa0a570d640e1, 0x56caa24c9df9c587, 0x124aa1d5a944d475
+  , 0x116aa012bc778e60, 0x3e4aafa44611e4c3, 0x56aaa8c37c07d55d, 0x5eaaa02a69f757d6
+  , 0x0b4aa75de95459fa, 0x278aa03e7ad11316, 0x75aaaf50386b1c55, 0x6ccaaa178e19c076
+  , 0x4a4aa3e40da09142, 0x278aaff288243291, 0x52aaa5cbaa0ba229, 0x6f0aaffb60aa02af
+  , 0x15aaabaf66403895, 0x462aa83969e2b259, 0x29eaa9147fe58e03, 0x228aab371a5f8fd3
+  , 0x0bcaae41cd05a09a, 0x1deaaee4157a4380, 0x3daaa97ef8b86e4b, 0x570aa0ce4cb74c99 ]
+
+-- | Inputs for which the reciprocal square roots of MAX 10 and Cyclone V differ
+rsqrtDatapathWords :: [Word64]
+rsqrtDatapathWords =
+  [ 0x40316fcb19955df8, 0x32f40347539a4ad4, 0x63d7ff0432dff295, 0x779a4d7e09ad9cf5
+  , 0x4f5388b3c62a9f5a, 0x01f7974353cd1ded, 0x12480ec75221f2df, 0x76b1f509b408a49c
+  , 0x363dbb6d5560818e, 0x60e5343c9326a33c, 0x2c9e6e2ebc7f9c81, 0x78057f12987d8f1e
+  , 0x0c9dae2494e4705c, 0x3a6a3e5b888eff19, 0x48488e7fa47dab37, 0x32ff3c2818aaa2fe
+  , 0x73d58a38baab9b60, 0x69c98d4afe42eb20, 0x57f31e537f15b6e3, 0x406965a1a545b2bd
+  , 0x50ea1e13d4b2c45f, 0x111e4518812fd07e, 0x2d9cdfb963ac0493, 0x5b26380c1481cb70
+  , 0x6879c3d8c7e6677b, 0x29303fa312d14a03, 0x7e657ff64cd1d2d3, 0x6eaaffb78e30718c
+  , 0x6988c9051db697f3, 0x3a38f0439d53de7a, 0x1192beada87d859c, 0x7fde88cb37ef39df ]
+
 -- | Inputs of the exponential: 'specialDoubleWords', the doubles just below a
 -- multiple of ln 2 for which the IP's estimate of the multiple is one too high
 -- (on some family), inputs for which the models of MAX 10 and Cyclone V

@@ -4,9 +4,10 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
-in double precision: square root, reciprocal, exponential and the arithmetic,
-see Note [Bit-exact double precision models] and Note [Bit-exact double
-precision exponential].
+in double precision: square root, reciprocal square root, reciprocal,
+exponential and the arithmetic, see Note [Bit-exact double precision models],
+Note [Bit-exact double precision reciprocal square root] and Note [Bit-exact
+double precision exponential].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -15,6 +16,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   ( sqrtDouble
   , recipDouble
   , expDouble
+  , rsqrtDouble
   , addDouble
   , subDouble
   , mulDouble
@@ -23,14 +25,14 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
 
 import Prelude
 
-import Data.Array (Array, listArray, (!))
+import Data.Array (Array, listArray, (!), (//))
 import Data.Bits
 import Data.Ratio (denominator, numerator)
 import Data.Word (Word64)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
 import Clash.Cores.Intel.Floating.Internal.CoefficientsDouble
-  (expDoubleCoefficients, sqrtDoubleCoefficients)
+  (expDoubleCoefficients, rsqrtDoubleCoefficients, sqrtDoubleCoefficients)
 
 {- Note [Bit-exact double precision models]
 In double precision, the IP computes its functions with the algorithms of
@@ -411,6 +413,172 @@ expSig mults j y = case mults of
   y2 = y `shiftR` 23
   y3 = y `shiftR` 13
   y4 = y `shiftR` 5
+
+{- Note [Bit-exact double precision reciprocal square root]
+The reciprocal square root uses the scheme of the square root (see Note
+[Bit-exact double precision models]): 1 / sqrt x = 2^-k * 2 / sqrt (m * 2^p)
+for x = m * 2^(2k + p), with the significand 2 / sqrt (m * 2^p) in (1, 2]
+from a piecewise polynomial of degree five, evaluated in Horner form. Its
+table has 512 entries, indexed by p * 256 + the top 8 fraction bits, with
+p = 1 for an even biased exponent (else 0); y is the low 44 fraction bits.
+The coefficients have their least significant bits at 2^-55, 2^-47, 2^-39,
+2^-32, 2^-23 and 2^-15 in both parities (in units of y * 2^-52):
+
+  S1 = 2 C4 + T1,  T1 = C5 * (y >> 29)   at 2^-24
+  S2 = 2 C3 + T2,  T2 = S1 * (y >> 20)   at 2^-33
+  S3 = 2 C2 + T3,  T3 = S2 * (y >> 11)   at 2^-40
+  S4 = 2 C1 + T4,  T4 = S3 * (y >> 4)    at 2^-48
+  A  = C0 + T5 + rc,  T5 = S4 * y
+
+The significand is A at 2^-52, in [2^52, 2^53]; a significand of 2^53 (only
+for x = 2^(2k + 1)) carries into the exponent field (3068 - e) >> 1, with e
+the biased exponent of x.
+
+  * Cyclone V: T1 and T2 are exact products, rounded down. T3, T4 and T5 leave
+    out the partial products of 'rsqrtCutsCycloneV' and are rounded down; A is
+    at 2^-56 and rc = 2^-53.
+  * MAX 10, Cyclone IV E and Cyclone 10 LP: T1 is an exact product; T2 to T5
+    are the 17-bit tilings of the square root, see 'rsqrtCutsMax10'. T1 to T4
+    are rounded to nearest (half up) at the Cyclone V positions, T5 is rounded
+    to nearest at 2^-57, and A is at 2^-57 with rc = 2^-53.
+
+How the structure was inferred: the datapath with full multipliers (Intel's
+generator option) as for the square root, the table sizes and widths from the
+synthesis report. The register widths in the MAX 10 synthesis report (26, 35
+and 50 bits for S1, S2 and S4) and its multiplier sizes (one 17x17 multiplier
+for T1; three, four, six and eight multipliers for T2 to T5, with two 5x5
+corners in T3 and in T5) gave each product's operand and output widths;
+the tiling rule of the square root then gives the products, and a scan over
+their widths, output positions and rounding matched all outputs. The Cyclone
+V staircases were found by scanning one- and two-step staircases per product,
+on inputs with small y for T5 first.
+
+Zero and subnormal inputs give an infinity of the same sign; negative numbers
+(including -inf) and NaN give NaN; +inf gives +0.
+-}
+
+{- Note [Observed double precision rsqrt coefficients]
+The coefficients of the reciprocal square root are computed from first
+principles (see "Clash.Cores.Intel.Floating.Internal.CoefficientsDouble"),
+with one exception: in 2 of its 512 segments, 320 and 426, the IP's results
+show other coefficients than any first-principles method we tried. In these
+two segments the model uses the coefficients of 'rsqrtObservedCoefficients'
+instead, which were observed from the IP's outputs (with Intel's generator
+option for full multipliers): for inputs with small y only C0, C1 and the
+rounding constant matter, and the outputs pin down C0; among the lattice
+vectors near the generator's, the one with a single rounding step of Babai's
+algorithm flipped gave the IP's results on all 200,000 inputs per segment,
+and the model with it matches the IP on 685,000 more inputs in these two
+segments on all four families.
+
+No recipe reproduces them while keeping the other 510 segments: Chebyshev
+nodes (6 to 24, first and second kind), the interpolation points or extrema
+of the minimax polynomial, uniform nodes and overdetermined node sets;
+absolute and relative error; LLL with delta 1/2, 3/4 or 0.99 in all 720
+orders of the basis, fplll's LLL, Kannan's embedding and exact closest
+vectors among the candidates; the interval [0, 2^-8] with its end moved;
+coefficient grids one bit finer or coarser; nodes, targets or the constant
+sqrt 2 rounded to precisions from 24 to 200 bits; and choosing among nearby
+lattice vectors by the error of the polynomial or of the datapath. The two
+segments are not the ones nearest to a tie in Babai's rounding (others with
+a fraction closer to 1/2 match), and their errors are within the range of the
+other segments.
+
+The IP's coefficients minus the generator's, in units of their least
+significant bits (C0 to C5):
+
+  segment 320: [0, +1, -14, +105, -74, +35]
+  segment 426: [+1, -20, +112, -510, +253, -91]
+
+This is the only data observed from the IP in the models of this module.
+-}
+
+-- | Coefficients @(C0, .., C5)@ of the reciprocal square root that the IP
+-- uses in segments 320 and 426, where they differ from the generated ones.
+-- These were observed from the IP's outputs, see Note [Observed double
+-- precision rsqrt coefficients].
+rsqrtObservedCoefficients :: [(Int, (Integer, Integer, Integer, Integer, Integer, Integer))]
+rsqrtObservedCoefficients =
+  [ (320, (45573223974324343, -71208162459884, 166894130771, -869240252, 1188381, -3309))
+  , (426, (39498439913699104, -46359671260220, 81619139596, -319323942, 328055, -729))
+  ]
+
+-- | Truncated products T2 to T5 of the reciprocal square root on MAX 10,
+-- Cyclone IV E and Cyclone 10 LP, as cut lists for 'truncMul' (T1 is exact)
+rsqrtCutsMax10 :: ([Int], [Int], [Int], [Int])
+rsqrtCutsMax10 =
+  ( -- T2 = S1 [26 bits] * (y >> 20) [24 bits]: 17x17, 17x18 and 18x17 tiles
+    runs [(8, 9), (16, 0)]
+    -- T3 = S2 [35 bits] * (y >> 11) [33 bits]: three tiles and two 5x5
+    -- corners
+  , runs [(12, 18), (5, 13), (12, 1), (4, 0)]
+    -- T4 = S3 [42 bits] * (y >> 4) [40 bits]: six tiles of a 3x3 grid
+  , runs [(7, 25), (17, 8), (16, 0)]
+    -- T5 = S4 [50 bits] * y [44 bits]: six tiles of a 3x3 grid and two 5x5
+    -- corners
+  , runs [(6, 33), (5, 28), (12, 16), (5, 11), (16, 0)]
+  )
+
+-- | Truncated products T3, T4 and T5 of the reciprocal square root on Cyclone
+-- V, as cut lists for 'truncMul' (T1 and T2 are exact)
+rsqrtCutsCycloneV :: ([Int], [Int], [Int])
+rsqrtCutsCycloneV =
+  ( runs [(16, 17), (17, 0)]
+  , runs [(14, 24), (9, 15), (17, 0)]
+  , runs [(18, 23), (26, 0)]
+  )
+
+-- | The table of 'rsqrtDouble': the generated coefficients, with the observed
+-- ones in segments 320 and 426
+rsqrtTable :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
+rsqrtTable = listArray (0, 511) rsqrtDoubleCoefficients // rsqrtObservedCoefficients
+{-# NOINLINE rsqrtTable #-}
+
+-- * Reciprocal square root
+
+-- | The IP's reciprocal square root in double precision, on bit patterns
+rsqrtDouble :: Multipliers -> Word64 -> Word64
+rsqrtDouble mults w
+  | e == 2047 = if f /= 0 || neg then nanDouble else 0
+  -- Zeros and subnormal numbers: an infinity of the same sign
+  | e == 0 = (w .&. bit 63) .|. infDouble
+  | neg = nanDouble
+  -- The carry of a significand of 2 propagates into the exponent
+  | otherwise = (fromIntegral ((3068 - e) `shiftR` 1) `shiftL` 52) + fromInteger (o - bit 52)
+ where
+  (neg, e, f) = fields w
+  o = rsqrtSig mults (if even e then 1 else 0) f
+
+-- | Significand of 2 / sqrt (m * 2^p) in units of 2^-52 (2^52 to 2^53), for
+-- the fraction @f@ of m
+rsqrtSig :: Multipliers -> Int -> Integer -> Integer
+rsqrtSig mults p f = case mults of
+  FullMultipliers ->
+    let (cut3, cut4, cut5) = rsqrtCutsCycloneV
+        s1 = 2 * c4 + (c5 * y1) `shiftR` 14           -- 2^-24
+        s2 = 2 * c3 + (s1 * y2) `shiftR` 23           -- 2^-33
+        s3 = 2 * c2 + truncMul cut3 s2 y3 `shiftR` 34 -- 2^-40
+        s4 = 2 * c1 + truncMul cut4 s3 y4 `shiftR` 40 -- 2^-48
+        -- At 2^-56, with the rounding constant 2^-53
+        a = 2 * c0 + 8 + truncMul cut5 s4 y `shiftR` 44
+    in  a `shiftR` 4
+  TruncatedMultipliers ->
+    let (cut2, cut3, cut4, cut5) = rsqrtCutsMax10
+        -- Rounded half up
+        s1 = 2 * c4 + (c5 * y1 + bit 13) `shiftR` 14                -- 2^-24
+        s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 22) `shiftR` 23    -- 2^-33
+        s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 33) `shiftR` 34    -- 2^-40
+        s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 39) `shiftR` 40    -- 2^-48
+        -- At 2^-57, with the rounding constant 2^-53
+        a = 4 * c0 + 16 + (truncMul cut5 s4 y + bit 42) `shiftR` 43
+    in  a `shiftR` 5
+ where
+  (c0, c1, c2, c3, c4, c5) = rsqrtTable ! (p * 256 + fromInteger (f `shiftR` 44))
+  y = f .&. (bit 44 - 1)
+  y1 = y `shiftR` 29
+  y2 = y `shiftR` 20
+  y3 = y `shiftR` 11
+  y4 = y `shiftR` 4
 
 -- * Reciprocal
 

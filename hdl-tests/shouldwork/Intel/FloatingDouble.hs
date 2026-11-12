@@ -38,6 +38,10 @@ sqrtTB :: Signal Dom Bool
 sqrtTB = romTB simLibraries sqrtDut $(memBlobTH (Just 0) (trace sqrtDut (cycles (doublesIn 1 2046 2000 70))))
 {-# ANN sqrtTB (Synthesize "sqrtTB" [] (PortName "done")) #-}
 
+rsqrtTB :: Signal Dom Bool
+rsqrtTB = romTB simLibraries rsqrtDut $(memBlobTH (Just 0) (trace rsqrtDut (cycles (rsqrtDoublesIn 2000 73))))
+{-# ANN rsqrtTB (Synthesize "rsqrtTB" [] (PortName "done")) #-}
+
 recipTB :: Signal Dom Bool
 recipTB = romTB simLibraries recipDut $(memBlobTH (Just 0) (trace recipDut (cycles (doublesIn 1 2046 2000 71))))
 {-# ANN recipTB (Synthesize "recipTB" [] (PortName "done")) #-}

@@ -33,6 +33,9 @@ module Clash.Cores.Intel.Floating.Double
   , sqrtWith
   , sqrt
   , E.SqrtDefDelay
+  , rsqrtWith
+  , rsqrt
+  , E.RsqrtDefDelay
   , recipWith
   , recip
   , E.RecipDefDelay
@@ -49,6 +52,7 @@ module Clash.Cores.Intel.Floating.Double
   , E.mulModel
   , E.divModel
   , E.sqrtModel
+  , E.rsqrtModel
   , E.recipModel
   , E.expModel
   ) where
@@ -188,6 +192,32 @@ sqrt
   -> DSignal dom (n + E.SqrtDefDelay) Double
 sqrt fam = withFrozenCallStack $ hideClockResetEnable (E.sqrt fam)
 {-# INLINE sqrt #-}
+
+-- | Customizable floating point reciprocal square root, @1 / sqrt x@, in
+-- double precision. See 'E.rsqrtWith'.
+rsqrtWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+rsqrtWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.rsqrtWith cfg fam)
+{-# INLINE rsqrtWith #-}
+
+-- | Floating point reciprocal square root, @1 / sqrt x@, in double precision,
+-- with the default configuration and delay. See 'E.rsqrt'.
+rsqrt
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.RsqrtDefDelay) Double
+rsqrt fam = withFrozenCallStack $ hideClockResetEnable (E.rsqrt fam)
+{-# INLINE rsqrt #-}
 
 -- | Customizable floating point reciprocal, @1 / x@, in double precision. See
 -- 'E.recipWith'.

@@ -17,6 +17,7 @@ module Clash.Cores.Intel.Floating.Internal.Double
   , mulModel
   , divModel
   , sqrtModel
+  , rsqrtModel
   , recipModel
   , expModel
     -- * Instantiation
@@ -94,6 +95,30 @@ divModel = onBits2 divDouble
 -- the model's structure.
 sqrtModel :: DeviceFamily -> Double -> Double
 sqrtModel fam = onBits (sqrtDouble (familyMultipliers fam))
+
+-- | Model of the reciprocal square root of the IP in double precision. It
+-- gives the IP's results bit for bit, see Note [Bit-exact double precision
+-- reciprocal square root] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": a significand computed
+-- with a polynomial of degree five, which is faithfully rounded (up to 0.63
+-- units in the last place off on MAX 10, Cyclone IV E and Cyclone 10 LP, and
+-- 0.73 on Cyclone V) but not always rounded to nearest. Zero and subnormal
+-- inputs give an infinity of the same sign, @+inf@ gives @+0@, and negative
+-- inputs and NaN give 'intelNaN'.
+--
+-- In two of its 512 table segments the model uses coefficients observed from
+-- the IP's outputs instead of computed ones, see Note [Observed double
+-- precision rsqrt coefficients].
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E, Cyclone 10 LP and Cyclone V, at 200 MHz and at the minimum
+-- latency, on 3.8 million inputs each: special values at every exponent,
+-- random inputs, inputs in every segment of its table, 685,000 inputs in the
+-- two segments with observed coefficients, and inputs whose results would
+-- change with a small change of the model's structure or with the other
+-- family's datapath.
+rsqrtModel :: DeviceFamily -> Double -> Double
+rsqrtModel fam = onBits (rsqrtDouble (familyMultipliers fam))
 
 -- | Model of the reciprocal of the IP in double precision. Like in single
 -- precision, it is the IEEE 754 reciprocal, rounded to nearest, ties to even,
