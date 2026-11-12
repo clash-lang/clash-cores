@@ -566,8 +566,8 @@ acosModel fam = onBits (acosSingle (familyMultipliers fam))
 --
 -- Verified against the simulated IP (Quartus Prime Lite 21.1) on 4.2 million
 -- inputs (every eighth input of 'acosModel''s verification set, and its
--- random and special inputs) for all four families at 200 MHz and at the
--- minimum latency.
+-- random and special inputs) for all four families at 200 MHz and at a
+-- latency of 20 cycles (one above the minimum on MAX 10).
 acosPiModel :: DeviceFamily -> Float -> Float
 acosPiModel fam = onBits (acosPiSingle (familyMultipliers fam))
 
