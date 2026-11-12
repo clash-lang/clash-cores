@@ -152,6 +152,14 @@ atan2TB :: Signal Dom Bool
 atan2TB = romTB simLibraries atan2Dut $(memBlobTH (Just 0) (trace atan2Dut (cycles (floatPairs 2500 86 <> atan2Ties))))
 {-# ANN atan2TB (Synthesize "atan2TB" [] (PortName "done")) #-}
 
+acosTB :: Signal Dom Bool
+acosTB = romTB simLibraries acosDut $(memBlobTH (Just 0) (trace acosDut (cycles (floats 500 89 <> acosDiffs <> signedFloatsIn 118 10 3000 90))))
+{-# ANN acosTB (Synthesize "acosTB" [] (PortName "done")) #-}
+
+acosPiTB :: Signal Dom Bool
+acosPiTB = romTB simLibraries acosPiDut $(memBlobTH (Just 0) (trace acosPiDut (cycles (floats 500 91 <> acosDiffs <> signedFloatsIn 118 10 3000 92))))
+{-# ANN acosPiTB (Synthesize "acosPiTB" [] (PortName "done")) #-}
+
 powTB :: Signal Dom Bool
 powTB = romTB simLibraries powDut $(memBlobTH (Just 0) (trace powDut (cycles (floatPairs 0 87 <> powPairs 2500 88))))
 {-# ANN powTB (Synthesize "powTB" [] (PortName "done")) #-}

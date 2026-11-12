@@ -300,3 +300,29 @@ powPairs n seed = P.take n (go (randoms seed)) <> datapaths <> ones
   ones =
     [ (1, s * 2 ^^ k * m)
     | s <- [1, -1], k <- [62, 63, 64, 65, 66, 126, 127 :: Int], m <- [1, 1.25, 1.375, 1.5, 1.75] ]
+
+-- | E.acos, E.acosWith @17
+acosDut :: Dut Float (Vec 2 Float)
+acosDut clk rst en i = bundle (unary (E.acos simFamily) clk rst en i :> unary (E.acosWith @17 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE acosDut #-}
+
+-- | E.acosPi, E.acosPiWith @20
+acosPiDut :: Dut Float (Vec 2 Float)
+acosPiDut clk rst en i = bundle (unary (E.acosPi simFamily) clk rst en i :> unary (E.acosPiWith @20 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE acosPiDut #-}
+
+-- | Inputs of 'E.acos' and 'E.acosPi' where the two datapaths ('E.Max10' and
+-- 'E.CycloneV') give different results, on all three paths of the IP
+acosDiffs :: [Float]
+acosDiffs = P.map castWord32ToFloat
+  [ 0x3f1b4403, 0x3f78870a, 0xbf52ab1f, 0xbf06296e, 0x3f451cd9, 0x3f58f074, 0x3eb42652
+  , 0x3f5e8157, 0x3f4e5287, 0x3f1aa354, 0x3f2e2bbd, 0xbf18e2fc, 0x3ebb9237, 0x3e8b1e5b
+  , 0x3f316ff0, 0x3f7a2d6d, 0x3f35883e, 0xbea8e7db, 0x3f0af7ae, 0x3eada810, 0x3f15fbc3
+  , 0x3f3bd020, 0x3eb18436, 0x3f51c8a4, 0xbeb2496b, 0xbf505df0, 0xbf267c4b, 0x3f257405
+  , 0xbea3903d, 0xbf32473d, 0xbf3b27e3, 0x3eae12ab, 0xbf47b15b, 0xbf108d01, 0x3e99e526
+  , 0x3edd1969, 0xbf02f625, 0xbf222589, 0xbef56987, 0xbf647e1e, 0xbe9fbc95, 0xbf532345
+  , 0x3eb440d5, 0xbf2a6a36, 0xbf3f88c4, 0x3edbbed7, 0xbede9d7f, 0x3ee7ea2b, 0xbf418654
+  , 0x3ed9d23b, 0xbe877807, 0xbefd9aa4, 0xbebbf17d, 0x3efc94db, 0xbef5cf15, 0x3ebd863c
+  , 0x3e9fd34b, 0xbeb3be5d, 0xbeb19ce9, 0x3ed7ecc1, 0xbef9ba25, 0xbedf5bfd, 0xbed34fb9
+  , 0xbebbbe35
+  ]

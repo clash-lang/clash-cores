@@ -7,7 +7,8 @@ Bit-exact models of the square root, cube root, three-dimensional
 hypotenuse, reciprocal square root, reciprocal, exponentials and logarithms
 (natural, base 2, base 10 and @log (1 + x)@), the sine, cosine and
 tangent of x and of pi times x, the arctangent (in radians and divided by
-pi) the two-argument arctangent and the power function of Intel's Floating Point Functions IP
+pi), the two-argument arctangent, the power function and the arccosine (in
+radians and divided by pi) of Intel's Floating Point Functions IP
 (@altera_fp_functions@) in
 single precision, see Note [Bit-exact models].
 -}
@@ -38,6 +39,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExact
   , atanPiSingle
   , atan2Single
   , powSingle
+  , acosSingle
+  , acosPiSingle
   ) where
 
 import Prelude
@@ -52,7 +55,8 @@ import Clash.Cores.Intel.Floating.Internal.CoefficientsPow (powExpCoefficients, 
 import Clash.Cores.Intel.Floating.Internal.Coefficients
   ( cbrtCoefficients, exp10Coefficients, exp2Coefficients, expCoefficients, log10Coefficients
   , log2Coefficients, logCoefficients, rsqrtCoefficients, sqrtCoefficients, sinPiCoefficients
-  , tanPiRecipCoefficients, sinCoefficients, atanCoefficients, atanRecipCoefficients )
+  , tanPiRecipCoefficients, sinCoefficients, atanCoefficients, atanRecipCoefficients
+  , acosCoefficients, asinCoefficients )
 
 {- Note [Bit-exact models]
 The Floating Point Functions user guide documents the latency and the
@@ -1869,3 +1873,184 @@ expCut2, expCut3, expCut3Full :: [Int]
 expCut2 = replicate 8 9 ++ replicate 16 0
 expCut3 = replicate 4 18 ++ replicate 8 10 ++ replicate 9 1 ++ replicate 7 0
 expCut3Full = replicate 8 17 ++ replicate 3 14 ++ replicate 17 0
+
+{- Note [Bit-exact arccosine]
+The IP's arccosine ('acosSingle', the \"ARCCOS\" function) has three paths.
+
+For |x| < 1/2 it evaluates a degree-2 table of @acos r@ itself (256 segments
+of [0, 1), of which the first 128 are used, coefficients on the grid 2^-28) at
+@X = floor (|x| * 2^23)@: the bits of x below 2^-23 are ignored. With T1 and
+T2 as in the arctangent (T1 from the top 12 of the 15 bits of y, at 2^-29),
+A = 2 C0 + 8 + T2 at 2^-29 is truncated to 2^-26; the result is that value for
+x >= 0 and @floor (pi * 2^26)@ minus it for x < 0, truncated to single
+precision. On 18x18 families T1 is rounded half up and S1 * y leaves out
+S1_i * y_j for (i < 3, j < 8) and (i < 7, j < 4), compensated by 2^13 (a
+17x17 and an 8x9 multiplier in the synthesis report).
+
+For 1/2 <= |x| < 1 it uses @acos x = 2 asin z@ with @z = sqrt ((1 - x) / 2)@:
+s = 2 z is the correctly rounded single precision square root of
+@2 (1 - |x|)@ (1 - |x| is exact). @asin z / z@ comes from the arcsine's table
+of @asin r / r@ ('asinTable', segment 128 for z = 1/2), evaluated like the
+arcsine of numbers below one half but at z truncated to 2^-23 (15 bits of
+y), and truncated to a single precision number Y in [1, 2). The result is the
+single precision product s * Y, rounded to nearest with ties away from zero.
+On 18x18 families the polynomial drops S1_i * y_j for i < 4, j < 8 (plus
+2^13) and the product is the truncated multiplier of 'atanPiSingle'. For
+x <= -1/2 the result is @floor (pi * 2^23)@ minus this value truncated to
+2^-23, truncated to 2^-22. The infinities, NaN and |x| > 1 give NaN.
+
+How this was found. In [0.5, 1), the outputs are exactly s * Y rounded for a
+Y on the grid 2^-23 (no input in the binade leaves no such Y, and those with
+ties need ties away from zero), and Y depends on s, not on x: it correlates
+with the rounding error of s. Inputs with the same s truncated to 2^-22 give
+the same Y (4.7 million pairs; at 2^-21 they conflict), and a format search
+over the outputs found a unique feasible degree-2 polynomial per segment,
+whose coefficients are those of the arcsine's table. Below one half, the
+outputs ignore the input's bits below 2^-23 (groups of 4 equal outputs in
+[0.25, 0.5)) and a format search found the table of @acos r@, whose
+coefficients the lattice method reproduces. The negative inputs followed from
+scanning the precision of pi and the truncations. The 18x18 datapath was
+fitted by searching the dropped partial products and the constants of the
+two polynomials and the tiles of the product, on all inputs of [0.25, 1) of
+both signs and 12.5 million others; the result is unique.
+
+The IP's arccosine divided by pi ('acosPiSingle') multiplies this result by 1
+/ pi rounded to single precision, like 'atanPiSingle'.
+-}
+
+-- * Arccosine
+
+-- | The table of the arccosine of numbers below one half
+acosTable :: Table
+acosTable = mkTable acosCoefficients
+{-# NOINLINE acosTable #-}
+
+-- | The table of @asin z / z@, used by the arccosine of numbers of at least
+-- one half
+asinTable :: Table
+asinTable = mkTable asinCoefficients
+{-# NOINLINE asinTable #-}
+
+-- | The IP's arccosine in single precision, on bit patterns, see
+-- Note [Bit-exact arccosine]
+acosSingle :: Multipliers -> Word32 -> Word32
+acosSingle mults w
+  | e == 255 || e > 127 || (e == 127 && f /= 0) = nanSingle
+  | e < 126 =
+      let -- |x| at 2^-23: the low bits of small numbers are ignored
+          xx | e == 0 || 127 - e > 24 = 0
+             | otherwise = (bit 23 .|. f) `shiftR` (127 - e)
+          -- acos |x| at 2^-26
+          a = acosPoly mults xx `shiftR` 3
+          r = if neg then piAt26 - a else a
+          ex = if r >= bit 27 then 1 else 0
+      in (fromIntegral (127 + ex) `shiftL` 23) .|. fromIntegral ((r `shiftR` (3 + ex)) .&. 0x7FFFFF)
+  | not neg = v
+  -- pi - acos |x|: acos |x| truncated to 2^-23, the difference truncated to
+  -- 2^-22
+  | otherwise =
+      let (_, ev, fv) = fields v
+          v23 = if ev == 0 then 0 else (bit 23 .|. fv) `shiftR` (127 - ev)
+      in 0x40000000 .|. fromIntegral (((piAt23 - v23) `shiftR` 1) .&. 0x7FFFFF)
+ where
+  (neg, e, f) = fields w
+  v | e == 127 = 0
+    | otherwise = acosLarge mults (bit 24 - (bit 23 .|. f))
+  piAt26 = 210828714 -- floor (pi * 2^26)
+  piAt23 = 26353589  -- floor (pi * 2^23)
+
+-- | @acos x@ for x in [0.5, 1), given @l = 2^24 (1 - x)@: the product of the
+-- correctly rounded @s = sqrt (2 (1 - x))@ and @asin (s / 2) / (s / 2)@
+-- truncated to a single precision number, rounded to nearest, ties away from
+-- zero
+acosLarge :: Multipliers -> Int64 -> Word32
+acosLarge mults l =
+  fromIntegral (127 + sh - 1 + se) `shiftL` 23 .|. fromIntegral (q .&. 0x7FFFFF)
+ where
+  (sm, se) = sqrtSingleExact (2 * l) (-24)
+  -- s / 2 at 2^-23
+  z = sm `shiftR` negate (se + 22)
+  -- asin z / z at 2^-23, in [2^23, 2^24)
+  y = asinPoly15 mults z `shiftR` 2
+  p = case mults of
+    FullMultipliers -> 2 * sm * y
+    TruncatedMultipliers -> truncatedProduct24x25 sm (2 * y)
+  sh0 = if p >= bit 48 then 25 else 24
+  q0 = (p + bit (sh0 - 1)) `shiftR` sh0
+  (q, sh) = if q0 == bit 24 then (q0 `shiftR` 1, sh0 + 1) else (q0, sh0)
+
+-- | The correctly rounded square root of @v * 2^ev@ (@v > 0@) as a 24 bit
+-- significand @m@ and an exponent @e@: @m * 2^e@
+sqrtSingleExact :: Int64 -> Int -> (Int64, Int)
+sqrtSingleExact v0 ev0 = (m, e)
+ where
+  -- Scale v by a power of four to 49 or 50 bits, so that its root has 25 bits
+  k = (49 - (64 - countLeadingZeros v0)) `div` 2 + 1
+  v = v0 `shiftL` (2 * k)
+  r0 = floor (sqrt (fromIntegral v :: Double)) :: Int64
+  r = until (\c -> c * c <= v) (subtract 1) (r0 + 1)
+  bits = 64 - countLeadingZeros r
+  drop1 = bits - 24
+  keep = r `shiftR` drop1
+  rest = r .&. (bit drop1 - 1)
+  half = bit (drop1 - 1)
+  inexact = r * r /= v
+  up = rest > half || (rest == half && (inexact || odd keep))
+  keep' = if up then keep + 1 else keep
+  (m, e) | keep' == bit 24 = (keep' `shiftR` 1, (ev0 - 2 * k) `div` 2 + drop1 + 1)
+         | otherwise = (keep', (ev0 - 2 * k) `div` 2 + drop1)
+
+-- | @acos x@ for @x = X * 2^-23@ in [0, 0.5): 256 segments of [0, 1), y the low
+-- 15 bits of X; A at 2^-29
+acosPoly :: Multipliers -> Int64 -> Int64
+acosPoly mults xx = 2 * c0 + 8 + t2
+ where
+  (c2, c1, c0) = coefs acosTable (fromIntegral (xx `shiftR` 15))
+  y = xx .&. 0x7FFF
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 3)) `shiftR` 11)
+      in  (s1 * y) `shiftR` 15
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 3) + bit 10) `shiftR` 11)
+          dropped = (s1 .&. 0x7) * (y .&. 0xFF) + (s1 .&. 0x78) * (y .&. 0xF)
+      -- Compensation constant 2^13 (2^-31)
+      in  (s1 * y - dropped + bit 13) `shiftR` 15
+
+-- | @asin z / z@ at 2^-25 for @z = Z * 2^-23@ in [0, 0.5): 256 segments of
+-- [0, 1), y the low 15 bits of Z
+asinPoly15 :: Multipliers -> Int64 -> Int64
+asinPoly15 mults zz = (2 * c0 + 8 + t2) `shiftR` 4
+ where
+  (c2, c1, c0) = coefs asinTable (fromIntegral (zz `shiftR` 15))
+  y = zz .&. 0x7FFF
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 3)) `shiftR` 11)
+      in  (s1 * y) `shiftR` 15
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 3) + bit 10) `shiftR` 11)
+          dropped = (s1 .&. 0xF) * (y .&. 0xFF)
+      -- Compensation constant 2^13 (2^-31)
+      in  (s1 * y - dropped + bit 13) `shiftR` 15
+
+-- | The IP's arccosine divided by pi in single precision, on bit patterns:
+-- 'acosSingle' times 1 / pi rounded to single precision (0x3EA2F983), rounded
+-- to nearest, ties away from zero; on 18x18 families with the truncated
+-- product of 'atanPiSingle'
+acosPiSingle :: Multipliers -> Word32 -> Word32
+acosPiSingle mults w
+  | ea == 255 = a
+  | ea == 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 23) .|. fromIntegral (q .&. 0x7FFFFF)
+ where
+  a = acosSingle mults w
+  (_, ea, fa) = fields a
+  ma = bit 23 .|. fa
+  p = case mults of
+    FullMultipliers -> ma * (2 * 0xA2F983)
+    TruncatedMultipliers -> truncatedProduct24x25 ma (2 * 0xA2F983)
+  sh = if p >= bit 48 then 25 else 24
+  q0 = (p + bit (sh - 1)) `shiftR` sh
+  (q, carry) = if q0 == bit 24 then (q0 `shiftR` 1, 1) else (q0, 0)
+  be = ea - 2 + (sh - 24) + carry

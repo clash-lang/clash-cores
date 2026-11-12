@@ -28,15 +28,15 @@ models document the details.
   place): 'exp2' (2, for inputs below one in magnitude), 'exp10' (a few, just
   below multiples of log10 2), 'hypot' (1.4), 'sinPi' (2.5), 'tanPi' (5),
   'sin' (1.6), 'cos' (1.2), 'tan' (2.5), 'atan' (2.2), 'atanPi' (1.9),
-  'atan2' (2.5) and 'pow' (1.3). In half precision
+  'atan2' (2.5), 'pow' (1.3), 'acos' (3) and 'acosPi' (4.4). In half precision
   ("Clash.Cores.Intel.Floating.Half") only the square root, the reciprocal
   square root, the cube root and the base 2
   logarithm keep within one unit; the other exponentials and logarithms, the
   hypotenuse, 'sinPi', 'cosPi' and 'tanPi' don't. Found with the bit-exact
   models, on all inputs of whole binades and millions of other inputs per
-  function, on all four families. The arcsine and arccosine (not supported by
-  this module) are off by up to 1.3 and 3 units in the last place for inputs
-  in [0.5, 1) (all inputs of that binade, Cyclone V datapath). In double
+  function, on all four families. The arcsine (not supported by this module)
+  is off by up to 1.3 units in the last place for inputs in [0.5, 1) (all
+  inputs of that binade, Cyclone V datapath). In double
   precision, the exponential
   ('Clash.Cores.Intel.Floating.Double.Explicit.expModel') is off by up to 1.8
   units in the last place, and by up to 30 units for the double just below
@@ -145,6 +145,12 @@ module Clash.Cores.Intel.Floating
   , powWith
   , pow
   , E.PowDefDelay
+  , acosWith
+  , acos
+  , E.AcosDefDelay
+  , acosPiWith
+  , acosPi
+  , E.AcosPiDefDelay
     -- * Comparison
   , E.Ordering(..)
   , E.toMaybeOrdering
@@ -181,7 +187,7 @@ module Clash.Cores.Intel.Floating
   ) where
 
 import Clash.Prelude hiding
-  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan, atan2)
+  (Ordering(..), add, sub, mul, div, compare, sqrt, recip, exp, log, sin, cos, tan, atan, atan2, acos)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -878,6 +884,56 @@ pow
   -> DSignal dom (n + E.PowDefDelay) Float
 pow fam = withFrozenCallStack $ hideClockResetEnable (E.pow fam)
 {-# INLINE pow #-}
+
+-- | Customizable floating point arccosine, @acos x@, in radians. See 'E.acosWith'.
+acosWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+acosWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.acosWith cfg fam)
+{-# INLINE acosWith #-}
+
+-- | Floating point arccosine, @acos x@, in radians, with the default configuration and delay. See
+-- 'E.acos'.
+acos
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.AcosDefDelay) Float
+acos fam = withFrozenCallStack $ hideClockResetEnable (E.acos fam)
+{-# INLINE acos #-}
+
+-- | Customizable floating point arccosine divided by pi, @acos x / pi@. See 'E.acosPiWith'.
+acosPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + d) Float
+acosPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.acosPiWith cfg fam)
+{-# INLINE acosPiWith #-}
+
+-- | Floating point arccosine divided by pi, @acos x / pi@, with the default configuration and
+-- delay. See 'E.acosPi'.
+acosPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Float
+  -> DSignal dom (n + E.AcosPiDefDelay) Float
+acosPi fam = withFrozenCallStack $ hideClockResetEnable (E.acosPi fam)
+{-# INLINE acosPi #-}
 
 -- | Customizable floating point conversion of @Signed 32@ to @Float@. See 'E.fromS32With'.
 fromS32With
