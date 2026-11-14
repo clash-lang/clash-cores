@@ -157,6 +157,13 @@ runClashTest = defaultMain $ clashTestRoot
             , hdlSim=[GHDL, IVerilog, Verilator]
             }
         ]
+      , clashTestGroup "SigmaDeltaADC"
+        [ runTest "Conversion" def
+            { hdlTargets=[VHDL, Verilog, SystemVerilog]
+            , hdlLoad=[GHDL, IVerilog, Verilator]
+            , hdlSim=[GHDL, IVerilog, Verilator]
+            }
+        ]
       , clashTestGroup "Xilinx"
         [ clashTestGroup "Inst"
           [ outputTest "BiSignal" def{hdlLoad=[], hdlSim=[]}

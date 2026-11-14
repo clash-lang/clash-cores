@@ -25,6 +25,7 @@ import qualified Test.Cores.Sgmii.RateAdapt
 import qualified Test.Cores.Sgmii.Sgmii
 import qualified Test.Cores.Sgmii.Sync
 #endif
+import qualified Test.Cores.SigmaDeltaADC
 import qualified Test.Cores.Spi
 import qualified Test.Cores.Spi.MultiSlave
 import qualified Test.Cores.Uart
@@ -40,6 +41,7 @@ tests = testGroup "Unittests" $
   , Test.Cores.Ethernet.tests
   , Test.Cores.I2c.tests
   , Test.Cores.LineCoding.Lc8b10b.tests
+  , Test.Cores.SigmaDeltaADC.tests
   , Test.Cores.Spi.tests
   , Test.Cores.Spi.MultiSlave.tests
   , Test.Cores.Uart.tests

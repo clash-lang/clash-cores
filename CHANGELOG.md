@@ -7,3 +7,5 @@
 * Add UART core
 * Add CRC core
 * Add I2C controller core, ported from the `clash-compiler` examples
+* Add sigma-delta ADC, ported from FloriaanB's `clash-compiler` PR #2617,
+  with corrected conversion timing, box averaging, and a sample-rate helper
