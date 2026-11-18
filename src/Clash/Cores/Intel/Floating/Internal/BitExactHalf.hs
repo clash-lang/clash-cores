@@ -6,8 +6,8 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in half precision: square root, cube root, hypotenuse, reciprocal square
 root, reciprocal, exponentials, logarithms, the sine, cosine and tangent
-of pi times x and the arcsine and arccosine (in radians and divided by pi),
-see Note [Bit-exact half precision models].
+of pi times x and the arcsine, arccosine and arctangent (in radians and
+divided by pi), see Note [Bit-exact half precision models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -32,6 +32,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExactHalf
   , asinPiHalf
   , acosHalf
   , acosPiHalf
+  , atanHalf
+  , atanPiHalf
   ) where
 
 import Prelude
@@ -47,7 +49,8 @@ import Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
   ( cbrtHalfCoefficients, exp10HalfCoefficients, exp2HalfCoefficients, expHalfCoefficients
   , log10HalfCoefficients, log2HalfCoefficients, logHalfCoefficients, rsqrtHalfCoefficients
   , sinPiHalfCoefficients, sqrtHalfCoefficients, tanPiRecipHalfCoefficients
-  , asinHalfCoefficients, asinLargeHalfCoefficients, acosHalfCoefficients )
+  , asinHalfCoefficients, asinLargeHalfCoefficients, acosHalfCoefficients
+  , atanHalfCoefficients, atanRecipHalfCoefficients )
 
 {- Note [Bit-exact half precision models]
 The IP supports half precision as a custom format with 5 exponent and 10
@@ -864,12 +867,18 @@ crSqrtHalf v0 ev0 = (m, e)
 -- 'asinHalf' times 1 / pi rounded to half precision (0x3518), rounded to
 -- nearest, ties away from zero
 asinPiHalf :: Multipliers -> Word16 -> Word16
-asinPiHalf mults w
+asinPiHalf mults = overPiHalf . asinHalf mults
+
+-- | A half precision number times 1 / pi rounded to half precision (0x3518),
+-- rounded to nearest, ties away from zero, as the IP divides its inverse
+-- trigonometric functions by pi. Results below the smallest normal number
+-- are flushed to zero; NaN and the infinities are returned as they are.
+overPiHalf :: Word16 -> Word16
+overPiHalf a
   | ea == 31 = a
   | ea == 0 || be <= 0 = sign
   | otherwise = sign .|. (fromIntegral be `shiftL` 10) .|. fromIntegral (q .&. 0x3FF)
  where
-  a = asinHalf mults w
   sign = a .&. bit 15
   (_, ea, fa) = fields a
   p = (bit 10 .|. fa) * 0x518
@@ -1006,15 +1015,133 @@ acosLargeHalf mults k =
 -- 'acosHalf' times 1 / pi rounded to half precision (0x3518), rounded to
 -- nearest, ties away from zero
 acosPiHalf :: Multipliers -> Word16 -> Word16
-acosPiHalf mults w
-  | ea == 31 = a
-  | ea == 0 || be <= 0 = 0
-  | otherwise = (fromIntegral be `shiftL` 10) .|. fromIntegral (q .&. 0x3FF)
+acosPiHalf mults = overPiHalf . acosHalf mults
+
+-- * Arctangent
+
+{- Note [Bit-exact half precision arctangent]
+The arctangent ('atanHalf', the \"ARCTAN\" function) has the paths of the
+single precision arctangent (Note [Bit-exact models] in
+"Clash.Cores.Intel.Floating.Internal.BitExact"), scaled down, with r = |x|:
+
+  1. For 2^-5 <= r < 1: P approximates @atan r / r@ at 2^-13, by a polynomial
+     of degree one. X = floor (r * 2^13); its top 7 bits (128 segments of
+     [0, 1)) select the coefficients (on the grid 2^-16,
+     'atanHalfCoefficients') and its 6 low bits are y:
+
+       T1 = floor (C1 * y / 2^4)            (at 2^-18)
+       P  = floor ((4 C0 + 16 + T1) / 2^5)
+
+     The result is m * P, with m the significand of x, rounded to nearest
+     with ties away from zero.
+  2. For r > 1, r = (1 + f * 2^-10) * 2^k: R approximates
+     @1 / (1 + f * 2^-10)@ at 2^-11 (in (2^10, 2^11]), by a polynomial of
+     degree one. The top 6 bits of f (64 segments) select the coefficients
+     (on the grid 2^-14, 'atanRecipHalfCoefficients') and its 4 low bits are
+     y:
+
+       T1 = floor (C1 * y / 2^2)            (at 2^-16)
+       R  = floor ((4 C0 + 16 + T1) / 2^5)
+
+     Then z = R * 2^-11 * 2^-k, and @atan z@ is R * P, with P the polynomial
+     of step 1 at floor (z * 2^13), rounded down to 2^-11. It is zero when z
+     is below 2^-10 (k > 10, or k = 10 and f /= 0). The result is pi / 2
+     rounded to nearest at 2^-11 (3217) minus @atan z@, which is exact below
+     one and rounded to nearest with ties up from one on.
+  3. r < 2^-5 gives x; zero and subnormal inputs give a zero of the same
+     sign; |x| = 1 gives pi / 4 rounded down (0x3A48) and the infinities
+     pi / 2 rounded down (0x3E48), with the sign of x; NaN gives NaN.
+
+On the families with 18x18 multipliers both T1 are rounded: one LSB three
+bits below the table's grid is added before the product is rounded down
+(T1 = floor ((C1 * y + 2^3) / 2^4) and floor ((C1 * y + 2) / 2^2)).
+
+Unlike step 3, step 2 always uses the polynomial, also for z < 2^-5: P is one
+or one unit below it there, which is visible in a few results for
+2^5 < r < 2^7.
+
+How this was found. The synthesis report shows two polynomials with one
+multiplier each: one with a table of 128 segments and a 6 bit y, and one
+with a 4 bit y behind a 6 bit address, feeding an 11 by 14 bit product. For
+r <= 1 the outputs bound P per input; the coefficients computed from first
+principles (the grid follows from the widths of the tables) are within the
+bounds for all inputs except those below 2^-5, where only P = 1 is. For
+r > 1 the outputs of all exponents together leave one to three values of R
+per f, given the constant and the rounding of step 2, which are the only
+ones for which every f has such a value; the coefficients computed from
+first principles give one of these values for every f.
+
+The arctangent divided by pi ('atanPiHalf') multiplies the arctangent,
+rounded to half precision, by 1 / pi rounded to half precision (0x3518),
+rounding to nearest with ties away from zero, like 'asinPiHalf'; results
+below the smallest normal number are flushed to zero.
+-}
+
+atanHalfTable, atanRecipHalfTable :: Table1
+atanHalfTable = mkTable1 atanHalfCoefficients
+{-# NOINLINE atanHalfTable #-}
+atanRecipHalfTable = mkTable1 atanRecipHalfCoefficients
+{-# NOINLINE atanRecipHalfTable #-}
+
+-- | The IP's arctangent in half precision, on bit patterns, see
+-- Note [Bit-exact half precision arctangent]
+atanHalf :: Multipliers -> Word16 -> Word16
+atanHalf mults w
+  -- The infinities give pi / 2 rounded down, NaN gives NaN
+  | e == 31 = if f /= 0 then nanHalf else sgn .|. 0x3E48
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = sgn
+  -- |x| < 2^-5: x
+  | e < 10 = w
+  -- |x| < 1: x * P(x), rounded once
+  | e < 15 = sgn .|. roundAt (38 - e) (m * atanPolyHalf mults xFix)
+  -- |x| = 1: pi / 4 rounded down
+  | f == 0 && e == 15 = sgn .|. 0x3A48
+  | otherwise = sgn .|. atanLargeHalf mults (e - 15) f
  where
-  a = acosHalf mults w
-  (_, ea, fa) = fields a
-  p = (bit 10 .|. fa) * 0x518
-  sh = if p >= bit 21 then 11 else 10
-  q0 = (p + bit (sh - 1)) `shiftR` sh
-  (q, carry) = if q0 == bit 11 then (q0 `shiftR` 1, 1) else (q0, 0)
-  be = ea - 2 + (sh - 10) + carry
+  (_, e, f) = fields w
+  sgn = w .&. bit 15
+  m = bit 10 .|. f
+  -- floor (|x| * 2^13)
+  xFix | e >= 12 = m `shiftL` (e - 12)
+       | otherwise = m `shiftR` (12 - e)
+
+-- | @atan x@ for @x = (1 + f * 2^-10) * 2^k > 1@ (positive): pi / 2 - atan z
+-- with z = 1 / x
+atanLargeHalf :: Multipliers -> Int -> Int64 -> Word16
+atanLargeHalf mults k f
+  | d < bit 11 = 0x3800 .|. fromIntegral (d .&. 0x3FF)
+  | otherwise = 0x3C00 .|. fromIntegral (((d + 1) `shiftR` 1) .&. 0x3FF)
+ where
+  -- z = r * 2^-11 * 2^-k, r in (2^10, 2^11]
+  r = atanPoly1 atanRecipHalfTable mults 4 f
+  -- atan z = r * P (z) at 2^-(24 + k), rounded down to 2^-11; zero for
+  -- z < 2^-10
+  v | k > 10 || k == 10 && f /= 0 = 0
+    | otherwise = (r * atanPolyHalf mults ((r `shiftL` 2) `shiftR` k)) `shiftR` (13 + k)
+  -- pi / 2 rounded to nearest at 2^-11, minus atan z
+  d = 3217 - v
+
+-- | P = atan r / r at 2^-13 for r = X * 2^-13 in [0, 1): 128 segments, y the
+-- low 6 bits of X, coefficients at 2^-16
+atanPolyHalf :: Multipliers -> Int64 -> Int64
+atanPolyHalf mults = atanPoly1 atanHalfTable mults 6
+
+-- | The polynomials of the arctangent: @floor ((4 C0 + 16 + T1) / 2^5)@ for
+-- an argument whose @wy@ low bits are y and whose other bits select the
+-- segment, with T1 = C1 * y two bits below the grid of the table
+atanPoly1 :: Table1 -> Multipliers -> Int -> Int64 -> Int64
+atanPoly1 table mults wy xx = (4 * c0 + 16 + t1) `shiftR` 5
+ where
+  (c1, c0) = coefs1 table (fromIntegral (xx `shiftR` wy))
+  y = xx .&. (bit wy - 1)
+  t1 = case mults of
+    FullMultipliers -> (c1 * y) `shiftR` (wy - 2)
+    TruncatedMultipliers -> (c1 * y + bit (wy - 3)) `shiftR` (wy - 2)
+
+-- | The IP's arctangent divided by pi in half precision, on bit patterns:
+-- 'atanHalf' times 1 / pi rounded to half precision (0x3518), rounded to
+-- nearest, ties away from zero, with results below the smallest normal
+-- number flushed to zero
+atanPiHalf :: Multipliers -> Word16 -> Word16
+atanPiHalf mults = overPiHalf . atanHalf mults

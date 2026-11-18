@@ -31,6 +31,8 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , asinPiModel
   , acosModel
   , acosPiModel
+  , atanModel
+  , atanPiModel
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -293,6 +295,38 @@ acosModel fam = onBits (acosHalf (familyMultipliers fam))
 -- inputs, for all four families at 200 MHz and at a latency of 13 cycles.
 acosPiModel :: DeviceFamily -> Half -> Half
 acosPiModel fam = onBits (acosPiHalf (familyMultipliers fam))
+
+-- | Model of the IP's arctangent in half precision (the \"ARCTAN\" function), in
+-- radians, see 'sqrtModel'. For @2^-5 <= |x| < 1@ the IP multiplies @x@ by a
+-- polynomial approximation of degree one of @atan x / x@ and rounds the
+-- product to nearest with ties away from zero. For @|x| > 1@ it computes
+-- @pi / 2 - atan (1 / x)@ in fixed point, with a polynomial approximation of
+-- the reciprocal and the same polynomial of the arctangent, and no
+-- contribution of @atan (1 / x)@ for @|x| > 2^10@. The result can be off by
+-- up to 1.5 units in the last place. @|x| < 2^-5@ gives @x@, zero and
+-- subnormal inputs give a zero of the same sign, @atan 1@ is pi \/ 4 rounded
+-- down and the arctangent of the infinities is pi \/ 2 rounded down; NaN
+-- gives 'intelNaN'. See Note [Bit-exact half precision arctangent].
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at the minimum latency (9
+-- cycles, 7 on Cyclone V).
+atanModel :: DeviceFamily -> Half -> Half
+atanModel fam = onBits (atanHalf (familyMultipliers fam))
+
+-- | Model of the IP's arctangent divided by pi in half precision (the
+-- \"ARCTAN\" function with the angle represented as a multiple of pi), see
+-- 'sqrtModel': the IP multiplies its arctangent ('atanModel'), rounded to half
+-- precision, by 1 \/ pi rounded to half precision (@0x3518@), rounding to
+-- nearest with ties away from zero, so the result can be off by up to 2.1
+-- units in the last place. Results below the smallest normal number are
+-- flushed to zero; NaN gives 'intelNaN'.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at the minimum latency (11
+-- cycles, 9 on Cyclone V).
+atanPiModel :: DeviceFamily -> Half -> Half
+atanPiModel fam = onBits (atanPiHalf (familyMultipliers fam))
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'

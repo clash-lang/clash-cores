@@ -74,6 +74,12 @@ module Clash.Cores.Intel.Floating.Half
   , acosPiWith
   , acosPi
   , E.AcosPiDefDelay
+  , atanWith
+  , atan
+  , E.AtanDefDelay
+  , atanPiWith
+  , atanPi
+  , E.AtanPiDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -98,9 +104,11 @@ module Clash.Cores.Intel.Floating.Half
   , E.asinPiModel
   , E.acosModel
   , E.acosPiModel
+  , E.atanModel
+  , E.atanPiModel
   ) where
 
-import Clash.Prelude hiding (sqrt, recip, exp, log, asin, acos)
+import Clash.Prelude hiding (sqrt, recip, exp, log, asin, acos, atan)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -602,3 +610,55 @@ acosPi
   -> DSignal dom (n + E.AcosPiDefDelay) Half
 acosPi fam = withFrozenCallStack $ hideClockResetEnable (E.acosPi fam)
 {-# INLINE acosPi #-}
+
+-- | Customizable floating point arctangent, @atan x@, in radians, in half precision. See
+-- 'E.atanWith'.
+atanWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+atanWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.atanWith cfg fam)
+{-# INLINE atanWith #-}
+
+-- | Floating point arctangent, @atan x@, in radians, in half precision, with the default configuration
+-- and delay. See 'E.atan'.
+atan
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AtanDefDelay) Half
+atan fam = withFrozenCallStack $ hideClockResetEnable (E.atan fam)
+{-# INLINE atan #-}
+
+-- | Customizable floating point arctangent divided by pi, @atan x / pi@, in half precision. See
+-- 'E.atanPiWith'.
+atanPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+atanPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.atanPiWith cfg fam)
+{-# INLINE atanPiWith #-}
+
+-- | Floating point arctangent divided by pi, @atan x / pi@, in half precision, with the default configuration
+-- and delay. See 'E.atanPi'.
+atanPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AtanPiDefDelay) Half
+atanPi fam = withFrozenCallStack $ hideClockResetEnable (E.atanPi fam)
+{-# INLINE atanPi #-}
