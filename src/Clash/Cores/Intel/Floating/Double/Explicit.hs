@@ -27,14 +27,13 @@ the IP's results bit for bit: the models ('sqrtModel', 'rsqrtModel', 'recipModel
 obtained by black-box testing of the IP, see Note [Bit-exact double precision
 models] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble", and were
 verified against the simulated IP on millions of inputs for MAX 10, Cyclone IV
-E, Cyclone 10 LP and (except for 'exp2' and 'log2') Cyclone V, at several
-latencies. The results of the
+E, Cyclone 10 LP and (except for 'log2') Cyclone V, at several latencies. The results of the
 square root, the reciprocal square root and the exponential depend on the
 multipliers of the device family, so they take a 'DeviceFamily' argument.
 
-The models of 'exp2' and 'log2' cover MAX 10, Cyclone IV E and Cyclone 10 LP
-only. On Cyclone V the IP gives other results for some inputs, which are not
-modelled: Clash simulation of these functions for Cyclone V raises an error.
+The model of 'log2' covers MAX 10, Cyclone IV E and Cyclone 10 LP only. On
+Cyclone V the IP gives other results for some inputs, which are not
+modelled: Clash simulation of 'log2' for Cyclone V raises an error.
 The generated HDL is the same IP on all families.
 
 The models' polynomial coefficients are computed from first principles, except
@@ -857,8 +856,6 @@ type Log2DefDelay = 51
 -- | Customizable floating point base 2 exponential, @2^x@, in double
 -- precision, see 'exp2Model'. The IP's result is bit-exactly modelled.
 --
--- Clash simulation supports MAX 10, Cyclone IV E and Cyclone 10 LP only: for
--- Cyclone V the IP's results are not modelled, and simulation raises an error.
 -- In one of the 64 segments of its table, the model uses coefficients
 -- observed from the IP's outputs instead of computed ones, see 'exp2Model'.
 --

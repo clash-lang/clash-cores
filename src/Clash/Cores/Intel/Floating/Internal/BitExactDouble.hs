@@ -462,6 +462,9 @@ The base 2 exponential needs no multiplication to reduce its argument:
     step of its staircase, like the T5 of the exponential (see Note [Bit-exact
     double precision exponential]). T1 to T4 are rounded to nearest (half up),
     T5 is rounded down, and rc = 2^-53 + 2^-58.
+  * On Cyclone V, T1 is an exact product and T2 to T5 leave out the partial
+    products of 'exp2CutsCycloneV' (in T2 to T4 low bits of S1 to S3, in T5
+    low bits of y); all are rounded down and rc = 2^-53.
   * Results with an exponent field of 2047 or more are +inf; 0 or less give
     +0. NaN gives the IP's NaN, +inf gives +inf and -inf gives +0, and
     |x| >= 2048 gives +inf or +0.
@@ -475,7 +478,12 @@ the operand widths of the tilings and of which operand is cut matched T1 to
 T4 (operands of 18, 28, 37 and 44 bits); the five single partial products of
 T5 are where the exponential has them, at the end of each step.
 
-Cyclone V is not modelled.
+The Cyclone V products: the staircases of the exponential's T3, T4 and T5 on
+Cyclone V (see 'expCutsCycloneV'), moved to these operand widths, and a
+descent over the cut of each row from there. T2, a 27x27 multiplier and a
+small product of 6 result bits in the synthesis report, came out as the
+product of the top 26 bits of S1 with y >> 19 plus the low 2 bits of S1 times
+the top 4 bits of y >> 19.
 -}
 
 {- Note [Observed double precision base 2 exponential coefficients]
@@ -529,6 +537,21 @@ exp2Cuts =
   , runs [(1, 39), (1, 38), (8, 30), (1, 29), (7, 22), (1, 21), (8, 13), (1, 12), (7, 5), (1, 4), (16, 0)]
   )
 
+-- | Truncated products T2 to T5 of the base 2 exponential on Cyclone V, as cut
+-- lists for 'truncMul' (T1 is exact)
+exp2CutsCycloneV :: ([Int], [Int], [Int], [Int])
+exp2CutsCycloneV =
+  ( -- T2 = S1 [28 bits] * (y >> 19) [27 bits]: a 27x27 multiplier and a 2x4
+    -- product
+    runs [(23, 2), (4, 0)]
+    -- T3 = S2 [37 bits] * (y >> 10) [36 bits]
+  , runs [(10, 20), (9, 11), (17, 0)]
+    -- T4 = S3 [44 bits] * (y >> 3) [43 bits]
+  , runs [(13, 27), (4, 23), (5, 18), (4, 14), (17, 0)]
+    -- T5 = y [46 bits] * S4 [52 bits]
+  , runs [(22, 20), (4, 16), (26, 0)]
+  )
+
 -- | The table of 'exp2Double': the generated coefficients, with the observed
 -- ones in segment 50
 exp2Table :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
@@ -537,10 +560,9 @@ exp2Table = listArray (0, 63) exp2DoubleCoefficients // exp2ObservedCoefficients
 
 -- * Base 2 exponential
 
--- | The IP's base 2 exponential in double precision on MAX 10, Cyclone IV E
--- and Cyclone 10 LP, on bit patterns
-exp2Double :: Word64 -> Word64
-exp2Double w
+-- | The IP's base 2 exponential in double precision, on bit patterns
+exp2Double :: Multipliers -> Word64 -> Word64
+exp2Double mults w
   | e == 2047 = if f /= 0 then nanDouble else if neg then 0 else infDouble
   | e > 1033 = if neg then 0 else infDouble
   | be >= 2047 = infDouble
@@ -555,27 +577,39 @@ exp2Double w
   x52 = if e >= 1023 then mx `shiftL` (e - 1023) else mx `shiftR` (1023 - e)
   k = x52 `shiftR` 52
   r = x52 .&. (bit 52 - 1)
-  o0 = exp2Sig (fromInteger (r `shiftR` 46)) (r .&. (bit 46 - 1))
+  o0 = exp2Sig mults (fromInteger (r `shiftR` 46)) (r .&. (bit 46 - 1))
   (o, be) = if o0 >= bit 53 then (o0 `shiftR` 1, fromInteger k + 1024) else (o0, fromInteger k + 1023 :: Int)
 
 -- | Significand of 2^r in units of 2^-52 (2^52 to 2^53), for the segment @j@
 -- and the 46 low bits @y@ of r
-exp2Sig :: Int -> Integer -> Integer
-exp2Sig j y = a `shiftR` 6
+exp2Sig :: Multipliers -> Int -> Integer -> Integer
+exp2Sig mults j y = case mults of
+  FullMultipliers ->
+    let (cut2, cut3, cut4, cut5) = exp2CutsCycloneV
+        -- Rounded down
+        s1 = 2 * c4 + (c5 * y1) `shiftR` 17                 -- 2^-56
+        s2 = 2 * c3 + truncMul cut2 s1 y2 `shiftR` 26       -- 2^-57
+        s3 = 2 * c2 + truncMul cut3 s2 y3 `shiftR` 37       -- 2^-56
+        s4 = 2 * c1 + truncMul cut4 s3 y4 `shiftR` 43       -- 2^-56
+        -- At 2^-58, with the rounding constant 2^-53
+        a = 8 * c0 + 32 + truncMul cut5 y s4 `shiftR` 44
+    in  a `shiftR` 6
+  TruncatedMultipliers ->
+    let (cut1, cut2, cut3, cut4, cut5) = exp2Cuts
+        -- Rounded half up
+        s1 = 2 * c4 + (truncMul cut1 c5 y1 + bit 16) `shiftR` 17   -- 2^-56
+        s2 = 2 * c3 + (truncMul cut2 y2 s1 + bit 25) `shiftR` 26   -- 2^-57
+        s3 = 2 * c2 + (truncMul cut3 y3 s2 + bit 36) `shiftR` 37   -- 2^-56
+        s4 = 2 * c1 + (truncMul cut4 y4 s3 + bit 42) `shiftR` 43   -- 2^-56
+        -- At 2^-58, with the rounding constant 2^-53 + 2^-58
+        a = 8 * c0 + 33 + truncMul cut5 y s4 `shiftR` 44
+    in  a `shiftR` 6
  where
   (c0, c1, c2, c3, c4, c5) = exp2Table ! j
-  (cut1, cut2, cut3, cut4, cut5) = exp2Cuts
   y1 = y `shiftR` 28
   y2 = y `shiftR` 19
   y3 = y `shiftR` 10
   y4 = y `shiftR` 3
-  -- Rounded half up
-  s1 = 2 * c4 + (truncMul cut1 c5 y1 + bit 16) `shiftR` 17   -- 2^-56
-  s2 = 2 * c3 + (truncMul cut2 y2 s1 + bit 25) `shiftR` 26   -- 2^-57
-  s3 = 2 * c2 + (truncMul cut3 y3 s2 + bit 36) `shiftR` 37   -- 2^-56
-  s4 = 2 * c1 + (truncMul cut4 y4 s3 + bit 42) `shiftR` 43   -- 2^-56
-  -- At 2^-58, with the rounding constant 2^-53 + 2^-58
-  a = 8 * c0 + 33 + truncMul cut5 y s4 `shiftR` 44
 
 {- Note [Bit-exact double precision reciprocal square root]
 The reciprocal square root uses the scheme of the square root (see Note
