@@ -55,7 +55,7 @@ hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycl
 {-# ANN hypotTB (Synthesize "hypotTB" [] (PortName "done")) #-}
 
 log10TB :: Signal Dom Bool
-log10TB = romTB simLibraries log10Dut $(memBlobTH (Just 0) (traceNoCycloneV log10Dut (cycles (log10DoublesIn 2000 74))))
+log10TB = romTB simLibraries log10Dut $(memBlobTH (Just 0) (trace log10Dut (cycles (log10DoublesIn 2000 74))))
 {-# ANN log10TB (Synthesize "log10TB" [] (PortName "done")) #-}
 
 cbrtTB :: Signal Dom Bool
@@ -63,11 +63,11 @@ cbrtTB = romTB simLibraries cbrtDut $(memBlobTH (Just 0) (traceNoCycloneV cbrtDu
 {-# ANN cbrtTB (Synthesize "cbrtTB" [] (PortName "done")) #-}
 
 logTB :: Signal Dom Bool
-logTB = romTB simLibraries logDut $(memBlobTH (Just 0) (traceNoCycloneV logDut (cycles (logDoublesIn 2000 77))))
+logTB = romTB simLibraries logDut $(memBlobTH (Just 0) (trace logDut (cycles (logDoublesIn 2000 77))))
 {-# ANN logTB (Synthesize "logTB" [] (PortName "done")) #-}
 
 log1pTB :: Signal Dom Bool
-log1pTB = romTB simLibraries log1pDut $(memBlobTH (Just 0) (traceNoCycloneV log1pDut (cycles (log1pDoublesIn 2500 78))))
+log1pTB = romTB simLibraries log1pDut $(memBlobTH (Just 0) (trace log1pDut (cycles (log1pDoublesIn 2500 78))))
 {-# ANN log1pTB (Synthesize "log1pTB" [] (PortName "done")) #-}
 
 log2TB :: Signal Dom Bool

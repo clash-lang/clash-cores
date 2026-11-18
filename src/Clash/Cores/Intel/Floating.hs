@@ -46,24 +46,28 @@ models document the details.
   about one in 35 multiples of ln 2, where it returns the power of two above
   (all four families; 2.7 million inputs per family), and the hypotenuse
   ('Clash.Cores.Intel.Floating.Double.Explicit.hypotModel') by up to 1.25
-  units (all four families; 400,000 input triples per family), and the base
-  10 logarithm ('Clash.Cores.Intel.Floating.Double.Explicit.log10Model') by up
-  to 1.36 units for inputs in @[0.5, 1)@ (MAX 10, Cyclone IV E and Cyclone 10
-  LP; found with the model on 300 million random inputs, the model verified
-  on 3.1 million inputs per family), and the natural logarithm
+  units (all four families; 400,000 input triples per family), the base 10
+  logarithm ('Clash.Cores.Intel.Floating.Double.Explicit.log10Model') by up to
+  1.4 units for inputs in @[0.5, 1)@, the natural logarithm
   ('Clash.Cores.Intel.Floating.Double.Explicit.logModel') by up to 2.24 units
-  for inputs in @[0.5, 1)@, 1.64 units in @[1, 2)@ and 1.05 units elsewhere
-  (the same families; found the same way, the model verified on 3.7 million
-  inputs per family), and @log (1 + x)@
-  ('Clash.Cores.Intel.Floating.Double.Explicit.log1pModel') by up to 1.71
-  units (the same families; the model on 500 million random inputs, verified
-  on 4.0 million inputs per family), and the base 2 logarithm
+  for inputs in @[0.5, 1)@, 1.66 units in @[1, 2)@ and 1.05 units elsewhere,
+  and @log (1 + x)@ ('Clash.Cores.Intel.Floating.Double.Explicit.log1pModel')
+  by up to 1.71 units (all four families; found with the models on hundreds
+  of millions of random inputs, the models verified on 3 to 4 million inputs
+  per family), the base 2 logarithm
   ('Clash.Cores.Intel.Floating.Double.Explicit.log2Model') by up to 1.05 units
-  for inputs in @[1, 2)@ (the same families; the model on 300 million random
-  inputs, verified on 4.0 million inputs per family), and the base 2
-  exponential ('Clash.Cores.Intel.Floating.Double.Explicit.exp2Model') by up
-  to 2.1 units for inputs below one in magnitude (the same families; the
-  model on 5 million inputs, verified on 3.8 million inputs per family).
+  for inputs in @[1, 2)@ and the base 2 exponential
+  ('Clash.Cores.Intel.Floating.Double.Explicit.exp2Model') by up to 2.1 units
+  for inputs below one in magnitude (MAX 10, Cyclone IV E and Cyclone 10 LP;
+  the models verified on 4 million inputs per family).
+
+* /Latency on Cyclone V./ The parameter editor offers a latency target for
+  every function. For the double precision LOGE, LOG10 and LOG1PX on Cyclone
+  V, Quartus Prime Lite 21.1 rejects every latency target (\"Frequency Target
+  is too low for this parameterization\"; tried: targets from 9 to 62
+  cycles, including the latencies it picks itself for a target frequency),
+  while it generates the IP for a target frequency (44, 42 and 55 cycles at
+  200 MHz).
 
 * /Power of one./ IEEE 754's @powr@, which the IP's POWR follows otherwise,
   gives one for @1 ** y@ with a finite @y@. The IP gives @+inf@ or @+0@ for

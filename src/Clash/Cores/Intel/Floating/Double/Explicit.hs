@@ -27,13 +27,13 @@ the IP's results bit for bit: the models ('sqrtModel', 'rsqrtModel', 'recipModel
 obtained by black-box testing of the IP, see Note [Bit-exact double precision
 models] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble", and were
 verified against the simulated IP on millions of inputs for MAX 10, Cyclone IV
-E, Cyclone 10 LP and (except for 'exp2', 'log', 'log2', 'log10', 'log1p' and
-'cbrt') Cyclone V, at several latencies. The results of the
+E, Cyclone 10 LP and (except for 'exp2', 'log2' and 'cbrt') Cyclone V, at
+several latencies. The results of the
 square root, the reciprocal square root and the exponential depend on the
 multipliers of the device family, so they take a 'DeviceFamily' argument.
 
-The models of 'exp2', 'log', 'log2', 'log10', 'log1p' and 'cbrt' cover MAX 10,
-Cyclone IV E and Cyclone 10 LP only. On Cyclone V the IP gives other results for some inputs, which are not
+The models of 'exp2', 'log2' and 'cbrt' cover MAX 10, Cyclone IV E and Cyclone
+10 LP only. On Cyclone V the IP gives other results for some inputs, which are not
 modelled: Clash simulation of these functions for Cyclone V raises an error.
 The generated HDL is the same IP on all families.
 
@@ -577,8 +577,11 @@ type HypotDefDelay = 52
 -- | Customizable floating point base 10 logarithm, @log10 x@, in double
 -- precision, see 'log10Model'. The IP's result is bit-exactly modelled.
 --
--- Clash simulation supports MAX 10, Cyclone IV E and Cyclone 10 LP only: for
--- Cyclone V the IP's results are not modelled, and simulation raises an error.
+-- For Cyclone V, Quartus Prime Lite 21.1 does not generate this IP for any
+-- latency (it reports that the frequency target is too low), only for a
+-- target frequency, which this function cannot ask for. The simulation model
+-- does cover Cyclone V: it gives the results of the IP generated for a target
+-- frequency.
 --
 -- The 'DeviceFamily' has to be the family of the Quartus project: the IP
 -- computes slightly differently on families with different multipliers, see
@@ -685,8 +688,11 @@ type CbrtDefDelay = 38
 -- | Customizable floating point natural logarithm, in double
 -- precision, see 'logModel'. The IP's result is bit-exactly modelled.
 --
--- Clash simulation supports MAX 10, Cyclone IV E and Cyclone 10 LP only: for
--- Cyclone V the IP's results are not modelled, and simulation raises an error.
+-- For Cyclone V, Quartus Prime Lite 21.1 does not generate this IP for any
+-- latency (it reports that the frequency target is too low), only for a
+-- target frequency, which this function cannot ask for. The simulation model
+-- does cover Cyclone V: it gives the results of the IP generated for a target
+-- frequency.
 -- In one of the 2048 segments of its table, the model uses coefficients
 -- observed from the IP's outputs instead of computed ones, see 'logModel'.
 --
@@ -741,8 +747,11 @@ type LogDefDelay = 49
 -- | Customizable floating point natural logarithm of one plus its argument, @log (1 + x)@, in double
 -- precision, see 'log1pModel'. The IP's result is bit-exactly modelled.
 --
--- Clash simulation supports MAX 10, Cyclone IV E and Cyclone 10 LP only: for
--- Cyclone V the IP's results are not modelled, and simulation raises an error.
+-- For Cyclone V, Quartus Prime Lite 21.1 does not generate this IP for any
+-- latency (it reports that the frequency target is too low), only for a
+-- target frequency, which this function cannot ask for. The simulation model
+-- does cover Cyclone V: it gives the results of the IP generated for a target
+-- frequency.
 --
 -- The 'DeviceFamily' has to be the family of the Quartus project: the IP
 -- computes slightly differently on families with different multipliers, see

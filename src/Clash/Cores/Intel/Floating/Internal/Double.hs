@@ -213,32 +213,29 @@ noCycloneV name = error $
     <> "On that family the IP computes its results differently, and not all of them are known. "
     <> "Only simulation in Clash is affected: the generated HDL instantiates the IP as on the other families."
 
--- | Model of the base 10 logarithm of the IP in double precision, for MAX 10,
--- Cyclone IV E and Cyclone 10 LP. It gives the IP's results bit for bit, see
--- Note [Bit-exact double precision logarithms] in
--- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": for x in @[0.5, 2)@
--- the result is @(x - 1) * P@ with @P@ a polynomial of degree four truncated
--- to about 54 bits, else @E * log10 2 + z * P@ for @x = (1 + z) * 2^E@; it is
--- rounded to nearest with ties away from zero. The result is not always
--- faithful: for @x@ in @[0.5, 1)@ it is up to 1.36 units in the last place
--- above the exact result (elsewhere it stays within 0.92 units). Zero and
--- subnormal inputs give -inf, negative inputs and NaN give 'intelNaN', +inf
--- gives +inf and @log10 1 = 0@.
---
--- For Cyclone V there is no model: the IP's results differ there, and this
--- function raises an error.
+-- | Model of the base 10 logarithm of the IP in double precision. It gives
+-- the IP's results bit for bit, see Note [Bit-exact double precision
+-- logarithms] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble": for x
+-- in @[0.5, 2)@ the result is @(x - 1) * P@ with @P@ a polynomial of degree
+-- four truncated to about 54 bits, else @E * log10 2 + z * P@ for
+-- @x = (1 + z) * 2^E@; it is rounded to nearest with ties away from zero. The
+-- result is not always faithful: for @x@ in @[0.5, 1)@ it is up to 1.36 units
+-- in the last place above the exact result (Cyclone V: 1.39; elsewhere it
+-- stays within 0.93 units). Zero and subnormal inputs give -inf, negative
+-- inputs and NaN give 'intelNaN', +inf gives +inf and @log10 1 = 0@.
 --
 -- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
 -- Cyclone IV E and Cyclone 10 LP, at 200 MHz and at the minimum latency (13
--- cycles), and for MAX 10 also at 100 MHz and at latencies of 14, 16 and 20
--- cycles, on 3.1 million inputs each: special values at every exponent,
--- random inputs of several kinds, inputs in every segment of its table,
--- inputs near one, inputs whose exact result is close to a rounding boundary
--- and inputs for which the IP's sum is a tie.
+-- cycles), for MAX 10 also at 100 MHz and at latencies of 14, 16 and 20
+-- cycles, and for Cyclone V at 200 MHz and 100 MHz (see 'log10With' in
+-- "Clash.Cores.Intel.Floating.Double.Explicit" for its latency), on 3.1
+-- million inputs each: special values at every exponent, random inputs of
+-- several kinds, inputs in every segment of its table, inputs near one,
+-- inputs whose exact result is close to a rounding boundary and inputs for
+-- which the IP's sum is a tie; for Cyclone V also on 6 million more inputs
+-- in @[0.5, 2)@.
 log10Model :: DeviceFamily -> Double -> Double
-log10Model fam = case fam of
-  CycloneV -> noCycloneV "log10Model"
-  _ -> onBits log10Double
+log10Model fam = onBits (log10Double (familyMultipliers fam))
 
 -- | Model of the cube root of the IP in double precision, for MAX 10, Cyclone
 -- IV E and Cyclone 10 LP. It gives the IP's results bit for bit, see Note
@@ -267,42 +264,37 @@ cbrtModel fam = case fam of
   CycloneV -> noCycloneV "cbrtModel"
   _ -> onBits cbrtDouble
 
--- | Model of the natural logarithm of the IP in double precision, for MAX 10,
--- Cyclone IV E and Cyclone 10 LP. It gives the IP's results bit for bit, see
--- Note [Bit-exact double precision logarithms] in
--- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": for x in @[0.5, 2)@
--- the result is @(x - 1) * P@ with @P@ a polynomial of degree four truncated
--- to 53 bits, else @E * ln 2 + z * P@ for @x = (1 + z) * 2^E@; it is rounded
--- to nearest with ties away from zero. The result is not always faithful:
--- for @x@ in @[1, 2)@ it is up to 1.64 units in the last place below the
--- exact result, for @x@ in @[0.5, 1)@ up to 2.24 units above it, and elsewhere
--- it stays within 1.05 units. Zero and subnormal inputs give -inf, negative
+-- | Model of the natural logarithm of the IP in double precision. It gives
+-- the IP's results bit for bit, see Note [Bit-exact double precision
+-- logarithms] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble": for x
+-- in @[0.5, 2)@ the result is @(x - 1) * P@ with @P@ a polynomial of degree
+-- four truncated to 53 bits, else @E * ln 2 + z * P@ for @x = (1 + z) * 2^E@;
+-- it is rounded to nearest with ties away from zero. The result is not always
+-- faithful: for @x@ in @[1, 2)@ it is up to 1.66 units in the last place
+-- below the exact result, for @x@ in @[0.5, 1)@ up to 2.24 units above it, and
+-- elsewhere it stays within 1.05 units (on every family). Zero and subnormal inputs give -inf, negative
 -- inputs and NaN give 'intelNaN', +inf gives +inf and @log 1 = 0@.
 --
 -- In one of its 2048 table segments (for @x@ in about @[0.8042, 0.8047)@) the
 -- model uses coefficients observed from the IP's outputs instead of computed
 -- ones, see Note [Observed double precision logarithm coefficients].
 --
--- For Cyclone V there is no model: the IP's results differ there, and this
--- function raises an error.
---
 -- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
 -- Cyclone IV E and Cyclone 10 LP, at 200 MHz and at the minimum latency (13
--- cycles), and for MAX 10 also at 100 MHz and at a latency of 20 cycles, on
--- 3.7 million inputs each: special values at every exponent, random inputs of
+-- cycles), for MAX 10 also at 100 MHz and at a latency of 20 cycles, and for
+-- Cyclone V at 200 MHz and 100 MHz (see 'logWith' in
+-- "Clash.Cores.Intel.Floating.Double.Explicit" for its latency), on 3.7
+-- million inputs each: special values at every exponent, random inputs of
 -- several kinds, inputs in every segment of its table, inputs near one,
 -- inputs whose result is close to a rounding boundary, inputs for which the
 -- IP's sum is a tie, and 91,000 inputs in the segment with observed
 -- coefficients (a third of them inputs for which the computed coefficients
 -- would give another result).
 logModel :: DeviceFamily -> Double -> Double
-logModel fam = case fam of
-  CycloneV -> noCycloneV "logModel"
-  _ -> onBits lnDouble
+logModel fam = onBits (lnDouble (familyMultipliers fam))
 
 -- | Model of the natural logarithm of one plus its argument, @log (1 + x)@,
--- of the IP in double precision, for MAX 10, Cyclone IV E and Cyclone 10 LP.
--- It gives the IP's results bit for bit, see Note [Bit-exact double precision
+-- of the IP in double precision. It gives the IP's results bit for bit, see Note [Bit-exact double precision
 -- log1p] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble": for @x@ in
 -- @(-0.5, 1)@ the result is @x * P@, with @P@ the polynomial of 'logModel' at
 -- @1 + x@ rounded down to a multiple of @2^-53@; else it is 'logModel''s sum
@@ -317,12 +309,11 @@ logModel fam = case fam of
 -- @[0.8042, 0.8047)@), see Note [Observed double precision logarithm
 -- coefficients].
 --
--- For Cyclone V there is no model: the IP's results differ there, and this
--- function raises an error.
---
 -- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
 -- Cyclone IV E and Cyclone 10 LP, at 200 MHz and at the minimum latency (13
--- cycles), and for MAX 10 also at 100 MHz, on 4.0 million inputs each:
+-- cycles), for MAX 10 also at 100 MHz, and for Cyclone V at 200 MHz and 100
+-- MHz (see 'log1pWith' in "Clash.Cores.Intel.Floating.Double.Explicit" for
+-- its latency), on 4.0 million inputs each:
 -- special values at every exponent, random inputs of either sign of several
 -- kinds (below one in magnitude, tiny, large, close to -1, with few fraction
 -- bits), inputs for which @1 + x@ is in every segment of the table, 470,000
@@ -331,9 +322,7 @@ logModel fam = case fam of
 -- (23,000 of them inputs for which the computed coefficients would give
 -- another result).
 log1pModel :: DeviceFamily -> Double -> Double
-log1pModel fam = case fam of
-  CycloneV -> noCycloneV "log1pModel"
-  _ -> onBits log1pDouble
+log1pModel fam = onBits (log1pDouble (familyMultipliers fam))
 
 -- | Model of the base 2 logarithm of the IP in double precision, for MAX 10,
 -- Cyclone IV E and Cyclone 10 LP. It gives the IP's results bit for bit, see

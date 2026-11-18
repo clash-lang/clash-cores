@@ -954,6 +954,9 @@ logarithm, for x = m * 2^E with m = 1.f in [1, 2):
   * On MAX 10, Cyclone IV E and Cyclone 10 LP the products are truncated
     multipliers (see Note [Bit-exact double precision models] and 'logCuts'),
     each rounded to nearest (half up).
+  * On Cyclone V, T1 is an exact product and T2 to T4 are truncated
+    multipliers (see 'logCutsCycloneV'); all are rounded down, T4 and A are
+    at u, and Aq is A without its low 5 bits (base 10) or 6 bits (natural).
   * The result is z * Aq rounded to nearest, ties away from zero.
   * Otherwise L x = E * K + z * Aq with z = f * 2^-52 (the tables of E = 0),
     the sum exact and rounded to nearest, ties away from zero. K is L 2
@@ -984,11 +987,16 @@ How the structure was inferred:
     wide) along a diagonal. The natural logarithm then matched with the same
     staircases on its scaled coefficients.
 
-Cyclone V is not modelled. For the base 10 logarithm, the products are rounded
-down there, T1 is an exact product and T3 and T4 are the staircases of the
-generator's standalone multipliers, but no staircase for T2 reproduces the IP:
-with the best one, about 150 of 2.5 million inputs differ, nearly all of them
-exactly on a rounding boundary of P.
+  * Cyclone V: T3 and T4 are the truncated multipliers that the generator
+    builds standalone for their widths (40 by 38 bits and 50 by 42 bits). For
+    T2, the synthesis report shows a 27x27 multiplier and two small products
+    in logic, one of them of 1 by 6 bits. A descent over the cut of each row
+    gave a staircase that fits all but about 150 of 2.5 million inputs; all
+    of those have the least significant bit of y >> 14 set, and that row
+    keeping the top 6 bits of S1 (the 1 by 6 product) fits all of them. T2 is
+    then the 27x27 product of the top 27 bits of both operands, the last bit
+    of y >> 14 times the top 6 bits of S1, and the low 3 bits of S1 times the
+    top 4 bits of y >> 14.
 -}
 
 {- Note [Observed double precision logarithm coefficients]
@@ -1060,8 +1068,8 @@ roundAway neg v sc = sign .|. (fromIntegral (ex + 1023) `shiftL` 52) .|. fromInt
   m0 = if s > 0 then (v + bit (s - 1)) `shiftR` s else v `shiftL` negate s
   (m, ex) = if m0 >= bit 53 then (m0 `shiftR` 1, n - sc) else (m0, n - 1 - sc)
 
--- | Truncated products of the natural and the base 10 logarithm on MAX 10,
--- Cyclone IV E and Cyclone 10 LP, as cut lists for 'truncMul'
+-- | Truncated products T1 to T4 of the natural and the base 10 logarithm on
+-- MAX 10, Cyclone IV E and Cyclone 10 LP, as cut lists for 'truncMul'
 logCuts :: ([Int], [Int], [Int], [Int])
 logCuts =
   ( -- T1 = C4 * (y >> 25) [17 bits]
@@ -1072,6 +1080,19 @@ logCuts =
   , runs [(1, 32), (4, 28), (5, 23), (4, 19), (4, 15), (4, 11), (5, 6), (4, 2), (7, 0)]
     -- T4 = S3 * y [42 bits]
   , runs [(4, 33), (5, 28), (12, 16), (5, 11), (16, 0)]
+  )
+
+-- | Truncated products T2, T3 and T4 of the natural and the base 10 logarithm
+-- on Cyclone V, as cut lists for 'truncMul' (T1 is exact)
+logCutsCycloneV :: ([Int], [Int], [Int])
+logCutsCycloneV =
+  ( -- T2 = S1 [30 bits] * (y >> 14) [28 bits]: a 27x27 multiplier, a 6x1 and
+    -- a 3x4 product
+    runs [(1, 24), (23, 3), (4, 0)]
+    -- T3 = S2 [40 bits] * (y >> 4) [38 bits]
+  , runs [(12, 22), (9, 13), (17, 0)]
+    -- T4 = S3 [50 bits] * y [42 bits]
+  , runs [(16, 23), (26, 0)]
   )
 
 -- | The table of 'lnDouble': the generated coefficients, with the observed
@@ -1087,20 +1108,18 @@ log10Table = listArray (0, 2047) log10DoubleCoefficients
 
 -- * Logarithms
 
--- | The IP's natural logarithm in double precision on MAX 10, Cyclone IV E
--- and Cyclone 10 LP, on bit patterns
-lnDouble :: Word64 -> Word64
-lnDouble = logDouble lnOf2 53 (\r -> if r < 2 then 53 else 52) aq
+-- | The IP's natural logarithm in double precision, on bit patterns
+lnDouble :: Multipliers -> Word64 -> Word64
+lnDouble mults = logDouble lnOf2 53 (\r -> if r < 2 then 53 else 52) aq
  where
-  aq r v = logAq lnTable 1 7 (r * 512 + fromInteger (v `shiftR` 42)) (v .&. (bit 42 - 1))
+  aq r v = logAq mults lnTable 1 7 (r * 512 + fromInteger (v `shiftR` 42)) (v .&. (bit 42 - 1))
 
--- | The IP's base 10 logarithm in double precision on MAX 10, Cyclone IV E
--- and Cyclone 10 LP, on bit patterns
-log10Double :: Word64 -> Word64
-log10Double = logDouble log10Of2 57 (\r -> if r < 2 then 55 else 54) aq
+-- | The IP's base 10 logarithm in double precision, on bit patterns
+log10Double :: Multipliers -> Word64 -> Word64
+log10Double mults = logDouble log10Of2 57 (\r -> if r < 2 then 55 else 54) aq
  where
   aq r v =
-    logAq log10Table (if r < 2 then 2 else 1) 6 (r * 512 + fromInteger (v `shiftR` 42)) (v .&. (bit 42 - 1))
+    logAq mults log10Table (if r < 2 then 2 else 1) 6 (r * 512 + fromInteger (v `shiftR` 42)) (v .&. (bit 42 - 1))
 
 -- | A logarithm L, given K = L 2 in units of @2^-kb@, the position of the
 -- least significant bit of Aq in region @r@ (@2^-(q r)@) and Aq for a region
@@ -1129,28 +1148,41 @@ logDouble k kb q aqOf w
 
 -- | P of the natural and the base 10 logarithm, truncated, for the
 -- coefficients of segment @i@ scaled by @2^sc@; @sh@ is the number of bits of
--- A that are dropped
-logAq :: Array Int (Integer, Integer, Integer, Integer, Integer) -> Int -> Int -> Int -> Integer -> Integer
-logAq table sc sh i y = a `shiftR` sh
+-- A that are dropped with truncated multipliers (one more than with full
+-- multipliers)
+logAq :: Multipliers -> Array Int (Integer, Integer, Integer, Integer, Integer) -> Int -> Int -> Int -> Integer -> Integer
+logAq mults table sc sh i y = case mults of
+  FullMultipliers ->
+    let (cut2, cut3, cut4) = logCutsCycloneV
+        -- Rounded down; in units of the scaled C0: u / 2, u and u
+        s1 = (c3 `shiftL` sc) + ((c4 `shiftL` sc) * y1) `shiftR` 16
+        s2 = (c2 `shiftL` sc) + truncMul cut2 s1 y2 `shiftR` 29
+        s3 = (c1 `shiftL` sc) + truncMul cut3 s2 y3 `shiftR` 38
+        -- At u, with the rounding constant 4 u
+        a = ((c0 + 4) `shiftL` sc) + truncMul cut4 s3 y `shiftR` 42
+    in  a `shiftR` (sh - 1)
+  TruncatedMultipliers ->
+    let (cut1, cut2, cut3, cut4) = logCuts
+        -- Rounded half up; in units of the scaled C0: u / 2, u and u
+        s1 = (c3 `shiftL` sc) + (truncMul cut1 (c4 `shiftL` sc) y1 + bit 15) `shiftR` 16
+        s2 = (c2 `shiftL` sc) + (truncMul cut2 s1 y2 + bit 28) `shiftR` 29
+        s3 = (c1 `shiftL` sc) + (truncMul cut3 s2 y3 + bit 37) `shiftR` 38
+        -- At u / 2, with the rounding constant 4 u
+        a = 2 * ((c0 + 4) `shiftL` sc) + (truncMul cut4 s3 y + bit 40) `shiftR` 41
+    in  a `shiftR` sh
  where
   (c0, c1, c2, c3, c4) = table ! i
-  (cut1, cut2, cut3, cut4) = logCuts
   y1 = y `shiftR` 25
   y2 = y `shiftR` 14
   y3 = y `shiftR` 4
-  -- Rounded half up; in units of the scaled C0: u / 2, u and u
-  s1 = (c3 `shiftL` sc) + (truncMul cut1 (c4 `shiftL` sc) y1 + bit 15) `shiftR` 16
-  s2 = (c2 `shiftL` sc) + (truncMul cut2 s1 y2 + bit 28) `shiftR` 29
-  s3 = (c1 `shiftL` sc) + (truncMul cut3 s2 y3 + bit 37) `shiftR` 38
-  -- At u / 2, with the rounding constant 4 u
-  a = 2 * ((c0 + 4) `shiftL` sc) + (truncMul cut4 s3 y + bit 40) `shiftR` 41
 
 {- Note [Bit-exact double precision log1p]
 log (1 + x) follows from the natural logarithm (see Note [Bit-exact double
 precision logarithms]) the way the single precision one does (see Note
 [Bit-exact models] in "Clash.Cores.Intel.Floating.Internal.BitExact"). It
-uses the table and the datapath of the natural logarithm, with P truncated
-one bit later (Aq at 2^-54 for arguments in [1, 2) and 2^-53 in [0.5, 1)):
+uses the table and the datapath of the natural logarithm on every device
+family, with P truncated one bit later (Aq at 2^-54 for arguments in [1, 2)
+and 2^-53 in [0.5, 1)):
 
   * For x in (-0.5, 1), where 1 + x is in [0.5, 2): v = 1 + x rounded down to
     a multiple of 2^-53, and the result is x * Aq (v), with all bits of x,
@@ -1171,10 +1203,9 @@ the natural logarithm.
 
 -- * Natural logarithm of 1 + x
 
--- | The IP's @log (1 + x)@ in double precision on MAX 10, Cyclone IV E and
--- Cyclone 10 LP, on bit patterns
-log1pDouble :: Word64 -> Word64
-log1pDouble w
+-- | The IP's @log (1 + x)@ in double precision, on bit patterns
+log1pDouble :: Multipliers -> Word64 -> Word64
+log1pDouble mults w
   | e == 2047 = if f /= 0 || neg then nanDouble else infDouble
   -- Zeros and subnormal numbers: a zero of the same sign
   | e == 0 = w .&. bit 63
@@ -1200,7 +1231,7 @@ log1pDouble w
   -- The region (0 and 1: [1, 2), 2 and 3: [0.5, 1)) of the fraction v' of v;
   -- Aq is at 2^-54 in regions 0 and 1 and at 2^-53 in 2 and 3
   q r = if r < 2 then 54 else 53 :: Int
-  aq r u = logAq lnTable 1 6 (r * 512 + fromInteger ((u `shiftR` 42) .&. 511)) (u .&. (bit 42 - 1))
+  aq r u = logAq mults lnTable 1 6 (r * 512 + fromInteger ((u `shiftR` 42) .&. 511)) (u .&. (bit 42 - 1))
   -- 1 + x with its 53 leading bits, as (1 + g * 2^-52) * 2^ex
   (ex, g)
     -- 1 is below the last bit of x
