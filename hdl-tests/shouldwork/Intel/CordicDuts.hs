@@ -218,10 +218,14 @@ atan2W8F14Dut :: Dut (SFixed 2 6, SFixed 2 6) (Vec 1 (SFixed 3 14))
 atan2W8F14Dut clk rst en i = bundle (atanOf (E.atan2 @6) clk rst en i :> Nil)
 {-# OPAQUE atan2W8F14Dut #-}
 
--- | E.atan2 @25 on 6 bit inputs, 20 fractional output bits (extra iterations;
--- the IP needs a latency of at least about 21 for this format)
+-- | E.atan2 @30 on 6 bit inputs, 20 fractional output bits (extra
+-- iterations). The IP needs a latency of at least about 21 for this format
+-- on MAX 10, Cyclone IV E and Cyclone 10 LP. At 30 every family pipelines the
+-- datapath itself. On Cyclone V Quartus reaches 20 to 29 by padding a
+-- datapath of 14 cycles with a delay line in memory, and that IP gives zero
+-- for every input in simulation.
 atan2W6F20Dut :: Dut (SFixed 1 5, SFixed 1 5) (Vec 1 (SFixed 3 20))
-atan2W6F20Dut clk rst en i = bundle (atanOf (E.atan2 @25) clk rst en i :> Nil)
+atan2W6F20Dut clk rst en i = bundle (atanOf (E.atan2 @30) clk rst en i :> Nil)
 {-# OPAQUE atan2W6F20Dut #-}
 
 -- | E.atan2 @8 on 12 bit inputs, 20 fractional output bits (one extra

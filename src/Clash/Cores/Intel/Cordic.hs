@@ -67,6 +67,27 @@ testing: simulating the generated IP's simulation model on chosen inputs.
   are less accurate than the output format suggests: the constant is off by
   3e-9, which is more than one unit in the last place from 28 fractional
   output bits on.
+
+* /Latencies that Cyclone V reaches with memory./ The guide says the IP adds
+  registers to reach a requested latency. For ATAN2 with 6 bit inputs and 20
+  fractional output bits on Cyclone V, Quartus 21.1 reaches the latencies 20
+  to 29 (and 40) by padding a datapath of 14 (or 30) cycles with a delay
+  line in MLAB memory (120 memory bits in the synthesis report), and that IP
+  gives zero for every input in simulation (in GHDL, and at latency 25 also in
+  the Vivado simulator). At the latencies 14 to 18 and 30 to 32 it uses no memory, and the
+  results are those of the other families. Whether the IP also fails in
+  hardware was not tested. Found when the test of this format ran on Cyclone
+  V; other formats and latencies were not surveyed for this.
+
+* /Generating on a busy machine./ The generator searches for a target
+  frequency at which the IP has the requested latency, and it fails when the
+  machine is busy: with all CPUs saturated, Quartus 21.1 reports
+  \"Frequency Target is too low for this parameterization\" or \"Could not
+  achieve the requested latency at any frequency\" for a latency it reaches
+  on an idle machine. Formats that take long to generate are affected
+  first, such as ATAN2 with many more fractional output bits than input
+  bits (about 8 seconds per attempt for 6 bit inputs and 20 fractional
+  output bits, against 1 to 5 seconds for most formats).
 -}
 
 {-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
