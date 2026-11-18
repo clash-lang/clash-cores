@@ -22,6 +22,7 @@ module Clash.Cores.Intel.Floating.Internal.Double
   , expModel
   , hypotModel
   , logModel
+  , log2Model
   , log10Model
   , log1pModel
   , cbrtModel
@@ -332,3 +333,37 @@ log1pModel :: DeviceFamily -> Double -> Double
 log1pModel fam = case fam of
   CycloneV -> noCycloneV "log1pModel"
   _ -> onBits log1pDouble
+
+-- | Model of the base 2 logarithm of the IP in double precision, for MAX 10,
+-- Cyclone IV E and Cyclone 10 LP. It gives the IP's results bit for bit, see
+-- Note [Bit-exact double precision base 2 logarithm] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": for x in @[0.5, 2)@
+-- the result is @(x - 1) * P@ with @P@ a polynomial of degree five truncated
+-- to 54 bits, else @E + z * P@ for @x = (1 + z) * 2^E@; it is rounded to
+-- nearest with ties away from zero. The result is not always faithful: for
+-- @x@ in @[1, 2)@ it is up to 1.05 units in the last place off the exact
+-- result (elsewhere it stays within 0.88 units). Powers of two give their
+-- exponent exactly. Zero and subnormal inputs give -inf, negative inputs and
+-- NaN give 'intelNaN' and +inf gives +inf.
+--
+-- In two of its 512 table segments (for inputs with a significand in about
+-- @[1.168, 1.172)@ or @[1.801, 1.805)@) the model uses coefficients observed
+-- from the IP's outputs instead of computed ones, see Note [Observed double
+-- precision base 2 logarithm coefficients].
+--
+-- For Cyclone V there is no model: the IP's results differ there, and this
+-- function raises an error.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E and Cyclone 10 LP, at 200 MHz and at the minimum latency (14
+-- cycles), and for MAX 10 also at 100 MHz, on 4.0 million inputs each:
+-- special values at every exponent, random inputs of several kinds, inputs in
+-- every segment of its table, inputs near one, 470,000 inputs for which the
+-- polynomial is exactly on a rounding boundary, inputs for which the IP's sum
+-- is a tie, and 100,000 inputs in each of the two segments with observed
+-- coefficients (30,000 of them inputs for which the computed coefficients
+-- would give another result).
+log2Model :: DeviceFamily -> Double -> Double
+log2Model fam = case fam of
+  CycloneV -> noCycloneV "log2Model"
+  _ -> onBits log2Double

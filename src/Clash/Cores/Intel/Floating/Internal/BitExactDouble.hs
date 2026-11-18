@@ -5,12 +5,13 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in double precision: square root, cube root, reciprocal square root,
-reciprocal, exponential, natural and base 10 logarithm, log (1 + x), the
-hypotenuse and the arithmetic, see Note [Bit-exact double precision models],
-Note [Bit-exact double precision cube root], Note [Bit-exact double precision
-hypotenuse], Note [Bit-exact double precision reciprocal square root],
-Note [Bit-exact double precision exponential], Note [Bit-exact double
-precision logarithms] and Note [Bit-exact double precision log1p].
+reciprocal, exponential, natural, base 2 and base 10 logarithm, log (1 + x),
+the hypotenuse and the arithmetic, see Note [Bit-exact double precision
+models], Note [Bit-exact double precision cube root], Note [Bit-exact double
+precision hypotenuse], Note [Bit-exact double precision reciprocal square
+root], Note [Bit-exact double precision exponential], Note [Bit-exact double
+precision logarithms], Note [Bit-exact double precision base 2 logarithm] and
+Note [Bit-exact double precision log1p].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -22,6 +23,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   , rsqrtDouble
   , hypotDouble
   , lnDouble
+  , log2Double
   , log10Double
   , log1pDouble
   , cbrtDouble
@@ -41,7 +43,7 @@ import Data.Word (Word64)
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
 import Clash.Cores.Intel.Floating.Internal.CoefficientsDouble
   ( cbrtDoubleCoefficients, expDoubleCoefficients, lnDoubleCoefficients, log10DoubleCoefficients
-  , rsqrtDoubleCoefficients, sqrtDoubleCoefficients )
+  , log2DoubleCoefficients, rsqrtDoubleCoefficients, sqrtDoubleCoefficients )
 
 {- Note [Bit-exact double precision models]
 In double precision, the IP computes its functions with the algorithms of
@@ -509,6 +511,7 @@ significant bits (C0 to C5):
   segment 426: [+1, -20, +112, -510, +253, -91]
 
 Besides the coefficients of Note [Observed double precision logarithm
+coefficients] and Note [Observed double precision base 2 logarithm
 coefficients], this is the only data observed from the IP in the models of
 this module.
 -}
@@ -1066,6 +1069,129 @@ log1pDouble w
             u' | nb >= 53 = u `shiftR` (nb - 53)
                | otherwise = u `shiftL` (53 - nb)
         in  (nb - 1 - (1075 - e), u' - bit 52)
+
+{- Note [Bit-exact double precision base 2 logarithm]
+The base 2 logarithm follows the other logarithms (see Note [Bit-exact double
+precision logarithms]): log2 x = z * P for x in [0.5, 2) and E + z * P
+otherwise, rounded to nearest with ties away from zero, with P approximating
+log2 (1 + z) / z. Its polynomial is the one of the square root (see Note
+[Bit-exact double precision models]) rather than the one of the other
+logarithms: degree five, with a table of 512 segments in the four regions of
+the other logarithms (128 each, index f[50:44]) and y = f[43:0]. The
+coefficients are on the grid 2^-56 (C3: 2^-57) in t = y * 2^-44 in all
+regions:
+
+  S1 = 2 C4 + T1,  T1 = C5 * (y >> 28)   at 2^-57
+  S2 = 2 C3 + T2,  T2 = S1 * (y >> 20)   at 2^-58
+  S3 = 2 C2 + T3,  T3 = S2 * (y >> 11)   at 2^-57
+  S4 = 2 C1 + T4,  T4 = S3 * (y >> 3)    at 2^-57
+  A  = 8 C0 + T5 + rc,  T5 = S4 * y      at 2^-59
+
+and P truncated (Aq) is A without its low 6 bits, at 2^-53 in all regions. On
+MAX 10, Cyclone IV E and Cyclone 10 LP, T1 is an exact product and T2 to T5
+are the 17-bit tilings of the square root, see 'log2Cuts'; T1 to T4 are
+rounded to nearest (half up), T5 is rounded down, and rc = 2^-54 + 2^-59.
+
+How the structure was inferred: the datapath with full multipliers as for
+the other logarithms (the table size and the degree from the synthesis
+report). For the truncated multipliers, the synthesis report shows the
+multipliers of the square root's tilings (one for T1, three for T2, three and
+two small corners for T3, six for T4, six and two 8-bit corners for T5); the
+square root's recipe (the tiling rule, T1 to T4 rounded, T5 rounded down
+three bits finer than with full multipliers, and one more unit of that
+position in rc) with a scan of the operand widths (17, 26, 35, 43 and 51 bits
+for C5 and S1 to S4) matched all outputs.
+
+Cyclone V is not modelled.
+-}
+
+{- Note [Observed double precision base 2 logarithm coefficients]
+The coefficients of the base 2 logarithm are computed from first principles
+(see "Clash.Cores.Intel.Floating.Internal.CoefficientsDouble"), with two
+exceptions: in segments 43 and 205 of its 512 segments, the IP's results show
+other coefficients than any first-principles method we tried, as for the
+natural logarithm (see Note [Observed double precision logarithm
+coefficients]). There the model uses the coefficients of
+'log2ObservedCoefficients' instead, which were observed from the IP's outputs:
+among the 729 lattice vectors near the generator's (its vector plus
+combinations of the reduced basis with coefficients -1 to 1), exactly one
+gives the IP's results on all inputs in the segment. This was found with
+Intel's generator option for full multipliers on 5,500 inputs per segment
+(the next best vector differs on 16) and holds on MAX 10 for 94,493 inputs in
+segment 43 and 94,395 in segment 205 (the next best vectors differ on 7,296
+and 1,513 of them).
+
+The vector of segment 43 is the exact closest vector at the nodes, the one of
+segment 205 is not; closest vectors, other working precisions, nodes,
+parameters of LLL, orders of the basis, relative error and fplll's embedding
+technique don't reproduce both while keeping the other 510 segments.
+
+The IP's coefficients minus the generator's, in units of their least
+significant bits (C0 to C5):
+
+  segment 43:  [0, -1, +8, -44, +25, -10]
+  segment 205: [-1, +19, -104, +468, -231, +83]
+
+This is the only data observed from the IP in the model of the base 2
+logarithm.
+-}
+
+-- | Coefficients @(C0, .., C5)@ of the base 2 logarithm that the IP uses in
+-- segments 43 and 205, where they differ from the generated ones. These were
+-- observed from the IP's outputs, see Note [Observed double precision base 2
+-- logarithm coefficients].
+log2ObservedCoefficients :: [(Int, (Integer, Integer, Integer, Integer, Integer, Integer))]
+log2ObservedCoefficients =
+  [ (43, (96095385023602600, -164851359288216, 372339436911, -1882603473, 2531823, -7048))
+  , (205, (76362586327701776, -90895995993661, 137967309382, -462644692, 409675, -695))
+  ]
+
+-- | Truncated products T2 to T5 of the base 2 logarithm on MAX 10, Cyclone IV
+-- E and Cyclone 10 LP, as cut lists for 'truncMul' (T1 is exact)
+log2Cuts :: ([Int], [Int], [Int], [Int])
+log2Cuts =
+  ( -- T2 = S1 [26 bits] * (y >> 20) [24 bits]
+    runs [(8, 9), (16, 0)]
+    -- T3 = S2 [35 bits] * (y >> 11) [33 bits]
+  , runs [(12, 18), (5, 13), (12, 1), (4, 0)]
+    -- T4 = S3 [43 bits] * (y >> 3) [41 bits]
+  , runs [(8, 26), (17, 9), (16, 0)]
+    -- T5 = S4 [51 bits] * y [44 bits]
+  , runs [(3, 34), (8, 26), (9, 17), (8, 9), (16, 0)]
+  )
+
+-- | The table of 'log2Double': the generated coefficients, with the observed
+-- ones in segments 43 and 205
+log2Table :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
+log2Table = listArray (0, 511) log2DoubleCoefficients // log2ObservedCoefficients
+{-# NOINLINE log2Table #-}
+
+-- * Base 2 logarithm
+
+-- | The IP's base 2 logarithm in double precision on MAX 10, Cyclone IV E and
+-- Cyclone 10 LP, on bit patterns
+log2Double :: Word64 -> Word64
+log2Double = logDouble 1 0 (const 53) aq
+ where
+  aq r v = log2Aq (r * 128 + fromInteger (v `shiftR` 44)) (v .&. (bit 44 - 1))
+
+-- | P of the base 2 logarithm, truncated to 2^-53, for segment @i@
+log2Aq :: Int -> Integer -> Integer
+log2Aq i y = a `shiftR` 6
+ where
+  (c0, c1, c2, c3, c4, c5) = log2Table ! i
+  (cut2, cut3, cut4, cut5) = log2Cuts
+  y1 = y `shiftR` 28
+  y2 = y `shiftR` 20
+  y3 = y `shiftR` 11
+  y4 = y `shiftR` 3
+  -- Rounded half up
+  s1 = 2 * c4 + (c5 * y1 + bit 14) `shiftR` 15                 -- 2^-57
+  s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 22) `shiftR` 23     -- 2^-58
+  s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 33) `shiftR` 34     -- 2^-57
+  s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 40) `shiftR` 41     -- 2^-57
+  -- At 2^-59, with the rounding constant 2^-54 + 2^-59
+  a = 8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 42
 
 {- Note [Bit-exact double precision cube root]
 The cube root uses the scheme of the square root (see Note [Bit-exact double

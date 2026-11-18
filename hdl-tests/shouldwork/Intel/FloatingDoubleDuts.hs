@@ -459,3 +459,44 @@ log1pDatapathWords =
   , 0xbfbd87be21b38654, 0xbe56043d2596330c, 0xbe515643cbfe0765, 0xbe9d4fc7d4a14c7c
   , 0x3f2665fbf42cd159, 0xbf0ef52c62f0ee10, 0xbee22515566fb9e6, 0xbed07cf5aa1947f1
   , 0x3ff8762276ce1ce7, 0xbee90677bd0e3dc5, 0xbf082e8cc4e20a2d, 0xbef122e6b719db85 ]
+
+-- | E.log2, E.log2With @14
+log2Dut :: Dut Double (Vec 2 Double)
+log2Dut clk rst en i = bundle (unary (E.log2 simFamily) clk rst en i :> unary (E.log2With @14 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE log2Dut #-}
+
+-- | Inputs of the base 2 logarithm: inputs in the two table segments whose
+-- coefficients were observed from the IP (for which the computed coefficients
+-- would give other results), inputs whose results depend on how the IP
+-- truncates its products, and 'doublesIn'
+log2DoublesIn :: Int -> Word64 -> [Double]
+log2DoublesIn n seed = P.map castWord64ToDouble (log2ObservedWords <> log2DatapathWords) <> doublesIn 1 2046 n seed
+
+-- | Inputs in segments 43 and 205 of the base 2 logarithm (12 each), see Note
+-- [Observed double precision base 2 logarithm coefficients] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble"
+log2ObservedWords :: [Word64]
+log2ObservedWords =
+  [ 0x3ff2bf9ec1bc0a5b, 0x3ff2bde90dab8344, 0x3ff2bbe8a549f000, 0x3ff2bd3bfb5c9400
+  , 0x3ff2bf11db7e7639, 0x3ff2babb96a6b24c, 0x3ff2bd615a5a6119, 0x3ff2bdc59f0ec543
+  , 0x3ff2be125e72875e, 0x3ff2bea2f4c00000, 0x3ff2be4c3cdcc000, 0x3ff2b157711d8800
+  , 0x3ffcd9896d881ce4, 0x3ffcd084a592f4e4, 0x3ffcd0001322a39c, 0x3ffcd00009f254af
+  , 0x3ffcd003a751520d, 0x3ffcd0000003eb0f, 0x3ffcd0004fab08ab, 0x3ffcd00007fd3fc4
+  , 0x3ffcdc4ecefac056, 0x3ffcd75d1815f8c6, 0x3ffcd00001700448, 0x3ffcd04f54670000 ]
+
+-- | Inputs for which the base 2 logarithm of MAX 10 differs from the one the
+-- IP would compute with full multipliers
+log2DatapathWords :: [Word64]
+log2DatapathWords =
+  [ 0x3feac6da0774a08b, 0x3fe70ff75fa866d0, 0x3ff07db8dd3f520b, 0x3ffc3243eae75387
+  , 0x3fec0d12e1bfbb0f, 0x3ff0982693683bb3, 0x3fe0bc0bb4b7ec20, 0x3fe7deac5d3a2e65
+  , 0x3fe2782f5f47ae22, 0x3ff7cdfeda146f64, 0x3ffd3c32e6724518, 0x3ff59e5a7ebef404
+  , 0x3fefeef3e9437607, 0x3fe299934700272f, 0x3ff8e04514a95329, 0x3fe16334aa502531
+  , 0x3fe8297247ec26f1, 0x3fed6bff5b142a5c, 0x3fe212659de88f13, 0x3ff4e6e833a5c174
+  , 0x3fee8f31efe5fb78, 0x3ff7ac763e20c3e0, 0x3fe613debdc9dc3e, 0x3fe3f388c21586fa
+  , 0x3fe76a9f80ae52b7, 0x3ff9acb6b5223b68, 0x3ffe1b388540829c, 0x3fe1ab111a3a0a1c
+  , 0x3ffbfe12e8563401, 0x3ff4c22839b357c7, 0x3fedaebc083a128c, 0x3ff66e9b9da9b9f9
+  , 0x3ff8c17383fe94bb, 0x3ff5bbc34804b7d7, 0x3feffdc360736f6b, 0x3ff3bc97505ab4ac
+  , 0x3ff36a861dbb2f11, 0x3ffb394275a50cd8, 0x3ff3bf2673bc13cd, 0x3ff51d9ca9707937
+  , 0x3fe3b676baa37e0f, 0x3ff6aae567db286e, 0x3ff58b2cb6180104, 0x3ff28e6d27953d2b
+  , 0x3feb4a58368e0c0c, 0x3ff10b6011728acf, 0x3ff34a51bd7afd4a, 0x3fef7791de60e35b ]

@@ -54,7 +54,10 @@ models document the details.
   inputs per family), and @log (1 + x)@
   ('Clash.Cores.Intel.Floating.Double.Explicit.log1pModel') by up to 1.71
   units (the same families; the model on 500 million random inputs, verified
-  on 4.0 million inputs per family).
+  on 4.0 million inputs per family), and the base 2 logarithm
+  ('Clash.Cores.Intel.Floating.Double.Explicit.log2Model') by up to 1.05 units
+  for inputs in @[1, 2)@ (the same families; the model on 300 million random
+  inputs, verified on 4.0 million inputs per family).
 
 * /Power of one./ IEEE 754's @powr@, which the IP's POWR follows otherwise,
   gives one for @1 ** y@ with a finite @y@. The IP gives @+inf@ or @+0@ for
