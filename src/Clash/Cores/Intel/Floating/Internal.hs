@@ -87,6 +87,7 @@ import qualified Clash.Signal.Delayed as D
 import Data.Word (Word32)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact
+import Clash.Cores.Intel.DeviceFamily (DeviceFamily(..))
 import Clash.Cores.Intel.Internal
 import Clash.Cores.Xilinx.Xpm.Cdc.Internal (unPort)
 
@@ -142,30 +143,13 @@ data Predicate
   -- ^ Greater than or equal
   deriving (Eq, Show, Generic, NFDataX, Lift, Enum, Bounded)
 
--- | Device family the IP is generated for. The square root, reciprocal square
--- root, exponential and logarithms of the IP compute differently depending on
--- the multipliers of the family, see Note [Bit-exact models] in
--- "Clash.Cores.Intel.Floating.Internal.BitExact". The family has to match the
--- one of the Quartus project (and @CLASH_INTEL_SIM_FAMILY@ when simulating the
--- generated HDL), otherwise the Clash simulation and the IP can differ in the
--- last bit.
---
--- Only the families supported by Quartus Prime Lite 21.1 that have embedded
--- multipliers are listed. The IP on other families (Arria, Stratix, Agilex)
--- has not been tested.
-data DeviceFamily
-  = CycloneIVE
-  -- ^ Cyclone IV E (18x18 multipliers)
-  | CycloneV
-  -- ^ Cyclone V (27x27 multipliers)
-  | Cyclone10LP
-  -- ^ Cyclone 10 LP (18x18 multipliers)
-  | Max10
-  -- ^ MAX 10 (18x18 multipliers)
-  deriving (Eq, Show, Enum, Bounded, Generic, NFDataX, Lift)
-
 -- | The kind of multipliers the IP uses on a device family. On families with
--- 18x18 multipliers, the IP truncates some of its products.
+-- 18x18 multipliers, the IP truncates some of its products, so most of its
+-- functions compute differently depending on the family, see
+-- Note [Bit-exact models] in "Clash.Cores.Intel.Floating.Internal.BitExact".
+-- The family has to match the one of the Quartus project (and
+-- @CLASH_INTEL_SIM_FAMILY@ when simulating the generated HDL), otherwise the
+-- Clash simulation and the IP can differ in the last bit.
 familyMultipliers :: DeviceFamily -> Multipliers
 familyMultipliers = \case
   CycloneV -> FullMultipliers
