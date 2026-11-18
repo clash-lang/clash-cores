@@ -10,8 +10,6 @@ derived.
 __NB__: None of the functions in this module are synthesizable.
 -}
 
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -66,9 +64,7 @@ import Prelude
 
 import Data.Bits (shiftL, shiftR)
 import Data.Ratio (denominator, numerator, (%))
-import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
-import Language.Haskell.TH.Syntax (Lift)
 
 import Clash.Explicit.Prelude
   (BitVector, Clock, Enable, KnownDomain, KnownNat, NFDataX, Reset, Signal, SNat(..),
@@ -77,6 +73,7 @@ import qualified Clash.Explicit.Prelude as C
 import qualified Clash.Signal.Delayed as D
 import Clash.Signal.Delayed (DSignal)
 
+import Clash.Cores.Intel.DeviceFamily (DeviceFamily(..))
 import Clash.Cores.Intel.Internal (IntelIp(..), IpParam(..))
 
 {- Note [Inferring the datapath of ALTERA_CORDIC]
@@ -591,22 +588,6 @@ data AtanFunction
   | VecTranslateFunction
   -- ^ @VECTRANSLATE@: the angle and the magnitude
   deriving (Eq, Show)
-
--- | The device families of Quartus Prime Lite. Some results of the IP depend on
--- the family's logic: the vector translation adds up its arctangent constants
--- with tables of as many rotation directions as the family's LUTs have inputs,
--- and the vector rotation sizes its angle and picks the constant multiplier
--- of its scale factor compensation by that number.
-data DeviceFamily
-  = CycloneIVE
-  -- ^ Cyclone IV E (logic elements with four-input LUTs)
-  | CycloneV
-  -- ^ Cyclone V (adaptive logic modules with six-input LUTs)
-  | Cyclone10LP
-  -- ^ Cyclone 10 LP (logic elements with four-input LUTs)
-  | Max10
-  -- ^ MAX 10 (logic elements with four-input LUTs)
-  deriving (Eq, Show, Enum, Bounded, Generic, NFDataX, Lift)
 
 -- | The number of inputs of the family's LUTs. It is the number of rotation
 -- directions per table of the angle of @VECTRANSLATE@ (and of @ATAN2@ with
