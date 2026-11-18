@@ -51,6 +51,9 @@ module Clash.Cores.Intel.Floating.Double
   , cbrtWith
   , cbrt
   , E.CbrtDefDelay
+  , logWith
+  , log
+  , E.LogDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -67,9 +70,10 @@ module Clash.Cores.Intel.Floating.Double
   , E.hypotModel
   , E.log10Model
   , E.cbrtModel
+  , E.logModel
   ) where
 
-import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
+import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip, exp, log)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
@@ -362,3 +366,29 @@ cbrt
   -> DSignal dom (n + E.CbrtDefDelay) Double
 cbrt fam = withFrozenCallStack $ hideClockResetEnable (E.cbrt fam)
 {-# INLINE cbrt #-}
+
+-- | Customizable floating point natural logarithm, in double
+-- precision. See 'E.logWith'.
+logWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+logWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.logWith cfg fam)
+{-# INLINE logWith #-}
+
+-- | Floating point natural logarithm, in double precision, with the
+-- default configuration and delay. See 'E.log'.
+log
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.LogDefDelay) Double
+log fam = withFrozenCallStack $ hideClockResetEnable (E.log fam)
+{-# INLINE log #-}
