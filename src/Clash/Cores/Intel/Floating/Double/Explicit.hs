@@ -14,27 +14,27 @@ subnormal numbers. "Clash.Cores.Intel.Floating.Double" has the same functions
 with a hidden clock, reset and enable.
 
 The supported functions are the arithmetic ('add', 'sub', 'mul' and 'div'),
-'sqrt', 'rsqrt', 'recip', 'exp', 'hypot', 'log10', 'cbrt', 'log', 'log1p', 'log2' and 'exp2'. The arithmetic and the reciprocal are correctly rounded,
+'sqrt', 'cbrt', 'rsqrt', 'recip', 'hypot', 'exp', 'exp2', 'log', 'log2',
+'log10' and 'log1p'. The arithmetic and the reciprocal are correctly rounded,
 with the deviations from IEEE 754 described in
 "Clash.Cores.Intel.Floating.Explicit" (subnormal inputs are treated as zero
 and results below the smallest normal number are flushed to zero, after
 rounding with an unbounded exponent). In double precision the IP
 computes them with the algorithms of single precision, scaled up: the square
 root with a polynomial of degree five instead of two. Clash simulation gives
-the IP's results bit for bit: the models ('sqrtModel', 'rsqrtModel', 'recipModel', 'expModel',
-'hypotModel', 'log10Model', 'cbrtModel', 'logModel', 'log1pModel', 'log2Model' and
-'exp2Model') were
+the IP's results bit for bit: the models ('sqrtModel', 'cbrtModel',
+'rsqrtModel', 'recipModel', 'hypotModel', 'expModel', 'exp2Model', 'logModel',
+'log2Model', 'log10Model' and 'log1pModel') were
 obtained by black-box testing of the IP, see Note [Bit-exact double precision
 models] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble", and were
 verified against the simulated IP on millions of inputs for MAX 10, Cyclone IV
-E, Cyclone 10 LP and (except for 'log2') Cyclone V, at several latencies. The results of the
-square root, the reciprocal square root and the exponential depend on the
-multipliers of the device family, so they take a 'DeviceFamily' argument.
+E, Cyclone 10 LP and Cyclone V, at several latencies. The results of all
+functions but the arithmetic and the reciprocal depend on the multipliers of
+the device family, so they take a 'DeviceFamily' argument.
 
-The model of 'log2' covers MAX 10, Cyclone IV E and Cyclone 10 LP only. On
-Cyclone V the IP gives other results for some inputs, which are not
-modelled: Clash simulation of 'log2' for Cyclone V raises an error.
-The generated HDL is the same IP on all families.
+For Cyclone V, Quartus Prime Lite 21.1 does not generate 'log', 'log10' and
+'log1p' for any latency, only for a target frequency, which these functions
+cannot ask for (see 'logWith'); their models do cover Cyclone V.
 
 The models' polynomial coefficients are computed from first principles, except
 in two table segments of 'rsqrt', one of 'log' (which 'log1p' uses too), two
@@ -800,8 +800,6 @@ type Log1pDefDelay = 59
 -- | Customizable floating point base 2 logarithm, @log2 x@, in double
 -- precision, see 'log2Model'. The IP's result is bit-exactly modelled.
 --
--- Clash simulation supports MAX 10, Cyclone IV E and Cyclone 10 LP only: for
--- Cyclone V the IP's results are not modelled, and simulation raises an error.
 -- In two of the 512 segments of its table, the model uses coefficients
 -- observed from the IP's outputs instead of computed ones, see 'log2Model'.
 --

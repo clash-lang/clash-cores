@@ -1298,7 +1298,10 @@ regions:
 and P truncated (Aq) is A without its low 6 bits, at 2^-53 in all regions. On
 MAX 10, Cyclone IV E and Cyclone 10 LP, T1 is an exact product and T2 to T5
 are the 17-bit tilings of the square root, see 'log2Cuts'; T1 to T4 are
-rounded to nearest (half up), T5 is rounded down, and rc = 2^-54 + 2^-59.
+rounded to nearest (half up), T5 is rounded down, and rc = 2^-54 + 2^-59. On
+Cyclone V, T1 and T2 are exact products and T3 to T5 leave out the partial
+products of 'log2CutsCycloneV'; all are rounded down, T5 and A are at 2^-56,
+rc = 2^-54 and Aq is A without its low 3 bits.
 
 How the structure was inferred: the datapath with full multipliers as for
 the other logarithms (the table size and the degree from the synthesis
@@ -1308,9 +1311,11 @@ two small corners for T3, six for T4, six and two 8-bit corners for T5); the
 square root's recipe (the tiling rule, T1 to T4 rounded, T5 rounded down
 three bits finer than with full multipliers, and one more unit of that
 position in rc) with a scan of the operand widths (17, 26, 35, 43 and 51 bits
-for C5 and S1 to S4) matched all outputs.
-
-Cyclone V is not modelled.
+for C5 and S1 to S4) matched all outputs. On Cyclone V, the synthesis report
+shows the pieces of the cube root's T4 for T4 (see Note [Bit-exact double
+precision cube root]), whose staircase matched as it is; T3 and T5 were found
+from the cube root's staircases, moved to these operand widths, with a
+descent over the cut of each row.
 -}
 
 {- Note [Observed double precision base 2 logarithm coefficients]
@@ -1368,6 +1373,18 @@ log2Cuts =
   , runs [(3, 34), (8, 26), (9, 17), (8, 9), (16, 0)]
   )
 
+-- | Truncated products T3, T4 and T5 of the base 2 logarithm on Cyclone V, as
+-- cut lists for 'truncMul' (T1 and T2 are exact)
+log2CutsCycloneV :: ([Int], [Int], [Int])
+log2CutsCycloneV =
+  ( -- T3 = S2 [35 bits] * (y >> 11) [33 bits]
+    runs [(16, 17), (17, 0)]
+    -- T4 = S3 [43 bits] * (y >> 3) [41 bits]: the T4 of the cube root
+  , runs [(13, 25), (2, 23), (7, 16), (2, 14), (17, 0)]
+    -- T5 = S4 [51 bits] * y [44 bits]
+  , runs [(16, 24), (2, 22), (26, 0)]
+  )
+
 -- | The table of 'log2Double': the generated coefficients, with the observed
 -- ones in segments 43 and 205
 log2Table :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
@@ -1376,30 +1393,41 @@ log2Table = listArray (0, 511) log2DoubleCoefficients // log2ObservedCoefficient
 
 -- * Base 2 logarithm
 
--- | The IP's base 2 logarithm in double precision on MAX 10, Cyclone IV E and
--- Cyclone 10 LP, on bit patterns
-log2Double :: Word64 -> Word64
-log2Double = logDouble 1 0 (const 53) aq
+-- | The IP's base 2 logarithm in double precision, on bit patterns
+log2Double :: Multipliers -> Word64 -> Word64
+log2Double mults = logDouble 1 0 (const 53) aq
  where
-  aq r v = log2Aq (r * 128 + fromInteger (v `shiftR` 44)) (v .&. (bit 44 - 1))
+  aq r v = log2Aq mults (r * 128 + fromInteger (v `shiftR` 44)) (v .&. (bit 44 - 1))
 
 -- | P of the base 2 logarithm, truncated to 2^-53, for segment @i@
-log2Aq :: Int -> Integer -> Integer
-log2Aq i y = a `shiftR` 6
+log2Aq :: Multipliers -> Int -> Integer -> Integer
+log2Aq mults i y = case mults of
+  FullMultipliers ->
+    let (cut3, cut4, cut5) = log2CutsCycloneV
+        -- Rounded down
+        s1 = 2 * c4 + (c5 * y1) `shiftR` 15                  -- 2^-57
+        s2 = 2 * c3 + (s1 * y2) `shiftR` 23                  -- 2^-58
+        s3 = 2 * c2 + truncMul cut3 s2 y3 `shiftR` 34        -- 2^-57
+        s4 = 2 * c1 + truncMul cut4 s3 y4 `shiftR` 41        -- 2^-57
+        -- At 2^-56, with the rounding constant 2^-54
+        a = c0 + 4 + truncMul cut5 s4 y `shiftR` 45
+    in  a `shiftR` 3
+  TruncatedMultipliers ->
+    let (cut2, cut3, cut4, cut5) = log2Cuts
+        -- Rounded half up
+        s1 = 2 * c4 + (c5 * y1 + bit 14) `shiftR` 15                 -- 2^-57
+        s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 22) `shiftR` 23     -- 2^-58
+        s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 33) `shiftR` 34     -- 2^-57
+        s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 40) `shiftR` 41     -- 2^-57
+        -- At 2^-59, with the rounding constant 2^-54 + 2^-59
+        a = 8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 42
+    in  a `shiftR` 6
  where
   (c0, c1, c2, c3, c4, c5) = log2Table ! i
-  (cut2, cut3, cut4, cut5) = log2Cuts
   y1 = y `shiftR` 28
   y2 = y `shiftR` 20
   y3 = y `shiftR` 11
   y4 = y `shiftR` 3
-  -- Rounded half up
-  s1 = 2 * c4 + (c5 * y1 + bit 14) `shiftR` 15                 -- 2^-57
-  s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 22) `shiftR` 23     -- 2^-58
-  s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 33) `shiftR` 34     -- 2^-57
-  s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 40) `shiftR` 41     -- 2^-57
-  -- At 2^-59, with the rounding constant 2^-54 + 2^-59
-  a = 8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 42
 
 {- Note [Bit-exact double precision cube root]
 The cube root uses the scheme of the square root (see Note [Bit-exact double

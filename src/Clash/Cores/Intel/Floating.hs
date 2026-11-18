@@ -56,10 +56,10 @@ models document the details.
   of millions of random inputs, the models verified on 3 to 4 million inputs
   per family), the base 2 logarithm
   ('Clash.Cores.Intel.Floating.Double.Explicit.log2Model') by up to 1.05 units
-  for inputs in @[1, 2)@ (MAX 10, Cyclone IV E and Cyclone 10 LP) and the
-  base 2 exponential ('Clash.Cores.Intel.Floating.Double.Explicit.exp2Model')
-  by up to 2.2 units for inputs below one in magnitude (all four families);
-  the models verified on 4 million inputs per family.
+  for inputs in @[1, 2)@ (Cyclone V: 1.17) and the base 2 exponential
+  ('Clash.Cores.Intel.Floating.Double.Explicit.exp2Model') by up to 2.2 units
+  for inputs below one in magnitude (all four families; the models verified
+  on 4 million inputs per family).
 
 * /Latency on Cyclone V./ The parameter editor offers a latency target for
   every function. For the double precision LOGE, LOG10 and LOG1PX on Cyclone

@@ -17,18 +17,6 @@ import GHC.Float (castWord64ToDouble)
 import FloatingDuts (simFamily)
 import IpTestCommon
 
--- | 'trace' for the functions whose models don't cover Cyclone V: for that
--- family the trace has no expected outputs, so the test bench runs the IP but
--- checks nothing
-traceNoCycloneV ::
-  (NFDataX i, NFDataX o, BitPack o, KnownNat k) =>
-  Dut i (Vec k o) ->
-  [Cycle i] ->
-  [Entry i k (BitSize o)]
-traceNoCycloneV dut cs
-  | simFamily == E.CycloneV = [(cycleInput c, cycleReset c, cycleEnable c, repeat Nothing) | c <- cs]
-  | otherwise = trace dut cs
-
 -- | E.add, E.addWith @4
 addDut :: Dut (Double, Double) (Vec 2 Double)
 addDut clk rst en i = bundle (binary E.add clk rst en i :> binary (E.addWith @4 E.defConfig) clk rst en i :> Nil)
