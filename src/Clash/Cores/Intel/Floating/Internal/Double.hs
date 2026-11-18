@@ -237,32 +237,27 @@ noCycloneV name = error $
 log10Model :: DeviceFamily -> Double -> Double
 log10Model fam = onBits (log10Double (familyMultipliers fam))
 
--- | Model of the cube root of the IP in double precision, for MAX 10, Cyclone
--- IV E and Cyclone 10 LP. It gives the IP's results bit for bit, see Note
--- [Bit-exact double precision cube root] in
+-- | Model of the cube root of the IP in double precision. It gives the IP's
+-- results bit for bit, see Note [Bit-exact double precision cube root] in
 -- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": a significand computed
 -- with a polynomial of degree five, which is faithfully rounded (up to 0.8
--- units in the last place below and 0.32 above the exact result) but not
--- always rounded to nearest. Zero and subnormal inputs give a zero of the
--- same sign, negative inputs the negated cube root of their magnitude, and
--- infinities themselves. Unlike the other functions of the IP, a NaN input
--- gives a NaN with the sign of the input: 'intelNaN' for a positive NaN and
--- @0xFFF0000000000001@ for a negative one.
---
--- For Cyclone V there is no model: the IP's results differ there, and this
--- function raises an error.
+-- units in the last place below and 0.32 above the exact result; on Cyclone V
+-- 0.87 below and 0.29 above) but not always rounded to nearest. Zero and
+-- subnormal inputs give a zero of the same sign, negative inputs the negated
+-- cube root of their magnitude, and infinities themselves. Unlike the other
+-- functions of the IP, a NaN input gives a NaN with the sign of the input:
+-- 'intelNaN' for a positive NaN and @0xFFF0000000000001@ for a negative one.
 --
 -- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
--- Cyclone IV E and Cyclone 10 LP, at 200 MHz and at the minimum latency (14
--- cycles), and for MAX 10 also at 100 MHz and at a latency of 16 cycles, on
--- 2.8 million inputs each: special values at every exponent, random inputs of
--- either sign, inputs in every segment of its table, inputs with few or
--- clustered fraction bits, and 700,000 inputs whose result is close to a
--- rounding boundary.
+-- Cyclone IV E, Cyclone 10 LP and Cyclone V, at 200 MHz and at the minimum
+-- latency (14 cycles, Cyclone V: 15), and for MAX 10 and Cyclone V also at
+-- 100 MHz, on 2.8 million inputs each: special values at every exponent,
+-- random inputs of either sign, inputs in every segment of its table, inputs
+-- with few or clustered fraction bits, and 700,000 inputs whose result is
+-- close to a rounding boundary (for Cyclone V 1.3 million more inputs, 300,000
+-- of them close to a rounding boundary of its own datapath).
 cbrtModel :: DeviceFamily -> Double -> Double
-cbrtModel fam = case fam of
-  CycloneV -> noCycloneV "cbrtModel"
-  _ -> onBits cbrtDouble
+cbrtModel fam = onBits (cbrtDouble (familyMultipliers fam))
 
 -- | Model of the natural logarithm of the IP in double precision. It gives
 -- the IP's results bit for bit, see Note [Bit-exact double precision

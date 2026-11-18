@@ -1386,7 +1386,10 @@ The significand is A >> 7, at 2^-52; a significand of 2 carries into the
 exponent. On MAX 10, Cyclone IV E and Cyclone 10 LP the products are the
 17-bit tilings of the square root, see 'cbrtCuts'; T1 to T4 are rounded to
 nearest (half up), T5 is rounded down, and rc = 2^-54 + 2^-59: a quarter of a
-unit in the last place, where the square root has half a unit.
+unit in the last place, where the square root has half a unit. On Cyclone V,
+T1 is an exact product and T2 to T5 leave out the partial products of
+'cbrtCutsCycloneV'; all are rounded down, T5 and A are at 2^-58 and
+rc = 2^-54.
 
 The result has the sign of the input. Zero and subnormal inputs give a zero
 of the same sign, infinities give themselves, and a NaN gives the IP's NaN
@@ -1402,11 +1405,19 @@ multipliers, the square root's recipe (the tiling rule for these operand
 widths, T1 to T4 rounded, T5 two bits finer and rounded down, and one more
 unit of the finer position in rc) matched at once.
 
-Cyclone V is not modelled. There T1 and T2 are exact products and T3 and T5
-are the staircases of the generator's standalone truncated multipliers, but
-T4 (which the synthesis report shows as a 27x27 multiplier, a sum of two
-18x18 multipliers and small corner products) is no staircase: with the best
-one, about 500 of a million inputs differ.
+The Cyclone V products: T3 and T5 are the truncated multipliers that the
+generator builds standalone for their widths (36 by 34 bits and 52 by 45
+bits). For T4, the synthesis report shows a 27x27 multiplier, a sum of two
+18x18 multipliers and two small products in logic (one of 2 by 2 bits). Tiles
+of these sizes at the most significant end of the operands, with the two
+small products as 2x2 corners between them, fit all but about 200 of a
+million inputs: the 27x27 multiplier takes the top 27 bits of S3 and the top
+26 bits of y >> 4, the 18x18 multipliers the top 18 bits of S3 times the low
+15 bits of y >> 4 and the low 16 bits of S3 times the top 17 bits of y >> 4.
+The rest was T2, which is not exact: the row of the least significant bit of
+S1 keeps only the top 3 bits of y >> 19 (S1 has 28 bits, one more than the
+27x27 multiplier takes), as in the T2 of the logarithms (see Note [Bit-exact
+double precision logarithms]).
 -}
 
 -- | Truncated products T1 to T5 of the cube root on MAX 10, Cyclone IV E and
@@ -1425,6 +1436,22 @@ cbrtCuts =
   , runs [(4, 35), (8, 27), (9, 18), (8, 10), (9, 1), (7, 0)]
   )
 
+-- | Truncated products T2 to T5 of the cube root on Cyclone V, as cut lists
+-- for 'truncMul' (T1 is exact)
+cbrtCutsCycloneV :: ([Int], [Int], [Int], [Int])
+cbrtCutsCycloneV =
+  ( -- T2 = S1 [28 bits] * (y >> 19) [26 bits]: a 27x27 multiplier and a 1x3
+    -- product
+    runs [(23, 1), (3, 0)]
+    -- T3 = S2 [36 bits] * (y >> 11) [34 bits]
+  , runs [(15, 18), (2, 16), (17, 0)]
+    -- T4 = S3 [43 bits] * (y >> 4) [41 bits]: a 27x27 multiplier, two 18x18
+    -- multipliers and two 2x2 corners
+  , runs [(13, 25), (2, 23), (7, 16), (2, 14), (17, 0)]
+    -- T5 = S4 [52 bits] * y [45 bits]
+  , runs [(16, 25), (3, 22), (26, 0)]
+  )
+
 -- | The table of 'cbrtDouble'
 cbrtTable :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
 cbrtTable = listArray (0, 383) cbrtDoubleCoefficients
@@ -1432,10 +1459,9 @@ cbrtTable = listArray (0, 383) cbrtDoubleCoefficients
 
 -- * Cube root
 
--- | The IP's cube root in double precision on MAX 10, Cyclone IV E and
--- Cyclone 10 LP, on bit patterns
-cbrtDouble :: Word64 -> Word64
-cbrtDouble w
+-- | The IP's cube root in double precision, on bit patterns
+cbrtDouble :: Multipliers -> Word64 -> Word64
+cbrtDouble mults w
   | e == 2047 = if f /= 0 then sgn .|. nanDouble else w
   -- Zeros and subnormal numbers: a zero of the same sign
   | e == 0 = sgn
@@ -1444,25 +1470,37 @@ cbrtDouble w
   (_, e, f) = fields w
   sgn = w .&. bit 63
   (k, r) = (e - 1023) `divMod` 3
-  o0 = cbrtSig r f
+  o0 = cbrtSig mults r f
   (o, be) = if o0 >= bit 53 then (o0 `shiftR` 1, k + 1024) else (o0, k + 1023)
 
 -- | Significand of cbrt (m * 2^r) in units of 2^-52 (2^52 to 2^53), for the
 -- fraction @f@ of m
-cbrtSig :: Int -> Integer -> Integer
-cbrtSig r f = a `shiftR` 7
+cbrtSig :: Multipliers -> Int -> Integer -> Integer
+cbrtSig mults r f = case mults of
+  FullMultipliers ->
+    let (cut2, cut3, cut4, cut5) = cbrtCutsCycloneV
+        -- Rounded down
+        s1 = 2 * c4 + (c5 * y1) `shiftR` 17                 -- 2^-57
+        s2 = 2 * c3 + truncMul cut2 s1 y2 `shiftR` 25       -- 2^-58
+        s3 = 2 * c2 + truncMul cut3 s2 y3 `shiftR` 35       -- 2^-57
+        s4 = 2 * c1 + truncMul cut4 s3 y4 `shiftR` 41       -- 2^-57
+        -- At 2^-58, with the rounding constant 2^-54
+        a = 4 * c0 + 16 + truncMul cut5 s4 y `shiftR` 44
+    in  a `shiftR` 6
+  TruncatedMultipliers ->
+    let (cut1, cut2, cut3, cut4, cut5) = cbrtCuts
+        -- Rounded half up
+        s1 = 2 * c4 + (truncMul cut1 c5 y1 + bit 16) `shiftR` 17   -- 2^-57
+        s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 24) `shiftR` 25   -- 2^-58
+        s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 34) `shiftR` 35   -- 2^-57
+        s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 40) `shiftR` 41   -- 2^-57
+        -- At 2^-59, with the rounding constant 2^-54 + 2^-59
+        a = 8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 43
+    in  a `shiftR` 7
  where
   (c0, c1, c2, c3, c4, c5) = cbrtTable ! (r * 128 + fromInteger (f `shiftR` 45))
-  (cut1, cut2, cut3, cut4, cut5) = cbrtCuts
   y = f .&. (bit 45 - 1)
   y1 = y `shiftR` 27
   y2 = y `shiftR` 19
   y3 = y `shiftR` 11
   y4 = y `shiftR` 4
-  -- Rounded half up
-  s1 = 2 * c4 + (truncMul cut1 c5 y1 + bit 16) `shiftR` 17   -- 2^-57
-  s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 24) `shiftR` 25   -- 2^-58
-  s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 34) `shiftR` 35   -- 2^-57
-  s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 40) `shiftR` 41   -- 2^-57
-  -- At 2^-59, with the rounding constant 2^-54 + 2^-59
-  a = 8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 43
