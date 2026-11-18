@@ -4,12 +4,12 @@ License    :  BSD2 (see the file LICENSE)
 Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
-in double precision: square root, reciprocal square root, reciprocal,
-exponential, base 10 logarithm, the hypotenuse and the arithmetic, see Note
-[Bit-exact double precision models], Note [Bit-exact double precision
-hypotenuse], Note [Bit-exact double precision reciprocal square root],
-Note [Bit-exact double precision exponential] and Note [Bit-exact double
-precision base 10 logarithm].
+in double precision: square root, cube root, reciprocal square root,
+reciprocal, exponential, base 10 logarithm, the hypotenuse and the arithmetic,
+see Note [Bit-exact double precision models], Note [Bit-exact double precision
+cube root], Note [Bit-exact double precision hypotenuse], Note [Bit-exact
+double precision reciprocal square root], Note [Bit-exact double precision
+exponential] and Note [Bit-exact double precision base 10 logarithm].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -21,6 +21,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   , rsqrtDouble
   , hypotDouble
   , log10Double
+  , cbrtDouble
   , addDouble
   , subDouble
   , mulDouble
@@ -36,7 +37,8 @@ import Data.Word (Word64)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
 import Clash.Cores.Intel.Floating.Internal.CoefficientsDouble
-  (expDoubleCoefficients, log10DoubleCoefficients, rsqrtDoubleCoefficients, sqrtDoubleCoefficients)
+  ( cbrtDoubleCoefficients, expDoubleCoefficients, log10DoubleCoefficients, rsqrtDoubleCoefficients
+  , sqrtDoubleCoefficients )
 
 {- Note [Bit-exact double precision models]
 In double precision, the IP computes its functions with the algorithms of
@@ -908,3 +910,103 @@ log10Aq r j y = a `shiftR` 6
   s3 = (c1 `shiftL` sc) + (truncMul cut3 s2 y3 + bit 37) `shiftR` 38                 -- 2^-60
   -- At 2^-61
   a = 2 * ((c0 `shiftL` sc) + rc) + (truncMul cut4 s3 y + bit 40) `shiftR` 41
+
+{- Note [Bit-exact double precision cube root]
+The cube root uses the scheme of the square root (see Note [Bit-exact double
+precision models]): cbrt x = 2^k * cbrt (m * 2^r) for |x| = m * 2^(3k + r)
+with r in {0, 1, 2}, and the significand cbrt (m * 2^r) in [1, 2) from a
+piecewise polynomial of degree five, evaluated in Horner form. Its table has
+384 entries, indexed by r * 128 + the top 7 fraction bits; y is the low 45
+fraction bits. The coefficients have their least significant bits at 2^-56
+(C3: 2^-57) in units of t = y * 2^-45, one bit finer than the square root's:
+
+  S1 = 2 C4 + T1,  T1 = C5 * (y >> 27)   at 2^-57
+  S2 = 2 C3 + T2,  T2 = S1 * (y >> 19)   at 2^-58
+  S3 = 2 C2 + T3,  T3 = S2 * (y >> 11)   at 2^-57
+  S4 = 2 C1 + T4,  T4 = S3 * (y >> 4)    at 2^-57
+  A  = 8 C0 + T5 + rc,  T5 = S4 * y      at 2^-59
+
+The significand is A >> 7, at 2^-52; a significand of 2 carries into the
+exponent. On MAX 10, Cyclone IV E and Cyclone 10 LP the products are the
+17-bit tilings of the square root, see 'cbrtCuts'; T1 to T4 are rounded to
+nearest (half up), T5 is rounded down, and rc = 2^-54 + 2^-59: a quarter of a
+unit in the last place, where the square root has half a unit.
+
+The result has the sign of the input. Zero and subnormal inputs give a zero
+of the same sign, infinities give themselves, and a NaN gives the IP's NaN
+with the sign of the input.
+
+How the structure was inferred: the table sizes and widths and the operand
+widths of the products (18, 28, 36, 43 and 52 bits for C5 and S1 to S4) come
+from the synthesis report. With Intel's generator option for full
+multipliers, the single precision scheme scaled up (and a scan of the
+positions of the products) matched all outputs with the coefficients of
+"Clash.Cores.Intel.Floating.Internal.CoefficientsDouble". For the truncated
+multipliers, the square root's recipe (the tiling rule for these operand
+widths, T1 to T4 rounded, T5 two bits finer and rounded down, and one more
+unit of the finer position in rc) matched at once.
+
+Cyclone V is not modelled. There T1 and T2 are exact products and T3 and T5
+are the staircases of the generator's standalone truncated multipliers, but
+T4 (which the synthesis report shows as a 27x27 multiplier, a sum of two
+18x18 multipliers and small corner products) is no staircase: with the best
+one, about 500 of a million inputs differ.
+-}
+
+-- | Truncated products T1 to T5 of the cube root on MAX 10, Cyclone IV E and
+-- Cyclone 10 LP, as cut lists for 'truncMul'
+cbrtCuts :: ([Int], [Int], [Int], [Int], [Int])
+cbrtCuts =
+  ( -- T1 = C5 [18 bits] * (y >> 27) [18 bits]
+    runs [(2, 10), (9, 1), (7, 0)]
+    -- T2 = S1 [28 bits] * (y >> 19) [26 bits]
+  , runs [(10, 11), (16, 0)]
+    -- T3 = S2 [36 bits] * (y >> 11) [34 bits]
+  , runs [(1, 28), (9, 19), (8, 11), (9, 2), (7, 0)]
+    -- T4 = S3 [43 bits] * (y >> 4) [41 bits]
+  , runs [(8, 26), (17, 9), (16, 0)]
+    -- T5 = S4 [52 bits] * y [45 bits]
+  , runs [(4, 35), (8, 27), (9, 18), (8, 10), (9, 1), (7, 0)]
+  )
+
+-- | The table of 'cbrtDouble'
+cbrtTable :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
+cbrtTable = listArray (0, 383) cbrtDoubleCoefficients
+{-# NOINLINE cbrtTable #-}
+
+-- * Cube root
+
+-- | The IP's cube root in double precision on MAX 10, Cyclone IV E and
+-- Cyclone 10 LP, on bit patterns
+cbrtDouble :: Word64 -> Word64
+cbrtDouble w
+  | e == 2047 = if f /= 0 then sgn .|. nanDouble else w
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = sgn
+  | otherwise = sgn .|. (fromIntegral be `shiftL` 52) .|. fromInteger (o .&. (bit 52 - 1))
+ where
+  (_, e, f) = fields w
+  sgn = w .&. bit 63
+  (k, r) = (e - 1023) `divMod` 3
+  o0 = cbrtSig r f
+  (o, be) = if o0 >= bit 53 then (o0 `shiftR` 1, k + 1024) else (o0, k + 1023)
+
+-- | Significand of cbrt (m * 2^r) in units of 2^-52 (2^52 to 2^53), for the
+-- fraction @f@ of m
+cbrtSig :: Int -> Integer -> Integer
+cbrtSig r f = a `shiftR` 7
+ where
+  (c0, c1, c2, c3, c4, c5) = cbrtTable ! (r * 128 + fromInteger (f `shiftR` 45))
+  (cut1, cut2, cut3, cut4, cut5) = cbrtCuts
+  y = f .&. (bit 45 - 1)
+  y1 = y `shiftR` 27
+  y2 = y `shiftR` 19
+  y3 = y `shiftR` 11
+  y4 = y `shiftR` 4
+  -- Rounded half up
+  s1 = 2 * c4 + (truncMul cut1 c5 y1 + bit 16) `shiftR` 17   -- 2^-57
+  s2 = 2 * c3 + (truncMul cut2 s1 y2 + bit 24) `shiftR` 25   -- 2^-58
+  s3 = 2 * c2 + (truncMul cut3 s2 y3 + bit 34) `shiftR` 35   -- 2^-57
+  s4 = 2 * c1 + (truncMul cut4 s3 y4 + bit 40) `shiftR` 41   -- 2^-57
+  -- At 2^-59, with the rounding constant 2^-54 + 2^-59
+  a = 8 * c0 + 33 + truncMul cut5 s4 y `shiftR` 43

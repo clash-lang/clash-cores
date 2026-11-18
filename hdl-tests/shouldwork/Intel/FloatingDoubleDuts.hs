@@ -339,3 +339,30 @@ log10DatapathWords =
   , 0x3ffd22e46f700049, 0x3fe983db71d042c5, 0x3f8746d130e84b81, 0x3fbfc99be98b824f
   , 0x403bfaa644e5b9e0, 0x3feaa66c88c5d33a, 0x6baff2c8744a0c7c, 0x5a11c328a2dddec2
   , 0x3ff4f4a9447bf361, 0x3fe2f6630b690ef4, 0x0b2f6f693275e87a, 0x404cc10958fb5f9c ]
+
+-- | E.cbrt, E.cbrtWith @14
+cbrtDut :: Dut Double (Vec 2 Double)
+cbrtDut clk rst en i = bundle (unary (E.cbrt simFamily) clk rst en i :> unary (E.cbrtWith @14 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE cbrtDut #-}
+
+-- | Inputs of the cube root: inputs whose results depend on how the IP
+-- truncates its products, and 'doublesIn'
+cbrtDoublesIn :: Int -> Word64 -> [Double]
+cbrtDoublesIn n seed = P.map castWord64ToDouble cbrtDatapathWords <> doublesIn 1 2046 n seed
+
+-- | Inputs for which the cube root of MAX 10 differs from the one the IP
+-- would compute with full multipliers
+cbrtDatapathWords :: [Word64]
+cbrtDatapathWords =
+  [ 0x40100f92f3f31118, 0x40141df9f1f8a75e, 0x4008fee2abbbfb70, 0x4014d8ac4b7b70ac
+  , 0x401af7f7b09db77c, 0x400a578c7110e48b, 0x3ff61d21d76f3fc8, 0x401cf71b4e6fa1e6
+  , 0xf5d7f546f1894ac9, 0x8ddd5895029c824d, 0x26f33f23b5daeeaa, 0x32e6460eceb0c0bc
+  , 0xc7d96d287a6e832e, 0xb5a7c0082b8892c2, 0x966c180cb8f21948, 0x0ce8747c1951efd5
+  , 0x07d998170cc2b03a, 0x8d476e2affaf80ff, 0x1877acf4e2e8e974, 0x7805ee2b39a08958
+  , 0x9d391e68a5eb2a91, 0x5123d66c6a44acfb, 0xdc32d10ad5ad19e1, 0x221c5eafaf3e246d
+  , 0x278c07f1046e26e1, 0xb89418358aa60465, 0x252b85ffca526da2, 0x7541d60252ac8404
+  , 0x1ba40aa5488b8171, 0x6c94949a18674522, 0x6178d849fa86eae9, 0xe6b15b25d6ea6a74
+  , 0x94bc0aef40038dc3, 0x33e34c67af9d3b26, 0x4e5e5d5f83cb062b, 0xbf2be658341dcde4
+  , 0xd2863687ad3fbdfb, 0x53f8a72f24d66a6f, 0x524c3891a84f2992, 0x0e9bda2378bb61b6
+  , 0x738ad736a00b27a1, 0xc6415f764c18f452, 0xed7c5b3500131006, 0xa628fffff06a2ec4
+  , 0x304cb99489d1c764, 0xea9c1e8275e39931, 0x9cdfe57c16e328c1, 0x0ef0fe0fc291d624 ]

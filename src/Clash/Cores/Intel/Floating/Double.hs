@@ -48,6 +48,9 @@ module Clash.Cores.Intel.Floating.Double
   , log10With
   , log10
   , E.Log10DefDelay
+  , cbrtWith
+  , cbrt
+  , E.CbrtDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -63,6 +66,7 @@ module Clash.Cores.Intel.Floating.Double
   , E.expModel
   , E.hypotModel
   , E.log10Model
+  , E.cbrtModel
   ) where
 
 import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
@@ -332,3 +336,29 @@ log10
   -> DSignal dom (n + E.Log10DefDelay) Double
 log10 fam = withFrozenCallStack $ hideClockResetEnable (E.log10 fam)
 {-# INLINE log10 #-}
+
+-- | Customizable floating point cube root, in double
+-- precision. See 'E.cbrtWith'.
+cbrtWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+cbrtWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.cbrtWith cfg fam)
+{-# INLINE cbrtWith #-}
+
+-- | Floating point cube root, in double precision, with the
+-- default configuration and delay. See 'E.cbrt'.
+cbrt
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.CbrtDefDelay) Double
+cbrt fam = withFrozenCallStack $ hideClockResetEnable (E.cbrt fam)
+{-# INLINE cbrt #-}
