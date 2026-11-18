@@ -146,7 +146,10 @@ rotations widths n seed =
   angs =
     [0, quarterPi, negate quarterPi, piA, negate piA, maxA, negate maxA - 1]
       <> [c + d | c <- [halfPi, negate halfPi], d <- [-2 .. 2]]
+  -- Around -pi/2 the IP's truncated angle is, or is just below, minus its
+  -- pi/2: only the most negative x shows which of the two it is
   edges = [(x, y, a) | x <- coords, y <- coords, a <- [0, halfPi, negate halfPi - 1, piA]]
+    <> [(negate maxXY - 1, y, negate halfPi + d) | y <- [0, one, negate one], d <- [-6 .. 2]]
     <> [(one, 0, a) | a <- angs] <> [(x, y, a) | (x, y) <- [(one, one), (negate one, 1)], a <- angs]
   randomIn = go (randoms seed)
   go (r1 : r2 : r3 : k : rs) =

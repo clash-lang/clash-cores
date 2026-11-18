@@ -268,12 +268,14 @@ compensation) and @k@ the number of inputs of the device family's LUTs
 ('familyTableSize'):
 
 1. The angle is truncated to @fT = wOut + ceil(wOut / k)@ fractional bits,
-   and to @wOut + ceil((wOut + 2) / k)@ with scale factor compensation. If
-   its magnitude is at least pi\/2, rounded to the nearest multiple of
-   @2^-fT@, the IP subtracts that constant (or adds it, for a negative
-   angle) and rotates the vector by 90 degrees first: @(x, y)@ becomes @(-y,
-   x)@ for a positive angle and @(y, -x)@ for a negative one. The negation is
-   done in the format of the inputs, so -(-2) = -2.
+   and to @wOut + ceil((wOut + 2) / k)@ with scale factor compensation. With
+   H = pi\/2 rounded to the nearest multiple of @2^-fT@: if the angle is at
+   least H, the IP subtracts H from it and rotates the vector by 90 degrees
+   first, @(x, y)@ becomes @(-y, x)@; if it is below -H, it adds H and
+   @(x, y)@ becomes @(y, -x)@. An angle of exactly -H is not treated this
+   way, unlike one of exactly H. The negation is done in the format of the
+   inputs, so -(-2) = -2: only for x = -2 does it show that -H is rotated in
+   one go (the result's y is positive there, and negative just below -H).
 
 2. The angle is aligned to @wOut + 4 + ceil(log2(wOut + 1))@ fractional bits
    (as for sine and cosine), in a register with two integer bits that wraps
@@ -1021,7 +1023,8 @@ vecRotateCore :: RotateWidths -> Integer -> Integer -> Integer -> (Integer, Inte
 vecRotateCore RotateWidths{..} = \x y a ->
   let
     z0 = alignTo vrFracIn vrFracTrunc a
-    big = abs z0 >= halfPi
+    -- At least pi/2, or below -pi/2 (but not -pi/2 itself)
+    big = z0 >= halfPi || z0 < negate halfPi
     pos = z0 > 0
     -- Beyond pi/2: subtract pi/2 from the angle, and rotate the vector by 90
     -- degrees first. The negation is done in the format of the inputs.

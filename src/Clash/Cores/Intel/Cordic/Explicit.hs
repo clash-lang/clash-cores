@@ -951,9 +951,9 @@ vecRotateInst ip clk rst en x y a = (unPort xo, unPort yo)
 --
 -- The IP truncates the angle to @fT = wOut + ceil(wOut \/ k)@ fractional
 -- bits (@wOut = fOut + 3@, and @k@ the number of inputs of the device
--- family's LUTs: six on Cyclone V, four on the others). If its magnitude is
--- at least pi\/2 (rounded to @fT@ bits), it subtracts pi\/2 from it (or
--- adds) and rotates the vector by 90 degrees first. A CORDIC in rotation mode
+-- family's LUTs: six on Cyclone V, four on the others). If it is at least
+-- pi\/2 (rounded to @fT@ bits) or below minus that, it subtracts pi\/2 from
+-- it (or adds) and rotates the vector by 90 degrees first. A CORDIC in rotation mode
 -- with @fOut + 4@ iterations rotates the vector, which has @fOut + 4@ more
 -- fractional bits than the inputs, with truncated shifts; the results are
 -- rounded, ties towards positive infinity.
