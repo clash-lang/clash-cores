@@ -37,6 +37,7 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , sinModel
   , cosModel
   , tanModel
+  , powModel
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -407,6 +408,33 @@ cosModel fam = onBits (cosHalf (familyMultipliers fam))
 -- cycles, 11 on Cyclone V).
 tanModel :: DeviceFamily -> Half -> Half
 tanModel fam = onBits (tanHalf (familyMultipliers fam))
+
+-- | Model of the IP's power function in half precision (the \"POWR\" function),
+-- @x ** y@, see 'sqrtModel'. As in single precision, the IP computes
+-- @exp (y * ln x)@, here with a logarithm rounded to 21 significant bits, its
+-- product with @y@ truncated to 21 bits, and an exponential of 21 bits
+-- truncated to half precision, see Note [Bit-exact half precision power].
+-- The result is the exact one rounded down, or up to 1.03 units in the last
+-- place below it. Like IEEE 754's @powr@ (not @pow@), it is defined for
+-- @x >= 0@ only: a negative @x@ (including @-inf@) and NaN give 'intelNaN'.
+-- A zero or subnormal @x@ (of either sign) gives @+0@ for a positive @y@,
+-- @+inf@ for a negative one and NaN for a zero or subnormal @y@; @+inf@
+-- gives @+inf@, @+0@ and NaN in those cases. A zero or subnormal @y@ gives
+-- one for every other @x@, an infinite @y@ gives @+inf@ or @+0@ (NaN for
+-- @x = 1@), and @1 ** y@ is one for a finite @y@. Results above the largest
+-- finite number are @+inf@, results below the smallest normal number @+0@.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for all four
+-- families at 200 MHz and at the minimum latency (17 cycles, 13 on Cyclone
+-- V), on 3.1 million pairs each: every @x@ in @[0.5, 2)@ with 1024 values of
+-- @y@, every significand of @x@ for all other exponents with 16 values of
+-- @y@, @x = 1@ with every @y@, every @x@ with @y@ = 1, -1, 2, -2 and 0.5,
+-- random pairs and all combinations of 28 special values.
+powModel :: DeviceFamily -> Half -> Half -> Half
+powModel fam x y =
+  Half (fromIntegral (powHalf (familyMultipliers fam) (bits x) (bits y)))
+ where
+  bits = fromIntegral . getHalf
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'

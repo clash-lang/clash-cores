@@ -14,15 +14,15 @@ instantiate the IP, how the IP is reset and enabled and how it treats
 subnormal numbers. "Clash.Cores.Intel.Floating.Half" has the same functions
 with a hidden clock, reset and enable.
 
-The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'sin', 'cos', 'tan', 'asin', 'asinPi', 'acos', 'acosPi', 'atan', 'atanPi' and 'atan2'. In half precision the IP computes them
+The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'pow', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'sin', 'cos', 'tan', 'asin', 'asinPi', 'acos', 'acosPi', 'atan', 'atanPi' and 'atan2'. In half precision the IP computes them
 with the same algorithms as in single precision, scaled down (polynomials of
-degree one instead of two, except for the arcsine of numbers up to one half
-and the arccosine of numbers of at least one half). Clash simulation gives the IP's results bit for
+degree one instead of two, except for the arcsine of numbers up to one half,
+the arccosine of numbers of at least one half and the power function). Clash simulation gives the IP's results bit for
 bit: the models ('sqrtModel' etc.) were obtained by black-box testing of the
 IP, see Note [Bit-exact half precision models] in
 "Clash.Cores.Intel.Floating.Internal.BitExactHalf", and were verified against
-the simulated IP on /all/ inputs (millions of inputs for 'hypot' and 'atan2',
-which have more than one), for MAX 10, Cyclone IV E, Cyclone 10 LP and
+the simulated IP on /all/ inputs (millions of inputs for 'hypot', 'atan2' and
+'pow', which have more than one), for MAX 10, Cyclone IV E, Cyclone 10 LP and
 Cyclone V, at several latencies. Like in single precision, the results of
 most functions depend on the multipliers of the device family, so they take
 a 'DeviceFamily' argument.
@@ -127,6 +127,9 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , tanWith
   , tan
   , TanDefDelay
+  , powWith
+  , pow
+  , PowDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -157,6 +160,7 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , sinModel
   , cosModel
   , tanModel
+  , powModel
   ) where
 
 import Clash.Explicit.Prelude hiding (sqrt, recip, exp, log, sin, cos, tan, asin, acos, atan, atan2)
@@ -1457,3 +1461,62 @@ tan = withFrozenCallStack $ tanWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type TanDefDelay = 36
+
+-- | Customizable floating point power function @x ** y@, in half precision, see
+-- 'powModel'. Like IEEE 754's @powr@, it is defined for @x >= 0@: a negative
+-- @x@ gives NaN. The IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (17
+-- cycles on MAX 10, Cyclone IV E and Cyclone 10 LP, 13 on Cyclone V).
+powWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom (n + d) Half
+powWith cfg fam clk rst en x y
+  | clashSimulation = pipeline und clk rst en (powModel fam <$> x <*> y)
+  | otherwise = binaryInst "fp_pow_half" ip clk rst en x y
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of pow"
+  ip = fpFunctionsHalf cfg "EXP_LOG" "POWR" (natToNum @d) Nil
+{-# INLINE powWith #-}
+
+-- | Floating point power function @x ** y@, in half precision, with the default configuration
+-- and delay. See 'powWith'.
+pow
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom (n + PowDefDelay) Half
+pow = withFrozenCallStack $ powWith defConfig
+{-# INLINE pow #-}
+
+-- | The default delay of 'pow': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type PowDefDelay = 40

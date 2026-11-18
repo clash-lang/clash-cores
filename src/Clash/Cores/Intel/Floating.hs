@@ -36,8 +36,8 @@ models document the details.
   but two; the other exponentials and logarithms, the
   hypotenuse, 'sinPi', 'cosPi', 'tanPi', the sine in radians (1.04, for one
   input), the tangent in radians (1.9), 'asin' (1.1), 'asinPi' (1.7),
-  'acos' (2.6), 'acosPi' (2.7), 'atan' (1.5), 'atanPi' (2.1) and 'atan2'
-  (2.5) don't. Found with the bit-exact
+  'acos' (2.6), 'acosPi' (2.7), 'atan' (1.5), 'atanPi' (2.1), 'atan2'
+  (2.5) and the power function (1.03) don't. Found with the bit-exact
   models, on all inputs of whole binades and millions of other inputs per
   function, on all four families. In double
   precision, the exponential

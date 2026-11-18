@@ -136,6 +136,11 @@ tanDut :: Dut Half (Vec 2 Half)
 tanDut clk rst en i = bundle (unary (E.tan simFamily) clk rst en i :> unary (E.tanWith @15 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE tanDut #-}
 
+-- | E.pow, E.powWith @17
+powDut :: Dut (Half, Half) (Vec 2 Half)
+powDut clk rst en i = bundle (binary (E.pow simFamily) clk rst en i :> binary (E.powWith @17 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE powDut #-}
+
 -- | E.hypot, E.hypotWith @6
 hypotDut :: Dut (Half, Half, Half) (Vec 2 Half)
 hypotDut clk rst en i = bundle (ternary (E.hypot simFamily) clk rst en i :> ternary (E.hypotWith @6 E.defConfig simFamily) clk rst en i :> Nil)
@@ -209,4 +214,26 @@ halfPairs n seed = [(a, b) | a <- sp, b <- sp] <> P.take n (go (randoms seed))
      in (if tiny
            then (mk a lo, Half (getHalf (mk b hi) .|. 0x8000))
            else (mk a e, mk b e2)) : go rs
+  go _ = []
+
+-- | Pairs of half precision numbers for 'E.pow': all combinations of a few
+-- special values, followed by @n@ random pairs of a positive @x@ in
+-- @[2^-5, 2^6)@ (a quarter of them in @[0.5, 2)@) and a @y@ of either sign
+-- with a magnitude in @[2^-6, 2^5)@, or up to @2^10@ for the @x@ in
+-- @[0.5, 2)@, so that many results are finite and not one
+halfPowPairs :: Int -> Word64 -> [(Half, Half)]
+halfPowPairs n seed = [(a, b) | a <- sp, b <- sp] <> P.take n (go (randoms seed))
+ where
+  sp = P.map Half
+    [ 0, 0x8000, 0x0001, 0x03ff, 0x0400, 0x3800, 0x3bff, 0x3c00, 0x3c01, 0xbc00
+    , 0x4000, 0x7bff, 0x7c00, 0xfc00, 0x7c01 ]
+  go (k : a : b : rs) =
+    let near = (k `shiftR` 24) `P.mod` 4 == 0
+        ex | near = 14 + k `P.mod` 2
+           | otherwise = 10 + k `P.mod` 11
+        ey | near = 9 + (k `shiftR` 8) `P.mod` 17
+           | otherwise = 9 + (k `shiftR` 8) `P.mod` 11
+        x = Half (fromIntegral ((a .&. 0x03ff) .|. (ex `shiftL` 10)))
+        y = Half (fromIntegral ((b .&. 0x83ff) .|. (ey `shiftL` 10)))
+     in (x, y) : go rs
   go _ = []

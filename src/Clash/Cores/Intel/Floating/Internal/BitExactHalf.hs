@@ -5,9 +5,9 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in half precision: square root, cube root, hypotenuse, reciprocal square
-root, reciprocal, exponentials, logarithms, the sine, cosine and tangent
-of x and of pi times x, the arcsine, arccosine and arctangent (in radians
-and divided by pi) and the two-argument arctangent, see
+root, reciprocal, exponentials, logarithms, power, the sine, cosine and
+tangent of x and of pi times x, the arcsine, arccosine and arctangent (in
+radians and divided by pi) and the two-argument arctangent, see
 Note [Bit-exact half precision models].
 -}
 
@@ -39,6 +39,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactHalf
   , sinHalf
   , cosHalf
   , tanHalf
+  , powHalf
   ) where
 
 import Prelude
@@ -55,7 +56,8 @@ import Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
   , log10HalfCoefficients, log2HalfCoefficients, logHalfCoefficients, rsqrtHalfCoefficients
   , sinPiHalfCoefficients, sqrtHalfCoefficients, tanPiRecipHalfCoefficients
   , asinHalfCoefficients, asinLargeHalfCoefficients, acosHalfCoefficients
-  , atanHalfCoefficients, atanRecipHalfCoefficients, sinHalfCoefficients )
+  , atanHalfCoefficients, atanRecipHalfCoefficients, sinHalfCoefficients
+  , powLogHalfCoefficients, powExpHalfCoefficients )
 
 {- Note [Bit-exact half precision models]
 The IP supports half precision as a custom format with 5 exponent and 10
@@ -1471,3 +1473,189 @@ tanHalf mults w
   o0 = (p + bit (d - 1)) `shiftR` d
   (o, be) | o0 >= bit 11 = (o0 `shiftR` 1, d - g + 26)
           | otherwise = (o0, d - g + 25)
+
+-- * Power
+
+{- Note [Bit-exact half precision power]
+The power function ('powHalf', @x ** y@, the \"POWR\" function) follows the
+single precision one (Note [Bit-exact models] in
+"Clash.Cores.Intel.Floating.Internal.BitExact"), scaled down from 34 to 21
+significant bits: the IP computes exp (y * ln x) with its own logarithm and
+exponential, both piecewise polynomials of degree two,
+
+  T1 = C2 * t, S1 = C1 + T1, T2 = S1 * t, A = C0 + T2
+
+  1. Logarithm (x positive and normal, x /= 1, x = m * 2^E, m = 1.f): for
+     E = 0 and E = -1 (x in [0.5, 2)), ln x = z * P with z = x - 1 (exact)
+     and P = ln (1 + z) / z from one of four regions of 32 segments (as for
+     the half precision logarithm: x in [1, 1.5), [1.5, 2), [0.5, 0.75) and
+     [0.75, 1)), t = the low 4 fraction bits. With the coefficients on the
+     grid 2^-24 for P < 1 (x >= 1) and 2^-23 for P >= 1
+     ('powLogHalfCoefficients'), in the units of the table:
+
+       T1 = floor (C2 * t / 2^3)
+       S1 = 2 C1 + T1
+       T2 = floor (S1 * t / 2^5)
+       P  = floor ((C0 + T2 + 4) / 2^4)    (at 2^-20, or 2^-19 for P >= 1)
+
+     L = z * P is rounded to 21 significant bits, to nearest with ties away
+     from zero. For other E, L = E * ln2 + f * P, with f * P from the tables
+     of [1, 2), ln 2 rounded up to 23 fraction bits, the sum exact and then
+     rounded the same way. On the families with 18x18 multipliers both
+     products get half a unit of T1 (4, in units of C2 * t and of S1 * t)
+     before they are rounded down.
+  2. The product: y * L, exact, its significand truncated to 21 bits. Its
+     exponent is not limited to the range of half precision.
+  3. Exponential of that product a: X = floor (a * 2^21);
+     k = floor (a / ln 2), estimated from the significand times 1 / ln 2
+     (rounded up at 2^-27, the product floored at 2^-24); r = X - K with K
+     = k * ln 2 at 2^-21, from ln 2 rounded to nearest at 2^-31, the product
+     rounded down to 2^-30, up to 2^-23 and down to 2^-21, and a negative r
+     clamped to zero. 89 segments of exp (r) on [0, ln 2): the top 7 bits of
+     r select the segment and the 14 bits below them form t. With the
+     coefficients on the grid 2^-26 ('powExpHalfCoefficients') and
+     y = 4 t:
+
+       T1 = floor (C2 * t / 2^13)
+       S1 = 2 C1 + T1
+       T2 = floor (S1 * y / 2^17)
+       A  = C0 + T2 + 4
+
+     The significand is A truncated to 2^-20; a carry into 2 increments the
+     exponent. The result is truncated to half precision; above the largest
+     finite number it is +inf, below the smallest normal number +0. On the
+     families with 18x18 multipliers T1 is rounded to nearest and S1 * y is
+     a truncated multiplier: it leaves out the partial products S1_i * y_j
+     for i < 7, j < 5 and for i < 3, 5 <= j < 9, and adds 2^14 (an eighth of
+     a unit of T2).
+  4. Special cases as in single precision: a NaN input gives NaN; a negative
+     x (normal or -inf) gives NaN; a zero or subnormal x (of either sign)
+     gives NaN for a zero or subnormal y, +inf for a negative y and +0 for a
+     positive one; x = +inf gives NaN for a zero or subnormal y, +0 for a
+     negative y and +inf for a positive one; a zero or subnormal y gives 1;
+     an infinite y gives +inf or +0 depending on its sign and on whether x
+     is above or below one, and NaN for x = 1; x = 1 and a finite y give 1.
+
+How this was found. The synthesis report shows two tables of degree two; the
+exponential's tables and multipliers are those of the generator's own
+exponential with 20 fraction bits, which can be generated and simulated on
+its own. For that core, sweeps of whole binades give the polynomial's value
+for every r, which determines the coefficients of every segment; they are
+the ones the lattice method gives. The reduction is the single precision
+one scaled down, and the truncated multiplier followed from a search over
+the tile layouts the report allows; one layout matches all 1.4 million
+values of r. With the exponential known, a thousand values of y per x pin
+down L for every x in [0.5, 2), which gave the format and the datapath of the
+logarithm's polynomial, the two rounding constants of the 18x18 families and
+the difference with the standalone exponential: inside the power function r
+is a multiple of 2^-21.
+-}
+
+powLogHalfTable, powExpHalfTable :: Table2
+powLogHalfTable = mkTable2 powLogHalfCoefficients
+{-# NOINLINE powLogHalfTable #-}
+powExpHalfTable = mkTable2 powExpHalfCoefficients
+{-# NOINLINE powExpHalfTable #-}
+
+-- | The IP's power function @x ** y@ in half precision, on bit patterns, see
+-- Note [Bit-exact half precision power]
+powHalf :: Multipliers -> Word16 -> Word16 -> Word16
+powHalf mults x y
+  | xe == 31 && xf /= 0 || ye == 31 && yf /= 0 = nanHalf
+  | xe == 0 = if ye == 0 then nanHalf else if ys then infHalf else 0
+  | xs = nanHalf
+  | xe == 31 = if ye == 0 then nanHalf else if ys then 0 else infHalf
+  | ye == 0 = one
+  | x == one = if ye == 31 then nanHalf else one
+  | ye == 31 = if (x > one) /= ys then infHalf else 0
+  | otherwise = powExpHalf mults (ys /= ls) ea (p `shiftR` (n - 21))
+ where
+  one = 0x3C00
+  (xs, xe, xf) = fields x
+  (ys, ye, yf) = fields y
+  -- ln x = lm * 2^(le - 20), 2^20 <= lm < 2^21
+  (ls, le, lm) = powLogHalf mults xe xf
+  -- The product y * L, with its significand truncated to 21 bits
+  p = (bit 10 .|. yf) * lm
+  n = 64 - countLeadingZeros p
+  ea = ye - 15 + le + n - 31
+
+-- | Round a positive @v * 2^ve@ to 21 significant bits, to nearest with ties
+-- away from zero: the exponent @e@ and the significand @m@ of
+-- @m * 2^(e - 20)@
+round21 :: Int64 -> Int -> (Int, Int64)
+round21 v ve
+  | n <= 21 = (ve + n - 1, v `shiftL` (21 - n))
+  | r >= bit 21 = (ve + n, r `shiftR` 1)
+  | otherwise = (ve + n - 1, r)
+ where
+  n = 64 - countLeadingZeros v
+  r = (v + bit (n - 22)) `shiftR` (n - 21)
+
+-- | The IP's natural logarithm of a positive normal number other than one,
+-- from its biased exponent and fraction, to 21 bits: the sign, the exponent
+-- and the significand, see 'round21'
+powLogHalf :: Multipliers -> Int -> Int64 -> (Bool, Int, Int64)
+powLogHalf mults e f
+  | e == 15 = pos (f * poly idx0)
+  | e == 14 = neg ((bit 10 - f) * poly idx1)
+  | s < 0 = neg (negate s)
+  | otherwise = pos s
+ where
+  pos v = let (le, lm) = round21 v (-30) in (False, le, lm)
+  neg v = let (le, lm) = round21 v (-30) in (True, le, lm)
+  t = f .&. 0xF
+  idx0 = fromIntegral (f `shiftR` 4)
+  idx1 = 64 + fromIntegral (((f `shiftR` 9) .&. 1) * 32 + ((f `shiftR` 4) .&. 31))
+  -- At 2^-30, with ln 2 rounded up to 23 fraction bits
+  s = fromIntegral (e - 15) * 5814540 * bit 7 + f * poly idx0
+  -- ln (1 + z) / z at 2^-20 (2^-19 for the segments from 64 on)
+  poly i = (c0 + t2 + 4) `shiftR` 4
+   where
+    (c2, c1, c0) = coefs2 powLogHalfTable i
+    rc = case mults of
+      FullMultipliers -> 0
+      TruncatedMultipliers -> 4
+    s1 = 2 * c1 + ((c2 * t + rc) `shiftR` 3)
+    t2 = (s1 * t + rc) `shiftR` 5
+
+-- | The IP's exponential of @(-1)^s * m * 2^(e - 20)@ with a 21 bit
+-- significand @m@, truncated to half precision
+powExpHalf :: Multipliers -> Bool -> Int -> Int64 -> Word16
+powExpHalf mults s e m
+  -- |a| >= 32
+  | e > 4 = if s then 0 else infHalf
+  | be >= 31 = infHalf
+  | be <= 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 10) .|. fromIntegral ((o' `shiftR` 10) .&. 0x3FF)
+ where
+  -- floor (a * 2^21); below 2^-21 the magnitude is 0, or 1 for a negative a
+  sh = e + 1
+  dn = min 22 (negate sh)
+  xFix | sh >= 0 = (if s then negate else id) (m `shiftL` sh)
+       | s = negate ((m + bit dn - 1) `shiftR` dn)
+       | otherwise = m `shiftR` dn
+  -- k: the significand times 1 / ln 2 (rounded up, 2^-27) floored at 2^-24
+  q = (m * 193635251) `shiftR` 23
+  k = (if s then negate q else q) `shiftR` min 63 (24 - e)
+  -- k * ln 2: ln 2 at 2^-31, the product rounded down to 2^-30 and up to
+  -- 2^-23
+  kLn2 = negate ((negate ((k * 1488522236) `shiftR` 1)) `shiftR` 7)
+  -- The reduced argument at 2^-23, rounded up to a multiple of 2^-21
+  r = (max 0 (4 * xFix - kLn2) + 3) .&. complement 3
+  -- Segment and y; the estimate of k keeps r below 89 segments
+  j = min 88 (fromIntegral (r `shiftR` 16))
+  y = r .&. 0xFFFF
+  (c2, c1, c0) = coefs2 powExpHalfTable j
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 2)) `shiftR` 13)
+      in  (s1 * y) `shiftR` 17
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((c2 * (y `shiftR` 2) + bit 12) `shiftR` 13)
+          dropped = (s1 .&. 0x7F) * (y .&. 0x1F) + (s1 .&. 0x7) * (y .&. 0x1E0)
+      in  (s1 * y - dropped + bit 14) `shiftR` 17
+  -- exp r at 2^-20, in [2^20, 2^22)
+  o = (c0 + t2 + 4) `shiftR` 6
+  (o', be) | o >= bit 21 = (o `shiftR` 1, fromIntegral k + 16)
+           | otherwise = (o, fromIntegral k + 15) :: (Int64, Int)

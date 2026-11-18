@@ -92,6 +92,9 @@ module Clash.Cores.Intel.Floating.Half
   , tanWith
   , tan
   , E.TanDefDelay
+  , powWith
+  , pow
+  , E.PowDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -122,6 +125,7 @@ module Clash.Cores.Intel.Floating.Half
   , E.sinModel
   , E.cosModel
   , E.tanModel
+  , E.powModel
   ) where
 
 import Clash.Prelude hiding (sqrt, recip, exp, log, sin, cos, tan, asin, acos, atan, atan2)
@@ -788,3 +792,35 @@ tan
   -> DSignal dom (n + E.TanDefDelay) Half
 tan fam = withFrozenCallStack $ hideClockResetEnable (E.tan fam)
 {-# INLINE tan #-}
+
+-- | Customizable floating point power function @x ** y@, in half precision. See
+-- 'E.powWith'.
+powWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom (n + d) Half
+powWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.powWith cfg fam)
+{-# INLINE powWith #-}
+
+-- | Floating point power function @x ** y@, in half precision, with the default configuration
+-- and delay. See 'E.pow'.
+pow
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom (n + E.PowDefDelay) Half
+pow fam = withFrozenCallStack $ hideClockResetEnable (E.pow fam)
+{-# INLINE pow #-}
