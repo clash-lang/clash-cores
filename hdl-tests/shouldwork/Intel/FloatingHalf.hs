@@ -104,6 +104,18 @@ atan2TB :: Signal Dom Bool
 atan2TB = romTB simLibraries atan2Dut $(memBlobTH (Just 0) (trace atan2Dut (cycles (halfPairs 6000 15))))
 {-# ANN atan2TB (Synthesize "atan2TB" [] (PortName "done")) #-}
 
+sinTB :: Signal Dom Bool
+sinTB = romTB simLibraries sinDut $(memBlobTH (Just 0) (trace sinDut (cycles (trigHard <> everyNth 17 3 <> binades False 10 1 <> binades True 15 2))))
+{-# ANN sinTB (Synthesize "sinTB" [] (PortName "done")) #-}
+
+cosTB :: Signal Dom Bool
+cosTB = romTB simLibraries cosDut $(memBlobTH (Just 0) (trace cosDut (cycles (trigHard <> everyNth 17 5 <> binades False 14 2 <> binades True 23 1))))
+{-# ANN cosTB (Synthesize "cosTB" [] (PortName "done")) #-}
+
+tanTB :: Signal Dom Bool
+tanTB = romTB simLibraries tanDut $(memBlobTH (Just 0) (trace tanDut (cycles (trigHard <> everyNth 17 7 <> binades True 14 2 <> binades False 22 1))))
+{-# ANN tanTB (Synthesize "tanTB" [] (PortName "done")) #-}
+
 hypotTB :: Signal Dom Bool
 hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycles (halfTriples 4000 14))))
 {-# ANN hypotTB (Synthesize "hypotTB" [] (PortName "done")) #-}

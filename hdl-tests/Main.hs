@@ -258,7 +258,8 @@ runClashTest quartusAvailable = defaultMain $ clashTestRoot
                 [ "sqrtTB", "recipTB", "rsqrtTB", "expTB", "exp2TB", "exp10TB", "logTB"
                 , "log2TB", "log10TB", "log1pTB", "cbrtTB", "hypotTB", "sinPiTB"
                 , "cosPiTB", "tanPiTB", "asinTB", "asinPiTB", "acosTB"
-                , "acosPiTB", "atanTB", "atanPiTB", "atan2TB" ]
+                , "acosPiTB", "atanTB", "atanPiTB", "atan2TB", "sinTB"
+                , "cosTB", "tanTB" ]
             }
           -- The same in double precision
         , runTest "FloatingDouble" def

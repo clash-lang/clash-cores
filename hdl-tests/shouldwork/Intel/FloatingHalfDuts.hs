@@ -121,6 +121,21 @@ atan2Dut :: Dut (Half, Half) (Vec 2 Half)
 atan2Dut clk rst en i = bundle (binary (E.atan2 simFamily) clk rst en i :> binary (E.atan2With @16 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE atan2Dut #-}
 
+-- | E.sin, E.sinWith @9
+sinDut :: Dut Half (Vec 2 Half)
+sinDut clk rst en i = bundle (unary (E.sin simFamily) clk rst en i :> unary (E.sinWith @9 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE sinDut #-}
+
+-- | E.cos, E.cosWith @9
+cosDut :: Dut Half (Vec 2 Half)
+cosDut clk rst en i = bundle (unary (E.cos simFamily) clk rst en i :> unary (E.cosWith @9 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE cosDut #-}
+
+-- | E.tan, E.tanWith @15
+tanDut :: Dut Half (Vec 2 Half)
+tanDut clk rst en i = bundle (unary (E.tan simFamily) clk rst en i :> unary (E.tanWith @15 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE tanDut #-}
+
 -- | E.hypot, E.hypotWith @6
 hypotDut :: Dut (Half, Half, Half) (Vec 2 Half)
 hypotDut clk rst en i = bundle (ternary (E.hypot simFamily) clk rst en i :> ternary (E.hypotWith @6 E.defConfig simFamily) clk rst en i :> Nil)
@@ -142,6 +157,14 @@ binades :: Bool -> Int -> Int -> [Half]
 binades neg lo n = [Half (fromIntegral (s + e * 1024 + f)) | e <- [lo .. lo + n - 1], f <- [0 .. 1023]]
  where
   s = if neg then 32768 else 0 :: Int
+
+-- | Inputs for 'E.sin', 'E.cos' and 'E.tan' close to a multiple of pi \/ 2
+-- (355, 710, 177.5 and 532.5, of both signs), where the result is below the
+-- smallest normal number and the three functions each treat it differently.
+-- The tests feed them first: the results of the last inputs of a test fall
+-- outside its trace.
+trigHard :: [Half]
+trigHard = P.map Half [0x5d8c, 0x618c, 0x598c, 0x6029, 0xdd8c, 0xe18c, 0xd98c, 0xe029]
 
 -- | Triples of half precision numbers: all combinations of a few special
 -- values, followed by @n@ random triples of either sign whose (biased)

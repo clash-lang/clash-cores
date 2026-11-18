@@ -14,14 +14,15 @@ instantiate the IP, how the IP is reset and enabled and how it treats
 subnormal numbers. "Clash.Cores.Intel.Floating.Half" has the same functions
 with a hidden clock, reset and enable.
 
-The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'asin', 'asinPi', 'acos', 'acosPi', 'atan', 'atanPi' and 'atan2'. In half precision the IP computes them
+The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'sin', 'cos', 'tan', 'asin', 'asinPi', 'acos', 'acosPi', 'atan', 'atanPi' and 'atan2'. In half precision the IP computes them
 with the same algorithms as in single precision, scaled down (polynomials of
 degree one instead of two, except for the arcsine of numbers up to one half
 and the arccosine of numbers of at least one half). Clash simulation gives the IP's results bit for
 bit: the models ('sqrtModel' etc.) were obtained by black-box testing of the
 IP, see Note [Bit-exact half precision models] in
 "Clash.Cores.Intel.Floating.Internal.BitExactHalf", and were verified against
-the simulated IP on /all/ inputs, for MAX 10, Cyclone IV E, Cyclone 10 LP and
+the simulated IP on /all/ inputs (millions of inputs for 'hypot' and 'atan2',
+which have more than one), for MAX 10, Cyclone IV E, Cyclone 10 LP and
 Cyclone V, at several latencies. Like in single precision, the results of
 most functions depend on the multipliers of the device family, so they take
 a 'DeviceFamily' argument.
@@ -30,14 +31,16 @@ The user guide promises faithful rounding (within one unit in the last place)
 for the square root, the reciprocal square root, the exponentials, the
 logarithms and the trigonometric functions. In half precision, only the
 square root, the reciprocal square root, the cube root and the base 2
-logarithm keep that promise: the other functions are off by more than a unit
-in the last place for some inputs, see their models. The reciprocal is
+logarithm keep that promise, and the cosine for all inputs but two: the other
+functions are off by more than a unit in the last place for some inputs, see
+their models. The reciprocal is
 correctly rounded.
 
-Of the trigonometric functions, the sine, cosine and tangent of pi times the
-argument and the arcsine, arccosine and arctangent, in radians and as a
-multiple of pi ('asin', 'asinPi', 'acos', 'acosPi', 'atan' and 'atanPi'), and
-the two-argument arctangent ('atan2') are supported.
+Of the trigonometric functions, the sine, cosine and tangent of the argument
+in radians and of pi times the argument, the arcsine, arccosine and
+arctangent, in radians and as a multiple of pi ('asin', 'asinPi', 'acos',
+'acosPi', 'atan' and 'atanPi'), and the two-argument arctangent ('atan2') are
+supported.
 
 The arithmetic functions, comparisons and conversions of the IP are not
 supported in half precision: their models would be the ones of single
@@ -115,6 +118,15 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , atan2With
   , atan2
   , Atan2DefDelay
+  , sinWith
+  , sin
+  , SinDefDelay
+  , cosWith
+  , cos
+  , CosDefDelay
+  , tanWith
+  , tan
+  , TanDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -142,9 +154,12 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , atanModel
   , atanPiModel
   , atan2Model
+  , sinModel
+  , cosModel
+  , tanModel
   ) where
 
-import Clash.Explicit.Prelude hiding (sqrt, recip, exp, log, asin, acos, atan, atan2)
+import Clash.Explicit.Prelude hiding (sqrt, recip, exp, log, sin, cos, tan, asin, acos, atan, atan2)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -1286,3 +1301,159 @@ atan2 = withFrozenCallStack $ atan2With defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type Atan2DefDelay = 29
+
+-- | Customizable floating point sine, @sin x@, in radians, in half precision, see
+-- 'sinModel'. The IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (9
+-- cycles on MAX 10, Cyclone IV E and Cyclone 10 LP, 7 on Cyclone V).
+sinWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+sinWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en ((sinModel fam) <$> x)
+  | otherwise = unaryInst "fp_sin_half" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of sin"
+  ip = fpFunctionsHalf cfg "TRIG" "SIN" (natToNum @d) Nil
+{-# INLINE sinWith #-}
+
+-- | Floating point sine, @sin x@, in radians, in half precision, with the default configuration
+-- and delay. See 'sinWith'.
+sin
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + SinDefDelay) Half
+sin = withFrozenCallStack $ sinWith defConfig
+{-# INLINE sin #-}
+
+-- | The default delay of 'sin': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type SinDefDelay = 21
+
+-- | Customizable floating point cosine, @cos x@, in radians, in half precision, see
+-- 'cosModel'. The IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (9
+-- cycles on MAX 10, Cyclone IV E and Cyclone 10 LP, 7 on Cyclone V).
+cosWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+cosWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en ((cosModel fam) <$> x)
+  | otherwise = unaryInst "fp_cos_half" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of cos"
+  ip = fpFunctionsHalf cfg "TRIG" "COS" (natToNum @d) Nil
+{-# INLINE cosWith #-}
+
+-- | Floating point cosine, @cos x@, in radians, in half precision, with the default configuration
+-- and delay. See 'cosWith'.
+cos
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + CosDefDelay) Half
+cos = withFrozenCallStack $ cosWith defConfig
+{-# INLINE cos #-}
+
+-- | The default delay of 'cos': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type CosDefDelay = 20
+
+-- | Customizable floating point tangent, @tan x@, in radians, in half precision, see
+-- 'tanModel'. The IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (15
+-- cycles on MAX 10, Cyclone IV E and Cyclone 10 LP, 11 on Cyclone V).
+tanWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+tanWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en ((tanModel fam) <$> x)
+  | otherwise = unaryInst "fp_tan_half" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of tan"
+  ip = fpFunctionsHalf cfg "TRIG" "TAN" (natToNum @d) Nil
+{-# INLINE tanWith #-}
+
+-- | Floating point tangent, @tan x@, in radians, in half precision, with the default configuration
+-- and delay. See 'tanWith'.
+tan
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + TanDefDelay) Half
+tan = withFrozenCallStack $ tanWith defConfig
+{-# INLINE tan #-}
+
+-- | The default delay of 'tan': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type TanDefDelay = 36

@@ -6,8 +6,8 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in half precision: square root, cube root, hypotenuse, reciprocal square
 root, reciprocal, exponentials, logarithms, the sine, cosine and tangent
-of pi times x, the arcsine, arccosine and arctangent (in radians and
-divided by pi) and the two-argument arctangent, see
+of x and of pi times x, the arcsine, arccosine and arctangent (in radians
+and divided by pi) and the two-argument arctangent, see
 Note [Bit-exact half precision models].
 -}
 
@@ -36,6 +36,9 @@ module Clash.Cores.Intel.Floating.Internal.BitExactHalf
   , atanHalf
   , atanPiHalf
   , atan2Half
+  , sinHalf
+  , cosHalf
+  , tanHalf
   ) where
 
 import Prelude
@@ -52,7 +55,7 @@ import Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
   , log10HalfCoefficients, log2HalfCoefficients, logHalfCoefficients, rsqrtHalfCoefficients
   , sinPiHalfCoefficients, sqrtHalfCoefficients, tanPiRecipHalfCoefficients
   , asinHalfCoefficients, asinLargeHalfCoefficients, acosHalfCoefficients
-  , atanHalfCoefficients, atanRecipHalfCoefficients )
+  , atanHalfCoefficients, atanRecipHalfCoefficients, sinHalfCoefficients )
 
 {- Note [Bit-exact half precision models]
 The IP supports half precision as a custom format with 5 exponent and 10
@@ -1134,14 +1137,20 @@ atanLargeHalf mults k f
 atanPolyHalf :: Multipliers -> Int64 -> Int64
 atanPolyHalf mults = atanPoly1 atanHalfTable mults 6
 
--- | The polynomials of the arctangent: @floor ((4 C0 + 16 + T1) / 2^5)@ for
--- an argument whose @wy@ low bits are y and whose other bits select the
--- segment, with T1 = C1 * y two bits below the grid of the table
+-- | The polynomials of the arctangent, for an argument whose @wy@ low bits
+-- are y and whose other bits select the segment, see 'polyFine'
 atanPoly1 :: Table1 -> Multipliers -> Int -> Int64 -> Int64
-atanPoly1 table mults wy xx = (4 * c0 + 16 + t1) `shiftR` 5
+atanPoly1 table mults wy xx =
+  polyFine table mults wy (fromIntegral (xx `shiftR` wy)) (xx .&. (bit wy - 1))
+
+-- | The polynomial @floor ((4 C0 + 16 + T1) / 2^5)@ of the arctangent and of
+-- the sine and cosine in radians, for the segment @j@ and the @wy@ bits @y@
+-- below the segment's bits, with T1 = C1 * y two bits below the grid of the
+-- table
+polyFine :: Table1 -> Multipliers -> Int -> Int -> Int64 -> Int64
+polyFine table mults wy j y = (4 * c0 + 16 + t1) `shiftR` 5
  where
-  (c1, c0) = coefs1 table (fromIntegral (xx `shiftR` wy))
-  y = xx .&. (bit wy - 1)
+  (c1, c0) = coefs1 table j
   t1 = case mults of
     FullMultipliers -> (c1 * y) `shiftR` (wy - 2)
     TruncatedMultipliers -> (c1 * y + bit (wy - 3)) `shiftR` (wy - 2)
@@ -1263,3 +1272,202 @@ piMinusHalf t = (fromIntegral (len - 7) `shiftL` 10) .|. (fromIntegral (v `shift
   -- pi / 2 <= v * 2^-21 < 4
   v = 0x6487EC - ((bit 10 .|. f) `shiftL` (max e 4 - 4)) :: Int64
   len = if v >= bit 22 then 23 else 22 :: Int
+
+-- * Sine, cosine and tangent of x in radians
+
+{- Note [Bit-exact half precision sine, cosine and tangent]
+The sine, cosine and tangent of x in radians ('sinHalf', 'cosHalf' and
+'tanHalf', the \"SIN\", \"COS\" and \"TAN\" functions) follow the single
+precision ones (Note [Bit-exact models] in
+"Clash.Cores.Intel.Floating.Internal.BitExact"), scaled down:
+
+  1. z = |x| / pi modulo 2 is computed with 38 fraction bits as m * W modulo
+     2^39, with m the 11-bit significand of x and W = floor (2^(e + 13) / pi)
+     for its biased exponent e (of which only the low 39 bits matter). q is
+     the half period of z and r in [0, 1/2] the distance to the nearest
+     integer (sine) or half integer (cosine), with the signs as for the sine
+     and cosine of pi times x. The infinities and NaNs (e = 31) are reduced
+     in the same way.
+  2. P approximates @sin (pi * r) / r@ at 2^-11, by a polynomial of degree
+     one. R = floor (r * 2^14); its top 7 bits (128 segments of [0, 1/2),
+     r = 1/2 is segment 127 with y = 2^6) select the coefficients (on the
+     grid 2^-14, 'sinHalfCoefficients') and its 6 low bits are y:
+
+       T1 = floor (C1 * y / 2^4)            (at 2^-16)
+       P  = floor ((4 C0 + 16 + T1) / 2^5)
+
+     On the families with 18x18 multipliers T1 is
+     floor ((C1 * y + 2^3) / 2^4).
+  3. The result is m' * P, with m' = r truncated to 13 significant bits,
+     rounded to nearest with ties away from zero. Where z is less than 2^-6
+     above an integer, the sine uses P(0) instead of P(r).
+  4. The sine of |x| < 2^-6 is x, as is the sine of |x| < 2^-5 with
+     |x| / pi < 2^-6; the cosine of |x| < 2^-6 is one, and so is the cosine
+     where z is less than 2^-7 above an integer (with the sign of the half
+     period). The sine of a zero or subnormal number is a zero of the same
+     sign; the sine of NaN or an infinity is NaN with the sign the reduction
+     gives, the cosine's is the positive NaN. No half precision number
+     reduces to z = 0, so the sine and the cosine have no exact zeros.
+  5. Results below the smallest normal number, which only two inputs near a
+     multiple of pi (355 and 710) and two near an odd multiple of pi / 2
+     (177.5 and 532.5) have: the sine is a zero. The cosine is a zero below
+     2^-15, but in [2^-15, 2^-14) (for 532.5 and -532.5) the IP gives the
+     significand with a biased exponent of 0, which reads as a subnormal
+     number of about two thirds of the value.
+  6. The tangent is the sine divided by the cosine, both as above but before
+     step 5, with the reciprocal and the product of the tangent of pi times x
+     ('tanPiHalf'). A quotient below the smallest normal number (for 355 and
+     710) becomes a subnormal number, rounded down. |x| < 2^-6 gives x, zeros
+     and subnormal numbers give a zero of the same sign, NaN and the
+     infinities give NaN.
+
+How this was found. The synthesis report shows a product of the significand
+with a window of 1 / pi that keeps 39 bits, a 128-entry table with a 6 bit
+y, and a 13 by 13 bit product. With the number of fraction bits from the
+report, the table computed from first principles in the format the widths
+suggest, and the single precision thresholds scaled to the grid of the
+polynomial, the model matched the IP on all inputs but the handful of step
+5, which were read off the outputs. Truncating z to 30 to 37 fraction bits
+after the reduction, as single precision does, changes no result, so the
+model keeps all 38.
+-}
+
+sinHalfTable :: Table1
+sinHalfTable = mkTable1 sinHalfCoefficients
+{-# NOINLINE sinHalfTable #-}
+
+-- | @floor (2^64 / pi)@: 1 / pi to 64 fraction bits
+invPi64 :: Int64
+invPi64 = 0x517CC1B727220A94
+
+-- | The reduced argument of the sine and cosine for the biased exponent @e@
+-- (10 to 31) and the fraction @f@: the half period @q@ (0 to 3) and the
+-- fraction @z@ in it (in units of 2^-38) of @|x| / pi@ modulo 2, computed
+-- with 38 fraction bits as the significand times @floor (2^(e + 13) / pi)@,
+-- modulo 2^39
+trigReduceHalf :: Int -> Int64 -> (Int, Int64)
+trigReduceHalf e f = (fromIntegral (zz `shiftR` 37), zz .&. (bit 37 - 1))
+ where
+  w = (invPi64 `shiftR` (51 - e)) .&. (bit 39 - 1)
+  zz = ((bit 10 .|. f) * w) .&. (bit 39 - 1)
+
+-- | @sin (pi * r)@ for @r@ in @(0, 1/2]@ in units of 2^-38, using the
+-- polynomial at @r@ or, if @p0@, at 0: the biased exponent, which can be
+-- zero or negative, and the 11-bit significand
+trigSinPiHalf :: Multipliers -> Bool -> Int64 -> (Int, Int64)
+trigSinPiHalf mults p0 r
+  | o0 >= bit 11 = (nb + d - 36, o0 `shiftR` 1)
+  | otherwise = (nb + d - 37, o0)
+ where
+  -- r at 2^-14; r = 1/2 is the last segment at y = 2^6
+  rr = r `shiftR` 24
+  (j, y) | p0 = (0, 0)
+         | rr >= bit 13 = (127, bit 6)
+         | otherwise = (fromIntegral (rr `shiftR` 6), rr .&. 0x3F)
+  -- sin (pi r) / r at 2^-11
+  p = polyFine sinHalfTable mults 6 j y
+  -- r truncated to 13 significant bits: m * 2^(nb - 13 - 38)
+  nb = 64 - countLeadingZeros r
+  m | nb >= 13 = r `shiftR` (nb - 13)
+    | otherwise = r `shiftL` (13 - nb)
+  -- Rounded to 11 significant bits
+  v = m * p
+  d = 64 - countLeadingZeros v - 11
+  o0 = (v + bit (d - 1)) `shiftR` d
+
+-- | The sine before the special cases of small arguments and results: the
+-- sign, the biased exponent (not limited to the range of normal numbers) and
+-- the 11-bit significand
+sinPartsHalf :: Multipliers -> Word16 -> (Word16, Int, Int64)
+sinPartsHalf mults w = (sgn, be, o)
+ where
+  (neg, e, f) = fields w
+  (q, z) = trigReduceHalf e f
+  sgn = if neg /= (q >= 2) then bit 15 else 0
+  (be, o)
+    -- Less than 2^-6 above an integer: the polynomial at 0
+    | even q = trigSinPiHalf mults (z < bit 32) z
+    | otherwise = trigSinPiHalf mults False (bit 37 - z)
+
+-- | The cosine before the special case of small results, like
+-- 'sinPartsHalf'
+cosPartsHalf :: Multipliers -> Word16 -> (Word16, Int, Int64)
+cosPartsHalf mults w
+  -- Less than 2^-7 above an integer: +-1
+  | even q && z < bit 31 = (sgn, 15, bit 10)
+  | even q = part (trigSinPiHalf mults False (bit 37 - z))
+  | otherwise = part (trigSinPiHalf mults False z)
+ where
+  (_, e, f) = fields w
+  (q, z) = trigReduceHalf e f
+  sgn = if q == 1 || q == 2 then bit 15 else 0
+  part (be, o) = (sgn, be, o)
+
+-- | The IP's sine in half precision, on bit patterns, see
+-- Note [Bit-exact half precision sine, cosine and tangent]
+sinHalf :: Multipliers -> Word16 -> Word16
+sinHalf mults w
+  -- NaN, with the sign the reduction of its bit pattern gives
+  | e == 31 = sgn .|. nanHalf
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = w .&. bit 15
+  -- |x| < 2^-6, and |x| < 2^-5 with |x| / pi < 2^-6: x
+  | sinIsXHalf e q z = w
+  -- Below the smallest normal number: a zero
+  | be <= 0 = sgn
+  | otherwise = sgn .|. (fromIntegral be `shiftL` 10) .|. fromIntegral (o .&. 0x3FF)
+ where
+  (_, e, f) = fields w
+  (q, z) = trigReduceHalf e f
+  (sgn, be, o) = sinPartsHalf mults w
+
+-- | Whether the sine of a normal number is the number itself, for its biased
+-- exponent and its reduced argument
+sinIsXHalf :: Int -> Int -> Int64 -> Bool
+sinIsXHalf e q z = e <= 9 || (e == 10 && q == 0 && z < bit 32)
+
+-- | The IP's cosine in half precision, on bit patterns, see
+-- Note [Bit-exact half precision sine, cosine and tangent]
+cosHalf :: Multipliers -> Word16 -> Word16
+cosHalf mults w
+  | e == 31 = nanHalf
+  -- |x| < 2^-6, including zeros and subnormal numbers
+  | e <= 9 = 0x3C00
+  -- Below 2^-15: a zero
+  | be < 0 = sgn
+  -- In [2^-15, 2^-14) the IP gives the significand with a biased exponent of 0
+  | otherwise = sgn .|. (fromIntegral be `shiftL` 10) .|. fromIntegral (o .&. 0x3FF)
+ where
+  (_, e, _) = fields w
+  (sgn, be, o) = cosPartsHalf mults w
+
+-- | The IP's tangent in half precision, on bit patterns: its sine divided by
+-- its cosine as for 'tanPiHalf', see
+-- Note [Bit-exact half precision sine, cosine and tangent]
+tanHalf :: Multipliers -> Word16 -> Word16
+tanHalf mults w
+  | e == 31 = nanHalf
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = w .&. bit 15
+  -- |x| < 2^-6: x
+  | e <= 9 = w
+  | be >= 31 = sgn .|. infHalf
+  -- Below the smallest normal number: a subnormal number, rounded down
+  | be <= 0 = sgn .|. fromIntegral (o `shiftR` (1 - be))
+  | otherwise = sgn .|. (fromIntegral be `shiftL` 10) .|. fromIntegral (o .&. 0x3FF)
+ where
+  (_, e, f) = fields w
+  (q, z) = trigReduceHalf e f
+  -- The sine: x itself where 'sinHalf' gives x
+  (ss, es, os)
+    | sinIsXHalf e q z = (w .&. bit 15, e, bit 10 .|. f)
+    | otherwise = sinPartsHalf mults w
+  (sc, ec, oc) = cosPartsHalf mults w
+  sgn = ss `xor` sc
+  -- The quotient at 2^-g
+  p = os * tanPiRecipHalf mults (oc .&. 0x3FF)
+  g = 23 - es + ec
+  d = 64 - countLeadingZeros p - 11
+  o0 = (p + bit (d - 1)) `shiftR` d
+  (o, be) | o0 >= bit 11 = (o0 `shiftR` 1, d - g + 26)
+          | otherwise = (o0, d - g + 25)

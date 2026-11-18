@@ -32,8 +32,10 @@ models document the details.
   'asinPi' (2.7). In half precision
   ("Clash.Cores.Intel.Floating.Half") only the square root, the reciprocal
   square root, the cube root and the base 2
-  logarithm keep within one unit; the other exponentials and logarithms, the
-  hypotenuse, 'sinPi', 'cosPi', 'tanPi', 'asin' (1.1), 'asinPi' (1.7),
+  logarithm keep within one unit, and the cosine in radians for all inputs
+  but two; the other exponentials and logarithms, the
+  hypotenuse, 'sinPi', 'cosPi', 'tanPi', the sine in radians (1.04, for one
+  input), the tangent in radians (1.9), 'asin' (1.1), 'asinPi' (1.7),
   'acos' (2.6), 'acosPi' (2.7), 'atan' (1.5), 'atanPi' (2.1) and 'atan2'
   (2.5) don't. Found with the bit-exact
   models, on all inputs of whole binades and millions of other inputs per

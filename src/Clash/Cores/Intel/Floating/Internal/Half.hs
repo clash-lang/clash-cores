@@ -34,6 +34,9 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , atanModel
   , atanPiModel
   , atan2Model
+  , sinModel
+  , cosModel
+  , tanModel
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -354,6 +357,56 @@ atan2Model fam y x =
   Half (fromIntegral (atan2Half (familyMultipliers fam) (bits y) (bits x)))
  where
   bits = fromIntegral . getHalf
+
+-- | Model of the IP's sine of @x@ in radians in half precision (the \"SIN\"
+-- function), see 'sqrtModel' and 'sinPiModel'. As in single precision, the IP
+-- reduces @x@ to @|x| / pi@ modulo 2, here with 38 fraction bits, and then
+-- computes @sin (pi * r)@ for the distance @r@ to the nearest integer as
+-- @r * P(r)@, with @P@ a polynomial approximation of degree one of
+-- @sin (pi * r) / r@ and @r@ truncated to 13 significant bits. The result is
+-- within one unit in the last place except for one input, where it is off by
+-- 1.04. Inputs of magnitude below @2^-6@ (and some below @2^-5@) give @x@;
+-- zero and subnormal inputs give a zero with the sign of @x@; NaN and the
+-- infinities give 'intelNaN' with a sign that depends on the input's bits.
+-- A result below the smallest normal number (for 355, 710 and their
+-- negations) is a zero. See
+-- Note [Bit-exact half precision sine, cosine and tangent].
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at the minimum latency (9
+-- cycles, 7 on Cyclone V).
+sinModel :: DeviceFamily -> Half -> Half
+sinModel fam = onBits (sinHalf (familyMultipliers fam))
+
+-- | Model of the IP's cosine of @x@ in radians in half precision (the
+-- \"COS\" function), see 'sinModel': the same computation with @r@ the
+-- distance to the nearest half integer. The result is within one unit in the
+-- last place, with one exception: for 532.5 and -532.5, whose cosine is in
+-- @[2^-15, 2^-14)@, the IP gives the result's significand with a biased
+-- exponent of 0, which is a subnormal number about a third too small.
+-- A cosine below @2^-15@ (for 177.5 and -177.5) is a zero. Inputs of
+-- magnitude below @2^-6@ give one; NaN and the infinities give 'intelNaN'.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at the minimum latency (9
+-- cycles, 7 on Cyclone V).
+cosModel :: DeviceFamily -> Half -> Half
+cosModel fam = onBits (cosHalf (familyMultipliers fam))
+
+-- | Model of the IP's tangent of @x@ in radians in half precision (the
+-- \"TAN\" function), see 'sinModel': the IP's sine divided by its cosine,
+-- with the divider of 'tanPiModel'. The result can be off by up to 1.9 units
+-- in the last place. Inputs of magnitude below @2^-6@ give @x@; zero and
+-- subnormal inputs give a zero with the sign of @x@; NaN and the infinities
+-- give 'intelNaN'. Unlike the sine, a tangent below the smallest normal
+-- number (for 355, 710 and their negations) is a subnormal number, rounded
+-- down.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at the minimum latency (15
+-- cycles, 11 on Cyclone V).
+tanModel :: DeviceFamily -> Half -> Half
+tanModel fam = onBits (tanHalf (familyMultipliers fam))
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'

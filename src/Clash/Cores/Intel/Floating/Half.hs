@@ -83,6 +83,15 @@ module Clash.Cores.Intel.Floating.Half
   , atan2With
   , atan2
   , E.Atan2DefDelay
+  , sinWith
+  , sin
+  , E.SinDefDelay
+  , cosWith
+  , cos
+  , E.CosDefDelay
+  , tanWith
+  , tan
+  , E.TanDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -110,9 +119,12 @@ module Clash.Cores.Intel.Floating.Half
   , E.atanModel
   , E.atanPiModel
   , E.atan2Model
+  , E.sinModel
+  , E.cosModel
+  , E.tanModel
   ) where
 
-import Clash.Prelude hiding (sqrt, recip, exp, log, asin, acos, atan, atan2)
+import Clash.Prelude hiding (sqrt, recip, exp, log, sin, cos, tan, asin, acos, atan, atan2)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -698,3 +710,81 @@ atan2
   -> DSignal dom (n + E.Atan2DefDelay) Half
 atan2 fam = withFrozenCallStack $ hideClockResetEnable (E.atan2 fam)
 {-# INLINE atan2 #-}
+
+-- | Customizable floating point sine, @sin x@, in radians, in half precision. See
+-- 'E.sinWith'.
+sinWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+sinWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.sinWith cfg fam)
+{-# INLINE sinWith #-}
+
+-- | Floating point sine, @sin x@, in radians, in half precision, with the default configuration
+-- and delay. See 'E.sin'.
+sin
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.SinDefDelay) Half
+sin fam = withFrozenCallStack $ hideClockResetEnable (E.sin fam)
+{-# INLINE sin #-}
+
+-- | Customizable floating point cosine, @cos x@, in radians, in half precision. See
+-- 'E.cosWith'.
+cosWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+cosWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.cosWith cfg fam)
+{-# INLINE cosWith #-}
+
+-- | Floating point cosine, @cos x@, in radians, in half precision, with the default configuration
+-- and delay. See 'E.cos'.
+cos
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.CosDefDelay) Half
+cos fam = withFrozenCallStack $ hideClockResetEnable (E.cos fam)
+{-# INLINE cos #-}
+
+-- | Customizable floating point tangent, @tan x@, in radians, in half precision. See
+-- 'E.tanWith'.
+tanWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+tanWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.tanWith cfg fam)
+{-# INLINE tanWith #-}
+
+-- | Floating point tangent, @tan x@, in radians, in half precision, with the default configuration
+-- and delay. See 'E.tan'.
+tan
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.TanDefDelay) Half
+tan fam = withFrozenCallStack $ hideClockResetEnable (E.tan fam)
+{-# INLINE tan #-}
