@@ -500,3 +500,58 @@ log2DatapathWords =
   , 0x3ff36a861dbb2f11, 0x3ffb394275a50cd8, 0x3ff3bf2673bc13cd, 0x3ff51d9ca9707937
   , 0x3fe3b676baa37e0f, 0x3ff6aae567db286e, 0x3ff58b2cb6180104, 0x3ff28e6d27953d2b
   , 0x3feb4a58368e0c0c, 0x3ff10b6011728acf, 0x3ff34a51bd7afd4a, 0x3fef7791de60e35b ]
+
+-- | E.exp2, E.exp2With @10
+exp2Dut :: Dut Double (Vec 2 Double)
+exp2Dut clk rst en i = bundle (unary (E.exp2 simFamily) clk rst en i :> unary (E.exp2With @10 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE exp2Dut #-}
+
+-- | Inputs of the base 2 exponential: inputs in the table segment whose
+-- coefficients were observed from the IP (for which the computed coefficients
+-- would give other results), inputs whose results depend on how the IP
+-- truncates its products, 'specialDoubleWords', and @n@ random inputs of
+-- several kinds: in the range where the result is finite and nonzero, in
+-- @[0, 1)@ (where the result only depends on the polynomial), with random
+-- exponents, and random bit patterns
+exp2DoublesIn :: Int -> Word64 -> [Double]
+exp2DoublesIn n seed =
+  P.map castWord64ToDouble (exp2ObservedWords <> exp2DatapathWords <> specialDoubleWords <> P.take n (go (randoms seed)))
+ where
+  withExp x e = (x .&. 0x800fffffffffffff) .|. (e `shiftL` 52)
+  go (k : x : rs) =
+    let w = case k `mod` 4 of
+          0 -> withExp x (0x3f8 + (k `shiftR` 8) `mod` 0x11)
+          1 -> withExp x (0x3f9 + (k `shiftR` 8) `mod` 6) .&. 0x7fffffffffffffff
+          2 -> withExp x (0x3c4 + (k `shiftR` 8) `mod` 0x45)
+          _ -> x
+     in w : go rs
+  go _ = []
+
+-- | Inputs in segment 50 of the base 2 exponential, see Note [Observed double
+-- precision base 2 exponential coefficients] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble"
+exp2ObservedWords :: [Word64]
+exp2ObservedWords =
+  [ 0x3fe979f9c52d5728, 0x3fe9772837c949e3, 0x3fe9571b8430ee50, 0x3fe97c3c83ee038e
+  , 0x3fe97ebb1e1054fc, 0x3fe963aaed3fdf62, 0x3fe979eda99d60ff, 0x3fe97f36ecdd8f54
+  , 0x3fe97ec3ca45f3ba, 0x3fe97c4e5a3a423b, 0x3fe95e29b42f592e, 0x3fe94afa0d67b7de
+  , 0x3fe97e0a59c41502, 0x3fe932c3be92fcee, 0x3fe97b1974bd0000, 0x3fe95d1489fe7cda
+  , 0x3fe910c3daff5d74, 0x3fe97bc733105068, 0x3fe9570b34290a12, 0x3fe97787ec99b400
+  , 0x3fe965021c744706, 0x3fe91957b2d26fb4, 0x3fe96fdffb359d08, 0x3fe96a880f6e22a0 ]
+
+-- | Inputs for which the base 2 exponential of MAX 10 differs from the one
+-- the IP would compute with full multipliers
+exp2DatapathWords :: [Word64]
+exp2DatapathWords =
+  [ 0x3fe9c2957dd5771c, 0x3fd15f768cf9d322, 0x3f8dc5328624ff40, 0x3fee6ec7bf3f5f49
+  , 0x3fedf75557c6ba10, 0x3fd9ed22e66c4f40, 0x3fdec087560c2826, 0x3fe3027d499d5857
+  , 0x3fd65e4537f210f0, 0x3fd7732d1d199fa2, 0x3fd43b550a2ff1ba, 0x3fcfc2a1f0f32598
+  , 0x3fd2d00470c202ee, 0x3fb0ca0b181e70b0, 0x3fe7728ecb6654c6, 0x3fd4b9e1faca5630
+  , 0x3fdabad662ae1f60, 0x3fd1bf968d630f78, 0x3fafeb999acc7020, 0x3fe0c54c215d48af
+  , 0x3fd9e1660dfa3590, 0x3fb13ad5523aee40, 0x3fe07659e7f7a463, 0x3fcff21e22af9da4
+  , 0x3fd0ee1d485098ec, 0x3fcb361594f8519c, 0x3fb0fb45123983b0, 0x3fe0c91de8b5284c
+  , 0x3fd856093bdd1c76, 0x3fea43d536fde648, 0x3fe15fd339eff311, 0x3fec92d471ec88f5
+  , 0x3fe27b5fb214f446, 0x3fe6c35813a3a634, 0x3fdf0a944776fa84, 0x3fd702d7615b697a
+  , 0x3fdd634269493c84, 0x3f8718a763a4cfc0, 0x3fd5ac3278403ad2, 0x3fef64d1aa3ca45d
+  , 0x3fed6c33500ca8aa, 0x3fe2c96093986897, 0x3feaaaf789190fbc, 0x3fb1fddcb105e928
+  , 0x3fd5a3ced2561100, 0x3feaf0c8b6807697, 0x3fc2e56d9dc1cd74, 0x3fd2a1c4ed6eee6a ]

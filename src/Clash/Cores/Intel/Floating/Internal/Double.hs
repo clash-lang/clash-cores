@@ -20,6 +20,7 @@ module Clash.Cores.Intel.Floating.Internal.Double
   , rsqrtModel
   , recipModel
   , expModel
+  , exp2Model
   , hypotModel
   , logModel
   , log2Model
@@ -367,3 +368,38 @@ log2Model :: DeviceFamily -> Double -> Double
 log2Model fam = case fam of
   CycloneV -> noCycloneV "log2Model"
   _ -> onBits log2Double
+
+-- | Model of the base 2 exponential, @2^x@, of the IP in double precision,
+-- for MAX 10, Cyclone IV E and Cyclone 10 LP. It gives the IP's results bit
+-- for bit, see Note [Bit-exact double precision base 2 exponential] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": @2^x = 2^k * 2^r@ with
+-- @k = floor x@ and @2^r@ computed with a polynomial of degree five. The
+-- result is not always faithful: @x * 2^52@ is rounded down first, so for
+-- inputs with fraction bits below @2^-52@ (inputs below one in magnitude) the
+-- result is up to 2.1 units in the last place below the exact result for
+-- negative inputs (most for those close to zero) and up to 1.4 units for
+-- positive ones; otherwise it is within 0.72 units below and 0.6 above.
+-- Results below the smallest normal number are flushed to +0 and results that
+-- overflow give +inf; @2^(-inf) = 0@, NaN inputs give 'intelNaN'. Subnormal
+-- inputs are treated as zero, but as a zero with a leading one: @2^(-0)@ and
+-- @2^x@ for a negative subnormal @x@ are the largest double below one.
+--
+-- In one of its 64 table segments (for inputs with a fractional part in
+-- @[50/64, 51/64)@) the model uses coefficients observed from the IP's outputs
+-- instead of computed ones, see Note [Observed double precision base 2
+-- exponential coefficients].
+--
+-- For Cyclone V there is no model: the IP's results differ there, and this
+-- function raises an error.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E and Cyclone 10 LP, at 200 MHz and at the minimum latency (10
+-- cycles), and for MAX 10 also at 100 MHz, on 3.8 million inputs each:
+-- special values at every exponent, random inputs of several kinds over the
+-- whole range, integers and their neighbours, inputs in every segment of its
+-- table, a million inputs for which the polynomial is close to a rounding
+-- boundary, and 78,000 inputs in the segment with observed coefficients.
+exp2Model :: DeviceFamily -> Double -> Double
+exp2Model fam = case fam of
+  CycloneV -> noCycloneV "exp2Model"
+  _ -> onBits exp2Double

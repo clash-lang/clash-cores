@@ -5,11 +5,12 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in double precision: square root, cube root, reciprocal square root,
-reciprocal, exponential, natural, base 2 and base 10 logarithm, log (1 + x),
-the hypotenuse and the arithmetic, see Note [Bit-exact double precision
-models], Note [Bit-exact double precision cube root], Note [Bit-exact double
-precision hypotenuse], Note [Bit-exact double precision reciprocal square
-root], Note [Bit-exact double precision exponential], Note [Bit-exact double
+reciprocal, exponential, base 2 exponential, natural, base 2 and base 10
+logarithm, log (1 + x), the hypotenuse and the arithmetic, see Note [Bit-exact
+double precision models], Note [Bit-exact double precision cube root],
+Note [Bit-exact double precision hypotenuse], Note [Bit-exact double precision
+reciprocal square root], Note [Bit-exact double precision exponential],
+Note [Bit-exact double precision base 2 exponential], Note [Bit-exact double
 precision logarithms], Note [Bit-exact double precision base 2 logarithm] and
 Note [Bit-exact double precision log1p].
 -}
@@ -20,6 +21,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   ( sqrtDouble
   , recipDouble
   , expDouble
+  , exp2Double
   , rsqrtDouble
   , hypotDouble
   , lnDouble
@@ -42,8 +44,8 @@ import Data.Word (Word64)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
 import Clash.Cores.Intel.Floating.Internal.CoefficientsDouble
-  ( cbrtDoubleCoefficients, expDoubleCoefficients, lnDoubleCoefficients, log10DoubleCoefficients
-  , log2DoubleCoefficients, rsqrtDoubleCoefficients, sqrtDoubleCoefficients )
+  ( cbrtDoubleCoefficients, exp2DoubleCoefficients, expDoubleCoefficients, lnDoubleCoefficients
+  , log10DoubleCoefficients, log2DoubleCoefficients, rsqrtDoubleCoefficients, sqrtDoubleCoefficients )
 
 {- Note [Bit-exact double precision models]
 In double precision, the IP computes its functions with the algorithms of
@@ -434,6 +436,147 @@ expSig mults j y = case mults of
   y3 = y `shiftR` 13
   y4 = y `shiftR` 5
 
+{- Note [Bit-exact double precision base 2 exponential]
+The base 2 exponential needs no multiplication to reduce its argument:
+2^x = 2^k * 2^r with k = floor x and r = x - k in [0, 1). In detail:
+
+  * X = floor (x * 2^52), as a two's complement number (zeros and subnormal
+    numbers have a significand with a leading one too, so -0 gives X = -1).
+    k is X without its low 52 bits and r those 52 bits; the table index j is
+    the top 6 bits of r and y the low 46 bits, t = y * 2^-46.
+  * 2^r is a polynomial of degree five in t, in Horner form with the
+    coefficients C0 .. C5 of segment j (in units of 2^-55, C3: 2^-56):
+
+      S1 = 2 C4 + T1,  T1 = C5 * (y >> 28)   at 2^-56
+      S2 = 2 C3 + T2,  T2 = (y >> 19) * S1   at 2^-57
+      S3 = 2 C2 + T3,  T3 = (y >> 10) * S2   at 2^-56
+      S4 = 2 C1 + T4,  T4 = (y >> 3) * S3    at 2^-56
+      A  = 8 C0 + T5 + rc,  T5 = y * S4      at 2^-58
+
+    and the significand is A >> 6, at 2^-52, in [2^52, 2^53]. A significand
+    of 2^53 carries into the exponent k + 1023.
+  * On MAX 10, Cyclone IV E and Cyclone 10 LP the products are truncated
+    multipliers (see Note [Bit-exact double precision models] and
+    'exp2Cuts'): 17-bit tilings, in T2 to T5 with y as the operand whose low
+    bits are left out. T5 keeps one more partial product at the end of each
+    step of its staircase, like the T5 of the exponential (see Note [Bit-exact
+    double precision exponential]). T1 to T4 are rounded to nearest (half up),
+    T5 is rounded down, and rc = 2^-53 + 2^-58.
+  * Results with an exponent field of 2047 or more are +inf; 0 or less give
+    +0. NaN gives the IP's NaN, +inf gives +inf and -inf gives +0, and
+    |x| >= 2048 gives +inf or +0.
+
+How the structure was inferred: with Intel's generator option for full
+multipliers as for the exponential (the synthesis report shows a table of 64
+segments in logic and five products). For the truncated multipliers, the
+synthesis report shows the multipliers of the cube root for T1 to T4 and, for
+T5, those of the cube root plus five multipliers of one by one bit. A scan of
+the operand widths of the tilings and of which operand is cut matched T1 to
+T4 (operands of 18, 28, 37 and 44 bits); the five single partial products of
+T5 are where the exponential has them, at the end of each step.
+
+Cyclone V is not modelled.
+-}
+
+{- Note [Observed double precision base 2 exponential coefficients]
+The coefficients of the base 2 exponential are computed from first principles
+(see "Clash.Cores.Intel.Floating.Internal.CoefficientsDouble"), with one
+exception: in segment 50 of its 64 segments (r in [50/64, 51/64)) the IP's
+results show other coefficients than any first-principles method we tried, as
+for the reciprocal square root and the logarithms (see Note [Observed double
+precision rsqrt coefficients]). There the model uses the coefficients of
+'exp2ObservedCoefficients' instead, which were observed from the IP's
+outputs: among the 729 lattice vectors near the generator's (its vector plus
+combinations of the reduced basis with coefficients -1 to 1), exactly one
+gives the IP's results on all inputs in the segment. This was found with
+Intel's generator option for full multipliers on 60,000 inputs (the next best
+vector differs on 82) and holds on MAX 10 for 78,394 inputs (the next best
+vector differs on 533 of them). It is the generator's vector plus one and
+minus another vector of the reduced basis; it is not the exact closest vector.
+
+The IP's coefficients minus the generator's, in units of their least
+significant bits (C0 to C5):
+
+  segment 50: [0, 0, -1, +10, -8, +4]
+
+This is the only data observed from the IP in the model of the base 2
+exponential.
+-}
+
+-- | Coefficients @(C0, .., C5)@ of the base 2 exponential that the IP uses in
+-- segment 50, where they differ from the generated ones. These were observed
+-- from the IP's outputs, see Note [Observed double precision base 2
+-- exponential coefficients].
+exp2ObservedCoefficients :: [(Int, (Integer, Integer, Integer, Integer, Integer, Integer))]
+exp2ObservedCoefficients =
+  [ (50, (61919785844929079, 670617577801388, 3631536588096, 26220722968, 35497171, 77327)) ]
+
+-- | Truncated products T1 to T5 of the base 2 exponential on MAX 10, Cyclone
+-- IV E and Cyclone 10 LP, as cut lists for 'truncMul'
+exp2Cuts :: ([Int], [Int], [Int], [Int], [Int])
+exp2Cuts =
+  ( -- T1 = C5 [18 bits] * (y >> 28) [18 bits]
+    runs [(2, 10), (9, 1), (7, 0)]
+    -- T2 = (y >> 19) [27 bits] * S1 [28 bits]
+  , runs [(12, 11), (16, 0)]
+    -- T3 = (y >> 10) [36 bits] * S2 [37 bits]
+  , runs [(4, 29), (9, 20), (8, 12), (9, 3), (7, 0)]
+    -- T4 = (y >> 3) [43 bits] * S3 [44 bits]
+  , runs [(11, 27), (17, 10), (16, 0)]
+    -- T5 = y [46 bits] * S4 [52 bits]: the tiling rule keeps the rows of S4
+    -- in steps (cuts 39, 30, 22, 13, 5 and 0); the last row of each step
+    -- keeps one more partial product
+  , runs [(1, 39), (1, 38), (8, 30), (1, 29), (7, 22), (1, 21), (8, 13), (1, 12), (7, 5), (1, 4), (16, 0)]
+  )
+
+-- | The table of 'exp2Double': the generated coefficients, with the observed
+-- ones in segment 50
+exp2Table :: Array Int (Integer, Integer, Integer, Integer, Integer, Integer)
+exp2Table = listArray (0, 63) exp2DoubleCoefficients // exp2ObservedCoefficients
+{-# NOINLINE exp2Table #-}
+
+-- * Base 2 exponential
+
+-- | The IP's base 2 exponential in double precision on MAX 10, Cyclone IV E
+-- and Cyclone 10 LP, on bit patterns
+exp2Double :: Word64 -> Word64
+exp2Double w
+  | e == 2047 = if f /= 0 then nanDouble else if neg then 0 else infDouble
+  | e > 1033 = if neg then 0 else infDouble
+  | be >= 2047 = infDouble
+  | be <= 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 52) .|. fromInteger (o .&. (bit 52 - 1))
+ where
+  (neg, e, f) = fields w
+  -- The significand (also for zeros and subnormal numbers) and x * 2^52,
+  -- rounded down
+  m = f .|. bit 52
+  mx = if neg then negate m else m
+  x52 = if e >= 1023 then mx `shiftL` (e - 1023) else mx `shiftR` (1023 - e)
+  k = x52 `shiftR` 52
+  r = x52 .&. (bit 52 - 1)
+  o0 = exp2Sig (fromInteger (r `shiftR` 46)) (r .&. (bit 46 - 1))
+  (o, be) = if o0 >= bit 53 then (o0 `shiftR` 1, fromInteger k + 1024) else (o0, fromInteger k + 1023 :: Int)
+
+-- | Significand of 2^r in units of 2^-52 (2^52 to 2^53), for the segment @j@
+-- and the 46 low bits @y@ of r
+exp2Sig :: Int -> Integer -> Integer
+exp2Sig j y = a `shiftR` 6
+ where
+  (c0, c1, c2, c3, c4, c5) = exp2Table ! j
+  (cut1, cut2, cut3, cut4, cut5) = exp2Cuts
+  y1 = y `shiftR` 28
+  y2 = y `shiftR` 19
+  y3 = y `shiftR` 10
+  y4 = y `shiftR` 3
+  -- Rounded half up
+  s1 = 2 * c4 + (truncMul cut1 c5 y1 + bit 16) `shiftR` 17   -- 2^-56
+  s2 = 2 * c3 + (truncMul cut2 y2 s1 + bit 25) `shiftR` 26   -- 2^-57
+  s3 = 2 * c2 + (truncMul cut3 y3 s2 + bit 36) `shiftR` 37   -- 2^-56
+  s4 = 2 * c1 + (truncMul cut4 y4 s3 + bit 42) `shiftR` 43   -- 2^-56
+  -- At 2^-58, with the rounding constant 2^-53 + 2^-58
+  a = 8 * c0 + 33 + truncMul cut5 y s4 `shiftR` 44
+
 {- Note [Bit-exact double precision reciprocal square root]
 The reciprocal square root uses the scheme of the square root (see Note
 [Bit-exact double precision models]): 1 / sqrt x = 2^-k * 2 / sqrt (m * 2^p)
@@ -511,9 +654,9 @@ significant bits (C0 to C5):
   segment 426: [+1, -20, +112, -510, +253, -91]
 
 Besides the coefficients of Note [Observed double precision logarithm
-coefficients] and Note [Observed double precision base 2 logarithm
-coefficients], this is the only data observed from the IP in the models of
-this module.
+coefficients], Note [Observed double precision base 2 logarithm coefficients]
+and Note [Observed double precision base 2 exponential coefficients], this is
+the only data observed from the IP in the models of this module.
 -}
 
 -- | Coefficients @(C0, .., C5)@ of the reciprocal square root that the IP

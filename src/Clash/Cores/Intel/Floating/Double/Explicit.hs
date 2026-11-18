@@ -14,7 +14,7 @@ subnormal numbers. "Clash.Cores.Intel.Floating.Double" has the same functions
 with a hidden clock, reset and enable.
 
 The supported functions are the arithmetic ('add', 'sub', 'mul' and 'div'),
-'sqrt', 'rsqrt', 'recip', 'exp', 'hypot', 'log10', 'cbrt', 'log', 'log1p' and 'log2'. The arithmetic and the reciprocal are correctly rounded,
+'sqrt', 'rsqrt', 'recip', 'exp', 'hypot', 'log10', 'cbrt', 'log', 'log1p', 'log2' and 'exp2'. The arithmetic and the reciprocal are correctly rounded,
 with the deviations from IEEE 754 described in
 "Clash.Cores.Intel.Floating.Explicit" (subnormal inputs are treated as zero
 and results below the smallest normal number are flushed to zero, after
@@ -22,24 +22,25 @@ rounding with an unbounded exponent). In double precision the IP
 computes them with the algorithms of single precision, scaled up: the square
 root with a polynomial of degree five instead of two. Clash simulation gives
 the IP's results bit for bit: the models ('sqrtModel', 'rsqrtModel', 'recipModel', 'expModel',
-'hypotModel', 'log10Model', 'cbrtModel', 'logModel', 'log1pModel' and 'log2Model') were
+'hypotModel', 'log10Model', 'cbrtModel', 'logModel', 'log1pModel', 'log2Model' and
+'exp2Model') were
 obtained by black-box testing of the IP, see Note [Bit-exact double precision
 models] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble", and were
 verified against the simulated IP on millions of inputs for MAX 10, Cyclone IV
-E, Cyclone 10 LP and (except for 'log', 'log2', 'log10', 'log1p' and 'cbrt')
-Cyclone V, at several latencies. The results of the
+E, Cyclone 10 LP and (except for 'exp2', 'log', 'log2', 'log10', 'log1p' and
+'cbrt') Cyclone V, at several latencies. The results of the
 square root, the reciprocal square root and the exponential depend on the
 multipliers of the device family, so they take a 'DeviceFamily' argument.
 
-The models of 'log', 'log2', 'log10', 'log1p' and 'cbrt' cover MAX 10, Cyclone
-IV E and Cyclone 10 LP only. On Cyclone V the IP gives other results for some inputs, which are not
+The models of 'exp2', 'log', 'log2', 'log10', 'log1p' and 'cbrt' cover MAX 10,
+Cyclone IV E and Cyclone 10 LP only. On Cyclone V the IP gives other results for some inputs, which are not
 modelled: Clash simulation of these functions for Cyclone V raises an error.
 The generated HDL is the same IP on all families.
 
 The models' polynomial coefficients are computed from first principles, except
-in two table segments of 'rsqrt', one of 'log' (which 'log1p' uses too) and
-two of 'log2', where they were observed from the IP's outputs (see
-'rsqrtModel', 'logModel' and 'log2Model').
+in two table segments of 'rsqrt', one of 'log' (which 'log1p' uses too), two
+of 'log2' and one of 'exp2', where they were observed from the IP's outputs
+(see 'rsqrtModel', 'logModel', 'log2Model' and 'exp2Model').
 
 The other functions of the IP, its multiply-add, comparisons and conversions
 are not supported in double precision.
@@ -93,6 +94,9 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , log2With
   , log2
   , Log2DefDelay
+  , exp2With
+  , exp2
+  , Exp2DefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -112,6 +116,7 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , logModel
   , log1pModel
   , log2Model
+  , exp2Model
   ) where
 
 import Clash.Explicit.Prelude hiding (add, sub, mul, div, sqrt, recip, exp, log)
@@ -842,3 +847,59 @@ log2 = withFrozenCallStack $ log2With defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest (MAX 10, Cyclone IV E and Cyclone 10 LP; Cyclone V: 47).
 type Log2DefDelay = 51
+
+-- | Customizable floating point base 2 exponential, @2^x@, in double
+-- precision, see 'exp2Model'. The IP's result is bit-exactly modelled.
+--
+-- Clash simulation supports MAX 10, Cyclone IV E and Cyclone 10 LP only: for
+-- Cyclone V the IP's results are not modelled, and simulation raises an error.
+-- In one of the 64 segments of its table, the model uses coefficients
+-- observed from the IP's outputs instead of computed ones, see 'exp2Model'.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+exp2With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+exp2With cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (exp2Model fam <$> x)
+  | otherwise = unaryInst "fp_exp2_double" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of exp2"
+  ip = fpFunctionsDouble cfg "EXP_LOG" "EXP2" (natToNum @d) Nil
+{-# INLINE exp2With #-}
+
+-- | Floating point base 2 exponential, @2^x@, in double precision, with the
+-- default configuration and delay. See 'exp2With'.
+exp2
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + Exp2DefDelay) Double
+exp2 = withFrozenCallStack $ exp2With defConfig
+{-# INLINE exp2 #-}
+
+-- | The default delay of 'exp2': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest (MAX 10, Cyclone IV E and Cyclone 10 LP; Cyclone V: 28).
+type Exp2DefDelay = 40
