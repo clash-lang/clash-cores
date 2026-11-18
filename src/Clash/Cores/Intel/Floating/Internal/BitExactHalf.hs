@@ -6,8 +6,9 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in half precision: square root, cube root, hypotenuse, reciprocal square
 root, reciprocal, exponentials, logarithms, the sine, cosine and tangent
-of pi times x and the arcsine, arccosine and arctangent (in radians and
-divided by pi), see Note [Bit-exact half precision models].
+of pi times x, the arcsine, arccosine and arctangent (in radians and
+divided by pi) and the two-argument arctangent, see
+Note [Bit-exact half precision models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -34,6 +35,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactHalf
   , acosPiHalf
   , atanHalf
   , atanPiHalf
+  , atan2Half
   ) where
 
 import Prelude
@@ -705,7 +707,7 @@ tanPiHalf mults w
   -- Half integers: an infinity
   | c .&. 0x7FFF == 0 = sgn .|. infHalf
   -- The quotient at 2^-(23 - es + ec)
-  | otherwise = sgn .|. roundAt (23 - es + ec) ((bit 10 .|. fs) * r)
+  | otherwise = sgn .|. roundAt (23 - es + ec) ((bit 10 .|. fs) * tanPiRecipHalf mults fc)
  where
   (_, e, f) = fields w
   s = sinPiHalf mults w
@@ -713,9 +715,14 @@ tanPiHalf mults w
   sgn = (s `xor` c) .&. bit 15
   (_, es, fs) = fields s
   (_, ec, fc) = fields c
-  -- 1 / (1 + fc * 2^-10) at 2^-13; coefficients at 2^-16, rounding constant 4
-  r | fc == 0 = bit 13
-    | otherwise = poly1 tanPiRecipTable mults 4 3 (fromIntegral (fc `shiftR` 3)) (fc .&. 7) `shiftR` 3
+
+-- | The reciprocal of a significand, @1 / (1 + f * 2^-10)@ at 2^-13, as the
+-- tangent of pi times x and the two-argument arctangent divide: coefficients
+-- at 2^-16, rounding constant 4
+tanPiRecipHalf :: Multipliers -> Int64 -> Int64
+tanPiRecipHalf mults f
+  | f == 0 = bit 13
+  | otherwise = poly1 tanPiRecipTable mults 4 3 (fromIntegral (f `shiftR` 3)) (f .&. 7) `shiftR` 3
 
 -- * Arcsine
 
@@ -1145,3 +1152,114 @@ atanPoly1 table mults wy xx = (4 * c0 + 16 + t1) `shiftR` 5
 -- number flushed to zero
 atanPiHalf :: Multipliers -> Word16 -> Word16
 atanPiHalf mults = overPiHalf . atanHalf mults
+
+-- * Two-argument arctangent
+
+{- Note [Bit-exact half precision two-argument arctangent]
+The two-argument arctangent @atan2 y x@ ('atan2Half', the \"ARCTAN2\"
+function) follows the single precision one (Note [Bit-exact models] in
+"Clash.Cores.Intel.Floating.Internal.BitExact"):
+
+  1. q = |y| / |x| is computed like the tangent of pi times x divides the
+     sine by the cosine ('tanPiHalf'): the significand of y times the
+     reciprocal of the significand of x at 2^-13, rounded to nearest with
+     ties away from zero. A quotient above the largest finite number becomes
+     +inf, one below the smallest normal number +0.
+  2. t is the arctangent of q ('atanHalf'). Two infinities give t = pi / 4
+     rounded down, an infinite x gives t = 0, and an infinite y with a finite
+     x gives pi / 2 rounded down whatever the sign of x.
+  3. For a negative x the result is pi - t in fixed point at 2^-21, with pi
+     rounded down to 2^-20 (0x6487EC at 2^-21), truncated to half precision.
+     The IP aligns t by shifting it at most 11 places: a t below 2^-11 is
+     used as if its exponent were -11. This is visible for t with a
+     significand of at least 2029 * 2^-10, which give pi rounded down minus
+     one unit in the last place where pi rounded down is expected.
+  4. The result has the sign of y.
+  5. Zeros and subnormal numbers (biased exponent 0): if only y is one, the
+     result is 0 for x > 0 and pi rounded down for x < 0. If only x is one,
+     it is pi / 2 rounded down. If both are, it is: for y = 0, 0 for
+     x = +0, pi / 2 - 1 (0x388F) for a positive subnormal x and pi rounded
+     down for a negative x; for a subnormal y, pi / 2 - 1 for a positive
+     subnormal x and pi - (pi / 2 - 1) (0x4124) otherwise. Any NaN input
+     gives NaN.
+
+This was found as follows: the synthesis report shows the reciprocal table
+of the tangent of pi times x, the arctangent's tables and products; the
+hypothesis "the arctangent of the tangent's quotient" matched all pairs of
+normal numbers with a positive x at once. For a negative x the result
+depends on t only; the constant, the grid and the limit of the alignment
+are the only ones that give the IP's result for all 14821 values of t in
+the test pairs. The special cases were read off a table of the results per
+class of input (zero, subnormal, normal, infinite), which are constant per
+class.
+-}
+
+-- | pi rounded down to half precision
+piDownHalf :: Word16
+piDownHalf = 0x4248
+
+-- | pi / 2 - 1, as the IP gives it for some combinations of zeros and
+-- subnormal numbers
+halfPiMinusOneHalf :: Word16
+halfPiMinusOneHalf = 0x388F
+
+-- | The IP's two-argument arctangent @atan2 y x@ in half precision, on bit
+-- patterns: the arctangent ('atanHalf') of the quotient @|y| / |x|@, computed
+-- like the tangent of pi times x divides the sine by the cosine, subtracted
+-- from pi for a negative @x@, with the sign of @y@. See
+-- Note [Bit-exact half precision two-argument arctangent].
+atan2Half :: Multipliers -> Word16 -> Word16 -> Word16
+atan2Half mults y x
+  | ey == 31 && fy /= 0 || ex == 31 && fx /= 0 = nanHalf
+  | ey == 0 || ex == 0 = sy .|. zeroish
+  -- An infinite y with a finite x: pi / 2 rounded down
+  | ey == 31 && ex /= 31 = sy .|. 0x3E48
+  | negX = sy .|. piMinusHalf t
+  | otherwise = sy .|. t
+ where
+  (_, ey, fy) = fields y
+  (negX, ex, fx) = fields x
+  sy = y .&. bit 15
+  t | ey == 31 = 0x3A48
+    | ex == 31 = 0
+    | otherwise = atanHalf mults (atan2QuotientHalf mults ey fy ex fx)
+  -- Zeros and subnormal numbers: y = 0 gives 0 or pi as usual, x = 0 gives
+  -- pi / 2 rounded down, but the IP's results depend on whether the other
+  -- input is a zero or a subnormal number
+  zeroish
+    | ey == 0 && ex /= 0 = if negX then piDownHalf else 0
+    | ey == 0 && fy == 0 =
+        if negX then piDownHalf else if fx /= 0 then halfPiMinusOneHalf else 0
+    | ey == 0 =
+        if negX || fx == 0 then piMinusHalf halfPiMinusOneHalf else halfPiMinusOneHalf
+    | otherwise = 0x3E48
+
+-- | The quotient @|y| / |x|@ of two normal numbers, from their biased
+-- exponents and fractions, as the tangent of pi times x computes it
+-- ('tanPiHalf'): rounded to nearest, ties away from zero, +inf above the
+-- largest finite number and +0 below the smallest normal number
+atan2QuotientHalf :: Multipliers -> Int -> Int64 -> Int -> Int64 -> Word16
+atan2QuotientHalf mults ey fy ex fx
+  | be >= 31 = infHalf
+  | be <= 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 10) .|. fromIntegral (o .&. 0x3FF)
+ where
+  -- At 2^-g, 2^22 <= p < 2^24
+  p = (bit 10 .|. fy) * tanPiRecipHalf mults fx
+  g = 23 - ey + ex
+  d = 64 - countLeadingZeros p - 11
+  o0 = (p + bit (d - 1)) `shiftR` d
+  (o, be) | o0 >= bit 11 = (o0 `shiftR` 1, d - g + 26)
+          | otherwise = (o0, d - g + 25)
+
+-- | pi minus a non-negative number of at most pi / 2, in fixed point at
+-- 2^-21 with pi rounded down to 2^-20, truncated to half precision. The
+-- number is shifted into place by at most 11 places: below 2^-11 its
+-- significand is used as if its exponent were -11.
+piMinusHalf :: Word16 -> Word16
+piMinusHalf t = (fromIntegral (len - 7) `shiftL` 10) .|. (fromIntegral (v `shiftR` (len - 11)) .&. 0x3FF)
+ where
+  (_, e, f) = fields t
+  -- pi / 2 <= v * 2^-21 < 4
+  v = 0x6487EC - ((bit 10 .|. f) `shiftL` (max e 4 - 4)) :: Int64
+  len = if v >= bit 22 then 23 else 22 :: Int

@@ -116,6 +116,11 @@ atanPiDut :: Dut Half (Vec 2 Half)
 atanPiDut clk rst en i = bundle (unary (E.atanPi simFamily) clk rst en i :> unary (E.atanPiWith @11 E.defConfig simFamily) clk rst en i :> Nil)
 {-# OPAQUE atanPiDut #-}
 
+-- | E.atan2, E.atan2With @16
+atan2Dut :: Dut (Half, Half) (Vec 2 Half)
+atan2Dut clk rst en i = bundle (binary (E.atan2 simFamily) clk rst en i :> binary (E.atan2With @16 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE atan2Dut #-}
+
 -- | E.hypot, E.hypotWith @6
 hypotDut :: Dut (Half, Half, Half) (Vec 2 Half)
 hypotDut clk rst en i = bundle (ternary (E.hypot simFamily) clk rst en i :> ternary (E.hypotWith @6 E.defConfig simFamily) clk rst en i :> Nil)
@@ -156,4 +161,29 @@ halfTriples n seed = [(a, b, c) | a <- sp, b <- sp, c <- sp] <> P.take n (go (ra
            0 -> (x, y, z)
            1 -> (y, z, x)
            _ -> (z, x, y)) : go rs
+  go _ = []
+
+-- | Pairs of half precision numbers for 'E.atan2': all combinations of a few
+-- special values, followed by @n@ random pairs of either sign whose (biased)
+-- exponents differ by less than 14, so that the arctangent of their quotient
+-- is neither tiny nor pi \/ 2. In every fourth pair the second number is
+-- negative and about 2^11 to 2^15 times the first: for those the IP subtracts
+-- a tiny angle from pi.
+halfPairs :: Int -> Word64 -> [(Half, Half)]
+halfPairs n seed = [(a, b) | a <- sp, b <- sp] <> P.take n (go (randoms seed))
+ where
+  sp = P.map Half
+    [ 0, 0x8000, 0x0001, 0x8001, 0x03ff, 0x0400, 0x3c00, 0xbc00, 0x7bff, 0xfbff
+    , 0x7c00, 0xfc00, 0x7c01 ]
+  go (k : a : b : rs) =
+    let e = 1 + k `P.mod` 30
+        tiny = (k `shiftR` 24) `P.mod` 4 == 0
+        d | tiny = 11 + (k `shiftR` 8) `P.mod` 5
+          | otherwise = (k `shiftR` 8) `P.mod` 14
+        e2 = if (k `shiftR` 16) `P.mod` 2 == 0 then e + d else e - d
+        mk r ex = Half (fromIntegral ((r .&. 0x83ff) .|. (P.max 1 (P.min 30 ex) `shiftL` 10)))
+        (lo, hi) = if e <= e2 then (e, e2) else (e2, e)
+     in (if tiny
+           then (mk a lo, Half (getHalf (mk b hi) .|. 0x8000))
+           else (mk a e, mk b e2)) : go rs
   go _ = []

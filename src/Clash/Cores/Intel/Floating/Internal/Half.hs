@@ -33,6 +33,7 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , acosPiModel
   , atanModel
   , atanPiModel
+  , atan2Model
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -327,6 +328,32 @@ atanModel fam = onBits (atanHalf (familyMultipliers fam))
 -- cycles, 9 on Cyclone V).
 atanPiModel :: DeviceFamily -> Half -> Half
 atanPiModel fam = onBits (atanPiHalf (familyMultipliers fam))
+
+-- | Model of the IP's two-argument arctangent in half precision (the
+-- \"ARCTAN2\" function), @atan2 y x@, see 'sqrtModel'. As in single precision,
+-- the IP computes the arctangent ('atanModel') of the quotient @|y| \/ |x|@,
+-- rounded to half precision; for a negative @x@ it subtracts that from pi in
+-- fixed point, truncating; the result has the sign of @y@. The result can be
+-- off by up to 2.5 units in the last place. An infinite @y@ with a finite
+-- @x@ gives pi \/ 2 rounded down, an infinite @x@ with a finite @y@ gives 0
+-- or pi rounded down, and two infinities give pi \/ 4 or 3 pi \/ 4, rounded
+-- down. NaN gives 'intelNaN'. With zeros and subnormal numbers the IP behaves
+-- irregularly: @atan2 y x@ is pi \/ 2 rounded down for a normal @y@ and a
+-- zero or subnormal @x@, 0 or pi for a zero or subnormal @y@ and a normal
+-- @x@, and when both inputs are zeros or subnormal numbers some results are
+-- pi \/ 2 - 1 or pi \/ 2 + 1, see
+-- Note [Bit-exact half precision two-argument arctangent].
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for all four
+-- families at 200 MHz and at the minimum latency (16 cycles, 12 on Cyclone
+-- V), on 3.7 million pairs each: random pairs, pairs of normal numbers with
+-- exponents less than 14 apart, pairs with a zero or a subnormal number, and
+-- all combinations of 46 special values.
+atan2Model :: DeviceFamily -> Half -> Half -> Half
+atan2Model fam y x =
+  Half (fromIntegral (atan2Half (familyMultipliers fam) (bits y) (bits x)))
+ where
+  bits = fromIntegral . getHalf
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'

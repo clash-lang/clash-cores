@@ -14,7 +14,7 @@ instantiate the IP, how the IP is reset and enabled and how it treats
 subnormal numbers. "Clash.Cores.Intel.Floating.Half" has the same functions
 with a hidden clock, reset and enable.
 
-The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'asin', 'asinPi', 'acos', 'acosPi', 'atan' and 'atanPi'. In half precision the IP computes them
+The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'asin', 'asinPi', 'acos', 'acosPi', 'atan', 'atanPi' and 'atan2'. In half precision the IP computes them
 with the same algorithms as in single precision, scaled down (polynomials of
 degree one instead of two, except for the arcsine of numbers up to one half
 and the arccosine of numbers of at least one half). Clash simulation gives the IP's results bit for
@@ -36,8 +36,8 @@ correctly rounded.
 
 Of the trigonometric functions, the sine, cosine and tangent of pi times the
 argument and the arcsine, arccosine and arctangent, in radians and as a
-multiple of pi ('asin', 'asinPi', 'acos', 'acosPi', 'atan' and 'atanPi'), are
-supported.
+multiple of pi ('asin', 'asinPi', 'acos', 'acosPi', 'atan' and 'atanPi'), and
+the two-argument arctangent ('atan2') are supported.
 
 The arithmetic functions, comparisons and conversions of the IP are not
 supported in half precision: their models would be the ones of single
@@ -112,6 +112,9 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , atanPiWith
   , atanPi
   , AtanPiDefDelay
+  , atan2With
+  , atan2
+  , Atan2DefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -138,15 +141,16 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , acosPiModel
   , atanModel
   , atanPiModel
+  , atan2Model
   ) where
 
-import Clash.Explicit.Prelude hiding (sqrt, recip, exp, log, asin, acos, atan)
+import Clash.Explicit.Prelude hiding (sqrt, recip, exp, log, asin, acos, atan, atan2)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
 
 import Clash.Cores.Intel.Floating.Internal
-  (Config(..), DeviceFamily(..), defConfig, pipeline, scaleByPi, ternaryInst, unaryInst)
+  (Config(..), DeviceFamily(..), binaryInst, defConfig, pipeline, scaleByPi, ternaryInst, unaryInst)
 import Clash.Cores.Intel.Floating.Internal.Half
 
 -- | Customizable floating point square root, in half precision, see
@@ -1223,3 +1227,62 @@ atanPi = withFrozenCallStack $ atanPiWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type AtanPiDefDelay = 21
+
+-- | Customizable floating point two-argument arctangent, @atan2 y x@, in half precision, see
+-- 'atan2Model'. Like @atan2@ in the Prelude, the first argument is @y@. The
+-- IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (16
+-- cycles on MAX 10, Cyclone IV E and Cyclone 10 LP, 12 on Cyclone V).
+atan2With
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom (n + d) Half
+atan2With cfg fam clk rst en y x
+  | clashSimulation = pipeline und clk rst en (atan2Model fam <$> y <*> x)
+  | otherwise = binaryInst "fp_atan2_half" ip clk rst en y x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of atan2"
+  ip = fpFunctionsHalf cfg "TRIG" "ARCTAN2" (natToNum @d) Nil
+{-# INLINE atan2With #-}
+
+-- | Floating point two-argument arctangent, @atan2 y x@, in half precision, with the default configuration
+-- and delay. See 'atan2With'.
+atan2
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom (n + Atan2DefDelay) Half
+atan2 = withFrozenCallStack $ atan2With defConfig
+{-# INLINE atan2 #-}
+
+-- | The default delay of 'atan2': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type Atan2DefDelay = 29

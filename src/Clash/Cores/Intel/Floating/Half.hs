@@ -80,6 +80,9 @@ module Clash.Cores.Intel.Floating.Half
   , atanPiWith
   , atanPi
   , E.AtanPiDefDelay
+  , atan2With
+  , atan2
+  , E.Atan2DefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -106,9 +109,10 @@ module Clash.Cores.Intel.Floating.Half
   , E.acosPiModel
   , E.atanModel
   , E.atanPiModel
+  , E.atan2Model
   ) where
 
-import Clash.Prelude hiding (sqrt, recip, exp, log, asin, acos, atan)
+import Clash.Prelude hiding (sqrt, recip, exp, log, asin, acos, atan, atan2)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -662,3 +666,35 @@ atanPi
   -> DSignal dom (n + E.AtanPiDefDelay) Half
 atanPi fam = withFrozenCallStack $ hideClockResetEnable (E.atanPi fam)
 {-# INLINE atanPi #-}
+
+-- | Customizable floating point two-argument arctangent, @atan2 y x@, in half precision. See
+-- 'E.atan2With'.
+atan2With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom (n + d) Half
+atan2With cfg fam = withFrozenCallStack $ hideClockResetEnable (E.atan2With cfg fam)
+{-# INLINE atan2With #-}
+
+-- | Floating point two-argument arctangent, @atan2 y x@, in half precision, with the default configuration
+-- and delay. See 'E.atan2'.
+atan2
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -- ^ y
+  -> DSignal dom n Half
+  -- ^ x
+  -> DSignal dom (n + E.Atan2DefDelay) Half
+atan2 fam = withFrozenCallStack $ hideClockResetEnable (E.atan2 fam)
+{-# INLINE atan2 #-}

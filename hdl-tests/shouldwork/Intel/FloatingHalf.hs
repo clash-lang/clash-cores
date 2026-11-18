@@ -9,7 +9,8 @@ the IP's simulation models end up in the HDL.
 The models of the one-input functions were verified on all 2^16 inputs
 outside of these tests; the tests feed every 17th (or 23rd) input and all
 inputs of a few binades, see 'everyNth' and 'binades'. The test of the
-hypotenuse feeds triples, see 'halfTriples'.
+hypotenuse feeds triples, see 'halfTriples', and the one of the two-argument
+arctangent pairs, see 'halfPairs'.
 -}
 module FloatingHalf where
 
@@ -98,6 +99,10 @@ atanTB = romTB simLibraries atanDut $(memBlobTH (Just 0) (trace atanDut (cycles 
 atanPiTB :: Signal Dom Bool
 atanPiTB = romTB simLibraries atanPiDut $(memBlobTH (Just 0) (trace atanPiDut (cycles (everyNth 17 14 <> binades True 14 2 <> binades False 20 1))))
 {-# ANN atanPiTB (Synthesize "atanPiTB" [] (PortName "done")) #-}
+
+atan2TB :: Signal Dom Bool
+atan2TB = romTB simLibraries atan2Dut $(memBlobTH (Just 0) (trace atan2Dut (cycles (halfPairs 6000 15))))
+{-# ANN atan2TB (Synthesize "atan2TB" [] (PortName "done")) #-}
 
 hypotTB :: Signal Dom Bool
 hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycles (halfTriples 4000 14))))

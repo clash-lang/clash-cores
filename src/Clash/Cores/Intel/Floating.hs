@@ -34,7 +34,8 @@ models document the details.
   square root, the cube root and the base 2
   logarithm keep within one unit; the other exponentials and logarithms, the
   hypotenuse, 'sinPi', 'cosPi', 'tanPi', 'asin' (1.1), 'asinPi' (1.7),
-  'acos' (2.6), 'acosPi' (2.7), 'atan' (1.5) and 'atanPi' (2.1) don't. Found with the bit-exact
+  'acos' (2.6), 'acosPi' (2.7), 'atan' (1.5), 'atanPi' (2.1) and 'atan2'
+  (2.5) don't. Found with the bit-exact
   models, on all inputs of whole binades and millions of other inputs per
   function, on all four families. In double
   precision, the exponential
