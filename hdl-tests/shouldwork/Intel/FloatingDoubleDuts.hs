@@ -407,3 +407,55 @@ logDatapathWords =
   , 0x3fee4775b71144d5, 0x3fee9b9c54fba217, 0x3feb90f90c2d2d11, 0x3ff53acae5106681
   , 0x3ff9336aaecf6996, 0x3ff827d7b774493f, 0x3fe6d72a9915e1aa, 0x3ffb36fed832883e
   , 0x3febe9fee7ee42d6, 0x3fe6bddc8273e8cd, 0x3fef49146bb46a06, 0x3fe13756632f0b53 ]
+
+-- | E.log1p, E.log1pWith @13
+log1pDut :: Dut Double (Vec 2 Double)
+log1pDut clk rst en i = bundle (unary (E.log1p simFamily) clk rst en i :> unary (E.log1pWith @13 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE log1pDut #-}
+
+-- | Inputs of @log (1 + x)@: inputs for which @1 + x@ is in the table segment
+-- whose coefficients were observed from the IP (and the computed coefficients
+-- would give other results), inputs whose results depend on how the IP
+-- truncates its products, 'specialDoubleWords', and @n@ random inputs for
+-- which the result is finite: positive ones with (biased) exponents in
+-- @[960, 1090)@ and negative ones above -1 (many of them with few fraction
+-- bits)
+log1pDoublesIn :: Int -> Word64 -> [Double]
+log1pDoublesIn n seed =
+  P.map castWord64ToDouble (log1pObservedWords <> log1pDatapathWords <> specialDoubleWords <> P.take n (go (randoms seed)))
+ where
+  go (k : x : rs) =
+    let e = 960 + (k `shiftR` 8) `mod` 130
+        s = if testBit k 40 && e < 1023 then bit 63 else 0
+        f = if k `mod` 4 == 0 then x .&. 0x000fffff00000000 else x .&. 0x000fffffffffffff
+     in (s .|. (e `shiftL` 52) .|. f) : go rs
+  go _ = []
+
+-- | Inputs for which @1 + x@ is in segment 1647 of the natural logarithm's
+-- table, see Note [Observed double precision logarithm coefficients] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble"
+log1pObservedWords :: [Word64]
+log1pObservedWords =
+  [ 0xbfc901a1896fec30, 0xbfc90325f55a29a4, 0xbfc9014e9b896c40, 0xbfc902095ce1b330
+  , 0xbfc901cb1bdc5500, 0xbfc903183683333c, 0xbfc904f222db66ec, 0xbfc902c1a6000000
+  , 0xbfc90ec4aa45cc98, 0xbfc90f81a4a44a08, 0xbfc9098a9111dc98, 0xbfc901b881f78280
+  , 0xbfc9038c13d097dc, 0xbfc90168601e0000, 0xbfc90f6ac61fd1d0, 0xbfc903646837deb4
+  , 0xbfc903f4cc000000, 0xbfc9001309e445ec, 0xbfc90210f474ee38, 0xbfc904555d82e000
+  , 0xbfc903f303229398, 0xbfc9010d6b8a1140, 0xbfc90da1964066f0, 0xbfc900a37a7371a0 ]
+
+-- | Inputs for which @log (1 + x)@ of MAX 10 differs from the one the IP
+-- would compute with full multipliers
+log1pDatapathWords :: [Word64]
+log1pDatapathWords =
+  [ 0xbf72117ccef9621c, 0xbfbe890413225295, 0x3ff7a44ea27e3935, 0xbe76deda4be560ff
+  , 0xbefd8537f5880de8, 0xbf636ee8fb8ebb73, 0xbebf1390c79119c7, 0xbefea366d87b9185
+  , 0xbfd740f5a2442c23, 0xbf03c8e3f5b13047, 0x3fb94e110d573f50, 0x3fea2e6c0f250d93
+  , 0x3ede64b8641ad58f, 0xbe961b2087e068b5, 0x3f8f6a0518e6e7b5, 0x3feb75c3074d8d5d
+  , 0xbe727ab4b95b36f8, 0xbecad563383da34c, 0xbe712331ba3ead97, 0xbe45a2b6897f04eb
+  , 0xbe44c649eb07a4f4, 0x3fc03dc793b8b9fc, 0xbfe3d59378f83088, 0xbfe926073a32fd6d
+  , 0xbf8e5cf15a3d211e, 0xbeaf71270822146b, 0x3e6dff6883eb781e, 0xbfecce0d5b7d1eff
+  , 0xbee1b0ecb86c0de9, 0xbe44e06070aceaa8, 0xbe59fc04abb41770, 0xbee1745e46eb210d
+  , 0xbe5108dc8bd0bed8, 0xbfdf6166641fa7ea, 0xbe9a0bac6bddf4ac, 0xbf07c92bae9b67c6
+  , 0xbfbd87be21b38654, 0xbe56043d2596330c, 0xbe515643cbfe0765, 0xbe9d4fc7d4a14c7c
+  , 0x3f2665fbf42cd159, 0xbf0ef52c62f0ee10, 0xbee22515566fb9e6, 0xbed07cf5aa1947f1
+  , 0x3ff8762276ce1ce7, 0xbee90677bd0e3dc5, 0xbf082e8cc4e20a2d, 0xbef122e6b719db85 ]

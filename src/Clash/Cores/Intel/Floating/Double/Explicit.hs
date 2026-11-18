@@ -14,7 +14,7 @@ subnormal numbers. "Clash.Cores.Intel.Floating.Double" has the same functions
 with a hidden clock, reset and enable.
 
 The supported functions are the arithmetic ('add', 'sub', 'mul' and 'div'),
-'sqrt', 'rsqrt', 'recip', 'exp', 'hypot', 'log10', 'cbrt' and 'log'. The arithmetic and the reciprocal are correctly rounded,
+'sqrt', 'rsqrt', 'recip', 'exp', 'hypot', 'log10', 'cbrt', 'log' and 'log1p'. The arithmetic and the reciprocal are correctly rounded,
 with the deviations from IEEE 754 described in
 "Clash.Cores.Intel.Floating.Explicit" (subnormal inputs are treated as zero
 and results below the smallest normal number are flushed to zero, after
@@ -22,17 +22,17 @@ rounding with an unbounded exponent). In double precision the IP
 computes them with the algorithms of single precision, scaled up: the square
 root with a polynomial of degree five instead of two. Clash simulation gives
 the IP's results bit for bit: the models ('sqrtModel', 'rsqrtModel', 'recipModel', 'expModel',
-'hypotModel', 'log10Model', 'cbrtModel' and 'logModel') were
+'hypotModel', 'log10Model', 'cbrtModel', 'logModel' and 'log1pModel') were
 obtained by black-box testing of the IP, see Note [Bit-exact double precision
 models] in "Clash.Cores.Intel.Floating.Internal.BitExactDouble", and were
 verified against the simulated IP on millions of inputs for MAX 10, Cyclone IV
-E, Cyclone 10 LP and (except for 'log', 'log10' and 'cbrt') Cyclone V, at
-several latencies. The results of the
+E, Cyclone 10 LP and (except for 'log', 'log10', 'log1p' and 'cbrt') Cyclone
+V, at several latencies. The results of the
 square root, the reciprocal square root and the exponential depend on the
 multipliers of the device family, so they take a 'DeviceFamily' argument.
 
-The models of 'log', 'log10' and 'cbrt' cover MAX 10, Cyclone IV E and Cyclone
-10 LP only. On Cyclone V the IP gives other results for some inputs, which are not
+The models of 'log', 'log10', 'log1p' and 'cbrt' cover MAX 10, Cyclone IV E
+and Cyclone 10 LP only. On Cyclone V the IP gives other results for some inputs, which are not
 modelled: Clash simulation of these functions for Cyclone V raises an error.
 The generated HDL is the same IP on all families.
 
@@ -86,6 +86,9 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , logWith
   , log
   , LogDefDelay
+  , log1pWith
+  , log1p
+  , Log1pDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -103,6 +106,7 @@ module Clash.Cores.Intel.Floating.Double.Explicit
   , log10Model
   , cbrtModel
   , logModel
+  , log1pModel
   ) where
 
 import Clash.Explicit.Prelude hiding (add, sub, mul, div, sqrt, recip, exp, log)
@@ -723,3 +727,57 @@ log = withFrozenCallStack $ logWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest (Cyclone IV E and Cyclone 10 LP; MAX 10: 48, Cyclone V: 44).
 type LogDefDelay = 49
+
+-- | Customizable floating point natural logarithm of one plus its argument, @log (1 + x)@, in double
+-- precision, see 'log1pModel'. The IP's result is bit-exactly modelled.
+--
+-- Clash simulation supports MAX 10, Cyclone IV E and Cyclone 10 LP only: for
+-- Cyclone V the IP's results are not modelled, and simulation raises an error.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family.
+log1pWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+log1pWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en (log1pModel fam <$> x)
+  | otherwise = unaryInst "fp_log1p_double" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of log1p"
+  ip = fpFunctionsDouble cfg "EXP_LOG" "LOG1PX" (natToNum @d) Nil
+{-# INLINE log1pWith #-}
+
+-- | Floating point natural logarithm of one plus its argument, @log (1 + x)@, in double precision, with the
+-- default configuration and delay. See 'log1pWith'.
+log1p
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Double
+  -> DSignal dom (n + Log1pDefDelay) Double
+log1p = withFrozenCallStack $ log1pWith defConfig
+{-# INLINE log1p #-}
+
+-- | The default delay of 'log1p': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest (MAX 10, Cyclone IV E and Cyclone 10 LP; Cyclone V: 55).
+type Log1pDefDelay = 59

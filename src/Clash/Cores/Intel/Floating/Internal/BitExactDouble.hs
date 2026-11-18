@@ -5,12 +5,12 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in double precision: square root, cube root, reciprocal square root,
-reciprocal, exponential, natural and base 10 logarithm, the hypotenuse and the
-arithmetic, see Note [Bit-exact double precision models], Note [Bit-exact
-double precision cube root], Note [Bit-exact double precision hypotenuse],
-Note [Bit-exact double precision reciprocal square root], Note [Bit-exact
-double precision exponential] and Note [Bit-exact double precision
-logarithms].
+reciprocal, exponential, natural and base 10 logarithm, log (1 + x), the
+hypotenuse and the arithmetic, see Note [Bit-exact double precision models],
+Note [Bit-exact double precision cube root], Note [Bit-exact double precision
+hypotenuse], Note [Bit-exact double precision reciprocal square root],
+Note [Bit-exact double precision exponential], Note [Bit-exact double
+precision logarithms] and Note [Bit-exact double precision log1p].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -23,6 +23,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   , hypotDouble
   , lnDouble
   , log10Double
+  , log1pDouble
   , cbrtDouble
   , addDouble
   , subDouble
@@ -878,7 +879,8 @@ significant bits (C0 to C4):
   segment 1647: [0, -1, +5, -16, +4]
 
 This is the only data observed from the IP in the model of the natural
-logarithm; the base 10 logarithm has none.
+logarithm, and so of log (1 + x), which uses its table; the base 10 logarithm
+has none.
 -}
 
 -- | Coefficients @(C0, .., C4)@ of the natural logarithm that the IP uses in
@@ -996,6 +998,74 @@ logAq table sc sh i y = a `shiftR` sh
   s3 = (c1 `shiftL` sc) + (truncMul cut3 s2 y3 + bit 37) `shiftR` 38
   -- At u / 2, with the rounding constant 4 u
   a = 2 * ((c0 + 4) `shiftL` sc) + (truncMul cut4 s3 y + bit 40) `shiftR` 41
+
+{- Note [Bit-exact double precision log1p]
+log (1 + x) follows from the natural logarithm (see Note [Bit-exact double
+precision logarithms]) the way the single precision one does (see Note
+[Bit-exact models] in "Clash.Cores.Intel.Floating.Internal.BitExact"). It
+uses the table and the datapath of the natural logarithm, with P truncated
+one bit later (Aq at 2^-54 for arguments in [1, 2) and 2^-53 in [0.5, 1)):
+
+  * For x in (-0.5, 1), where 1 + x is in [0.5, 2): v = 1 + x rounded down to
+    a multiple of 2^-53, and the result is x * Aq (v), with all bits of x,
+    rounded to nearest with ties away from zero. For v in [1, 2) the
+    polynomial's argument is v rounded down to a multiple of 2^-52.
+  * Otherwise 1 + x is rounded down to 53 significant bits, (1 + g) * 2^E, and
+    the result is E * K + g * Aq (1 + g) as for the natural logarithm, with
+    the same K.
+  * Zero and subnormal inputs give a zero of the same sign, -1 gives -inf,
+    numbers below -1 and NaN give NaN and +inf gives +inf.
+
+How it was found: the single precision scheme with the natural logarithm's
+double precision table (including its observed segment) and datapath matched
+all outputs at once, with full multipliers and on MAX 10. The names and the
+number of the table's memories in the list of generated files are those of
+the natural logarithm.
+-}
+
+-- * Natural logarithm of 1 + x
+
+-- | The IP's @log (1 + x)@ in double precision on MAX 10, Cyclone IV E and
+-- Cyclone 10 LP, on bit patterns
+log1pDouble :: Word64 -> Word64
+log1pDouble w
+  | e == 2047 = if f /= 0 || neg then nanDouble else infDouble
+  -- Zeros and subnormal numbers: a zero of the same sign
+  | e == 0 = w .&. bit 63
+  -- x <= -1
+  | neg && e >= 1023 = if e == 1023 && f == 0 then negInfDouble else nanDouble
+  -- 1 + x in [0.5, 2): x * Aq, with x = m * 2^(e - 1075)
+  | small =
+      let (r, v') | v >= bit 53 = (fromInteger (v `shiftR` 52) - 2, (v - bit 53) `shiftR` 1)
+                  | otherwise = (fromInteger (v `shiftR` 51), v - bit 52)
+      in  roundAway neg (m * aq r v') (1075 - e + q r)
+  -- Otherwise ex * ln 2 + g * Aq, at 2^-106
+  | otherwise =
+      let s = (toInteger ex * lnOf2) `shiftL` 53 + g * aq (fromInteger (g `shiftR` 51)) g
+      in  roundAway (s < 0) (abs s) 106
+ where
+  (neg, e, f) = fields w
+  m = f .|. bit 52
+  mx = if neg then negate m else m
+  -- 1 + x in [0.5, 2): x in (-0.5, 1)
+  small = if neg then e <= 1021 else e <= 1022
+  -- 1 + x at 2^-53, rounded down: in [2^52, 2^54)
+  v = bit 53 + (mx `shiftR` (1022 - e))
+  -- The region (0 and 1: [1, 2), 2 and 3: [0.5, 1)) of the fraction v' of v;
+  -- Aq is at 2^-54 in regions 0 and 1 and at 2^-53 in 2 and 3
+  q r = if r < 2 then 54 else 53 :: Int
+  aq r u = logAq lnTable 1 6 (r * 512 + fromInteger ((u `shiftR` 42) .&. 511)) (u .&. (bit 42 - 1))
+  -- 1 + x with its 53 leading bits, as (1 + g * 2^-52) * 2^ex
+  (ex, g)
+    -- 1 is below the last bit of x
+    | e > 1075 = (e - 1023, f)
+    | otherwise =
+        let -- 1 + x at 2^-(1075 - e); x is positive or in (-1, -0.5]
+            u = bit (1075 - e) + mx
+            nb = bitLength u
+            u' | nb >= 53 = u `shiftR` (nb - 53)
+               | otherwise = u `shiftL` (53 - nb)
+        in  (nb - 1 - (1075 - e), u' - bit 52)
 
 {- Note [Bit-exact double precision cube root]
 The cube root uses the scheme of the square root (see Note [Bit-exact double

@@ -65,3 +65,7 @@ cbrtTB = romTB simLibraries cbrtDut $(memBlobTH (Just 0) (traceNoCycloneV cbrtDu
 logTB :: Signal Dom Bool
 logTB = romTB simLibraries logDut $(memBlobTH (Just 0) (traceNoCycloneV logDut (cycles (logDoublesIn 2000 77))))
 {-# ANN logTB (Synthesize "logTB" [] (PortName "done")) #-}
+
+log1pTB :: Signal Dom Bool
+log1pTB = romTB simLibraries log1pDut $(memBlobTH (Just 0) (traceNoCycloneV log1pDut (cycles (log1pDoublesIn 2500 78))))
+{-# ANN log1pTB (Synthesize "log1pTB" [] (PortName "done")) #-}
