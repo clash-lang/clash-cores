@@ -42,14 +42,31 @@ testing: simulating the generated IP's simulation model on chosen inputs.
   'atan2Lut' on all four families.
 
 * /Device family./ The guide doesn't say that results depend on the device
-  family. The angle of VECTRANSLATE (and of ATAN2 with LUT size optimization)
-  does: Cyclone V sums the arctangent constants with tables of six rotation
-  directions, the other families with tables of four, which round
-  differently (on Cyclone V about 6% of the results of signed 8 bit inputs
-  with 6 fractional output bits differ). Found by simulating the IP generated
-  for each family on the same inputs. ATAN2 without the option gives the same
-  results on all four families, sine and cosine on MAX 10 and Cyclone V;
-  VECROTATE was only checked on MAX 10.
+  family. Some do, through the number of inputs of the family's LUTs (six on
+  Cyclone V, four on the others). The angle of VECTRANSLATE (and of ATAN2
+  with LUT size optimization) sums the arctangent constants with tables of
+  that many rotation directions, which round differently (on Cyclone V about
+  6% of the results of signed 8 bit inputs with 6 fractional output bits
+  differ). SINCOS with a signed input and VECROTATE truncate the angle to a
+  number of bits that depends on it (for VECROTATE with 8 fractional input
+  bits and 2 fractional output bits, about 4% of the results differ on
+  Cyclone V; for SINCOS with 12 and 3, about 5%). Found by simulating the IP
+  generated for each family on the same inputs. ATAN2 without the option
+  gives the same results on all four families, and so does SINCOS with an
+  unsigned input on MAX 10 and Cyclone V.
+
+* /Scale factor compensation of VECROTATE./ The guide only documents the
+  option's effect on the range of the outputs. The IP multiplies by 1\/K with
+  a constant multiplier made of tables or of shifts and additions, whichever
+  its generator counts as cheaper for the format and the device family, and
+  the two use the constant at different precisions, so their results differ
+  in the last place (for up to 3% of the inputs).
+  'vectorRotateCompensated' follows that choice, see
+  "Clash.Cores.Intel.Cordic.Internal". The constant is 0.6072529380035, the
+  inverse of K rounded to 1.64676025, so with many output bits the results
+  are less accurate than the output format suggests: the constant is off by
+  3e-9, which is more than one unit in the last place from 28 fractional
+  output bits on.
 -}
 
 {-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
@@ -70,6 +87,7 @@ module Clash.Cores.Intel.Cordic
   , vectorTranslateUnsignedCompensated
     -- * Vector rotation
   , vectorRotate
+  , vectorRotateCompensated
     -- * Device families
   , E.DeviceFamily(..)
     -- * Simulation models
@@ -84,6 +102,7 @@ module Clash.Cores.Intel.Cordic
   , E.vectorTranslateCompensatedModel
   , E.vectorTranslateUnsignedCompensatedModel
   , E.vectorRotateModel
+  , E.vectorRotateCompensatedModel
   ) where
 
 import Clash.Prelude hiding (atan2)
@@ -104,11 +123,12 @@ sinCos ::
   , fOut <= 34
   , HasCallStack
   ) =>
+  E.DeviceFamily ->
   -- | Angle, in radians
   DSignal dom n (SFixed 3 fIn) ->
   -- | Cosine and sine
   DSignal dom (n + d) (SFixed 2 fOut, SFixed 2 fOut)
-sinCos = withFrozenCallStack $ hideClockResetEnable (E.sinCos @d)
+sinCos fam = withFrozenCallStack $ hideClockResetEnable (E.sinCos @d fam)
 {-# INLINE sinCos #-}
 
 -- | Sine and cosine of an angle in radians between 0 and pi\/2. See
@@ -354,6 +374,7 @@ vectorRotate ::
   , fOut <= 48
   , HasCallStack
   ) =>
+  E.DeviceFamily ->
   -- | x
   DSignal dom n (SFixed 2 f) ->
   -- | y
@@ -362,5 +383,30 @@ vectorRotate ::
   DSignal dom n (SFixed 3 f) ->
   -- | Rotated x and y, times K
   DSignal dom (n + d) (SFixed 3 fOut, SFixed 3 fOut)
-vectorRotate = withFrozenCallStack $ hideClockResetEnable (E.vectorRotate @d)
+vectorRotate fam = withFrozenCallStack $ hideClockResetEnable (E.vectorRotate @d fam)
 {-# INLINE vectorRotate #-}
+
+-- | Rotate the vector @(x, y)@ by an angle in radians, with scale factor
+-- compensation. See 'E.vectorRotateCompensated'.
+vectorRotateCompensated ::
+  forall d dom n f fOut.
+  ( HiddenClockResetEnable dom
+  , KnownNat d
+  , KnownNat f
+  , KnownNat fOut
+  , 3 <= f
+  , f <= 44
+  , fOut <= 48
+  , HasCallStack
+  ) =>
+  E.DeviceFamily ->
+  -- | x
+  DSignal dom n (SFixed 2 f) ->
+  -- | y
+  DSignal dom n (SFixed 2 f) ->
+  -- | Angle, in radians
+  DSignal dom n (SFixed 3 f) ->
+  -- | Rotated x and y
+  DSignal dom (n + d) (SFixed 2 fOut, SFixed 2 fOut)
+vectorRotateCompensated fam = withFrozenCallStack $ hideClockResetEnable (E.vectorRotateCompensated @d fam)
+{-# INLINE vectorRotateCompensated #-}

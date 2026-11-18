@@ -12,7 +12,7 @@ import Clash.Explicit.Prelude
 import IpTestCommon
 import CordicDuts
 import IntelSimLib (simLibraries)
-import Clash.Cores.Intel.Cordic.Internal (AtanFunction(..))
+import Clash.Cores.Intel.Cordic.Internal (AtanFunction(..), rotateWidths, rotateWidthsCompensated)
 
 sinCos10TB :: Signal Dom Bool
 sinCos10TB = romTB simLibraries sinCos10Dut $(memBlobTH (Just 0) (trace sinCos10Dut (cycles (angles 10 1500 21))))
@@ -87,13 +87,33 @@ vecTranslateUnsignedCompTB = romTB simLibraries vecTranslateUnsignedCompDut $(me
 {-# ANN vecTranslateUnsignedCompTB (Synthesize "vecTranslateUnsignedCompTB" [] (PortName "done")) #-}
 
 vecRotate4TB :: Signal Dom Bool
-vecRotate4TB = romTB simLibraries vecRotate4Dut $(memBlobTH (Just 0) (trace vecRotate4Dut (cycles (rotations 4 1000 41))))
+vecRotate4TB = romTB simLibraries vecRotate4Dut $(memBlobTH (Just 0) (trace vecRotate4Dut (cycles (rotations (rotateWidths simFamily 4 4) 1000 41))))
 {-# ANN vecRotate4TB (Synthesize "vecRotate4TB" [] (PortName "done")) #-}
 
 vecRotate8TB :: Signal Dom Bool
-vecRotate8TB = romTB simLibraries vecRotate8Dut $(memBlobTH (Just 0) (trace vecRotate8Dut (cycles (rotations 8 1500 42))))
+vecRotate8TB = romTB simLibraries vecRotate8Dut $(memBlobTH (Just 0) (trace vecRotate8Dut (cycles (rotations (rotateWidths simFamily 8 8) 1500 42))))
 {-# ANN vecRotate8TB (Synthesize "vecRotate8TB" [] (PortName "done")) #-}
 
 vecRotate16x20TB :: Signal Dom Bool
-vecRotate16x20TB = romTB simLibraries vecRotate16x20Dut $(memBlobTH (Just 0) (trace vecRotate16x20Dut (cycles (rotations 20 1500 43))))
+vecRotate16x20TB = romTB simLibraries vecRotate16x20Dut $(memBlobTH (Just 0) (trace vecRotate16x20Dut (cycles (rotations (rotateWidths simFamily 16 20) 1500 43))))
 {-# ANN vecRotate16x20TB (Synthesize "vecRotate16x20TB" [] (PortName "done")) #-}
+
+vecRotate8x2TB :: Signal Dom Bool
+vecRotate8x2TB = romTB simLibraries vecRotate8x2Dut $(memBlobTH (Just 0) (trace vecRotate8x2Dut (cycles (rotations (rotateWidths simFamily 8 2) 1500 47))))
+{-# ANN vecRotate8x2TB (Synthesize "vecRotate8x2TB" [] (PortName "done")) #-}
+
+vecRotateComp4x9TB :: Signal Dom Bool
+vecRotateComp4x9TB = romTB simLibraries vecRotateComp4x9Dut $(memBlobTH (Just 0) (trace vecRotateComp4x9Dut (cycles (rotations (rotateWidthsCompensated simFamily 4 9) 1500 48))))
+{-# ANN vecRotateComp4x9TB (Synthesize "vecRotateComp4x9TB" [] (PortName "done")) #-}
+
+vecRotateComp5x9TB :: Signal Dom Bool
+vecRotateComp5x9TB = romTB simLibraries vecRotateComp5x9Dut $(memBlobTH (Just 0) (trace vecRotateComp5x9Dut (cycles (rotations (rotateWidthsCompensated simFamily 5 9) 1500 49))))
+{-# ANN vecRotateComp5x9TB (Synthesize "vecRotateComp5x9TB" [] (PortName "done")) #-}
+
+vecRotateComp16x8TB :: Signal Dom Bool
+vecRotateComp16x8TB = romTB simLibraries vecRotateComp16x8Dut $(memBlobTH (Just 0) (trace vecRotateComp16x8Dut (cycles (rotations (rotateWidthsCompensated simFamily 16 8) 1500 50))))
+{-# ANN vecRotateComp16x8TB (Synthesize "vecRotateComp16x8TB" [] (PortName "done")) #-}
+
+vecRotateComp16x20TB :: Signal Dom Bool
+vecRotateComp16x20TB = romTB simLibraries vecRotateComp16x20Dut $(memBlobTH (Just 0) (trace vecRotateComp16x20Dut (cycles (rotations (rotateWidthsCompensated simFamily 16 20) 1500 51))))
+{-# ANN vecRotateComp16x20TB (Synthesize "vecRotateComp16x20TB" [] (PortName "done")) #-}

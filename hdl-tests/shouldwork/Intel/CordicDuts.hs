@@ -14,7 +14,7 @@ import Data.Word (Word64)
 
 import qualified Clash.Cores.Intel.Cordic.Explicit as E
 import Clash.Cores.Intel.Cordic.Internal
-  (AtanFunction(..), DeviceFamily(..), SinCosWidths, atanMargins, atanWidthsOrError, rotateWidths, sinCosMargins,
+  (AtanFunction(..), DeviceFamily(..), RotateWidths, SinCosWidths, atanMargins, atanWidthsOrError, sinCosMargins,
    sinCosWidths, vecRotateMargins, vecTranslateFracR)
 
 import IpTestCommon
@@ -25,8 +25,9 @@ import System.Environment (lookupEnv)
 
 {- | The device family the IP's simulation models are generated for, from
 @CLASH_INTEL_SIM_FAMILY@ (see "IntelSimLib"), read when this module is
-compiled. The angle of the vector translation (and of the arctangent with LUT
-size optimization) differs on Cyclone V.
+compiled. Sine and cosine of signed angles, the angle of the vector
+translation (and of the arctangent with LUT size optimization) and the vector
+rotation differ on Cyclone V.
 -}
 simFamily :: DeviceFamily
 simFamily = $(do
@@ -59,7 +60,7 @@ angles fOut n seed =
       <> P.concatMap around [halfPi, negate halfPi, quarterPi, negate quarterPi]
   randomIn = [toInteger x `mod` (2 * maxA + 1) - maxA | x <- randoms seed]
   randomAngles = P.take n randomIn
-  hard = hardInputs (sinCosWidths True fIn fOut) n (P.take (20 * n) (P.drop n randomIn))
+  hard = hardInputs (sinCosWidths simFamily True fIn fOut) n (P.take (20 * n) (P.drop n randomIn))
 
 -- | Angles between 0 and pi\/2 for 'E.sinCosUnsigned', see 'angles'
 anglesUnsigned :: forall fIn. KnownNat fIn => Int -> Int -> Word64 -> [UFixed 1 fIn]
@@ -72,7 +73,7 @@ anglesUnsigned fOut n seed =
   edges = [0, 1, 2, maxA, maxA - 1, maxA - 2] <> [quarterPi + d | d <- [-3 .. 3]]
   randomIn = [toInteger x `mod` (maxA + 1) | x <- randoms seed]
   randomAngles = P.take n randomIn
-  hard = hardInputs (sinCosWidths False fIn fOut) n (P.take (20 * n) (P.drop n randomIn))
+  hard = hardInputs (sinCosWidths simFamily False fIn fOut) n (P.take (20 * n) (P.drop n randomIn))
 
 -- | The @n@ inputs out of the given ones with the smallest margins (see
 -- 'sinCosMargins'): half of them by the angle in the iterations, half of
@@ -121,15 +122,16 @@ vectorsU fun fOut n seed =
   [ (uf (SNat @f) (fromInteger x), uf (SNat @f) (fromInteger y))
   | (x, y) <- vectors fun False (natToNum @(i + f)) fOut n seed ]
 
--- | Inputs @(x, y, angle)@ for 'E.vectorRotate' with @f@ fractional input
--- bits and @fOut@ fractional output bits: combinations of interesting
--- coordinates (zero, one, the extremes of the input format) and angles (zero,
--- +-pi\/4, around +-pi\/2 where the IP pre-rotates the vector, +-pi, the
--- extremes), @n@ random inputs (most in the documented ranges, some anywhere),
--- and @n@ inputs that are close to changing the result when a detail of the
--- datapath changes (see 'vecRotateMargins'), picked from @20 * n@ random ones.
-rotations :: forall f. KnownNat f => Int -> Int -> Word64 -> [(SFixed 2 f, SFixed 2 f, SFixed 3 f)]
-rotations fOut n seed =
+-- | Inputs @(x, y, angle)@ for 'E.vectorRotate' or 'E.vectorRotateCompensated'
+-- with @f@ fractional input bits and the given datapath: combinations of
+-- interesting coordinates (zero, one, the extremes of the input format) and
+-- angles (zero, +-pi\/4, around +-pi\/2 where the IP pre-rotates the vector,
+-- +-pi, the extremes), @n@ random inputs (most in the documented ranges, some
+-- anywhere), and @n@ inputs that are close to changing the result when a
+-- detail of the datapath changes (see 'vecRotateMargins'), picked from @20 *
+-- n@ random ones.
+rotations :: forall f. KnownNat f => RotateWidths -> Int -> Word64 -> [(SFixed 2 f, SFixed 2 f, SFixed 3 f)]
+rotations widths n seed =
   [ (sf (SNat @f) (fromInteger x), sf (SNat @f) (fromInteger y), sf (SNat @f) (fromInteger a))
   | (x, y, a) <- edges <> P.take n randomIn <> hard ]
  where
@@ -153,7 +155,7 @@ rotations fOut n seed =
         an = if inRange then toInteger r3 `mod` (2 * piA + 1) - piA else toInteger r3 `mod` (8 * one) - 4 * one
     in (c r1, c r2, an) : go rs
   go _ = []
-  margins = vecRotateMargins (rotateWidths f fOut)
+  margins = vecRotateMargins widths
   cands = P.take (20 * n) (P.drop n randomIn)
   pick sel = P.take (n `P.div` 2) (P.map snd (sortOn fst [(sel (margins x y a), (x, y, a)) | (x, y, a) <- cands]))
   hard = pick fst <> pick snd
@@ -162,22 +164,22 @@ rotations fOut n seed =
 
 -- | E.sinCos @3, E.sinCos @0 on 10 fractional bits
 sinCos10Dut :: Dut (SFixed 3 10) (Vec 2 (SFixed 2 10, SFixed 2 10))
-sinCos10Dut clk rst en i = bundle (unary (E.sinCos @3) clk rst en i :> unary (E.sinCos @0) clk rst en i :> Nil)
+sinCos10Dut clk rst en i = bundle (unary (E.sinCos @3 simFamily) clk rst en i :> unary (E.sinCos @0 simFamily) clk rst en i :> Nil)
 {-# OPAQUE sinCos10Dut #-}
 
 -- | E.sinCos @12 with 16 fractional bits in, 8 out (the IP ignores input bits)
 sinCos16x8Dut :: Dut (SFixed 3 16) (Vec 1 (SFixed 2 8, SFixed 2 8))
-sinCos16x8Dut clk rst en i = bundle (unary (E.sinCos @12) clk rst en i :> Nil)
+sinCos16x8Dut clk rst en i = bundle (unary (E.sinCos @12 simFamily) clk rst en i :> Nil)
 {-# OPAQUE sinCos16x8Dut #-}
 
 -- | E.sinCos @20 with 20 fractional bits in, 16 out
 sinCos20x16Dut :: Dut (SFixed 3 20) (Vec 1 (SFixed 2 16, SFixed 2 16))
-sinCos20x16Dut clk rst en i = bundle (unary (E.sinCos @20) clk rst en i :> Nil)
+sinCos20x16Dut clk rst en i = bundle (unary (E.sinCos @20 simFamily) clk rst en i :> Nil)
 {-# OPAQUE sinCos20x16Dut #-}
 
 -- | E.sinCos @7 with 4 fractional bits
 sinCos4Dut :: Dut (SFixed 3 4) (Vec 1 (SFixed 2 4, SFixed 2 4))
-sinCos4Dut clk rst en i = bundle (unary (E.sinCos @7) clk rst en i :> Nil)
+sinCos4Dut clk rst en i = bundle (unary (E.sinCos @7 simFamily) clk rst en i :> Nil)
 {-# OPAQUE sinCos4Dut #-}
 
 -- | E.sinCosUnsigned @5 with 10 fractional bits in, 12 out, and
@@ -192,7 +194,7 @@ sinCosUnsignedDut clk rst en i =
 
 -- | E.sinCos @2 with 12 fractional bits
 sinCos12Dut :: Dut (SFixed 3 12) (Vec 1 (SFixed 2 12, SFixed 2 12))
-sinCos12Dut clk rst en i = bundle (unary (E.sinCos @2) clk rst en i :> Nil)
+sinCos12Dut clk rst en i = bundle (unary (E.sinCos @2 simFamily) clk rst en i :> Nil)
 {-# OPAQUE sinCos12Dut #-}
 
 -- | Run an arctangent, which takes @y@ first, on pairs @(x, y)@
@@ -286,16 +288,52 @@ vecTranslateUnsignedCompDut clk rst en i =
 -- | E.vectorRotate @2 and @0 with 4 fractional bits in and out
 vecRotate4Dut :: Dut (SFixed 2 4, SFixed 2 4, SFixed 3 4) (Vec 2 (SFixed 3 4, SFixed 3 4))
 vecRotate4Dut clk rst en i =
-  bundle (ternary (E.vectorRotate @2) clk rst en i :> ternary (E.vectorRotate @0) clk rst en i :> Nil)
+  bundle (ternary (E.vectorRotate @2 simFamily) clk rst en i :> ternary (E.vectorRotate @0 simFamily) clk rst en i :> Nil)
 {-# OPAQUE vecRotate4Dut #-}
 
 -- | E.vectorRotate @5 and @0 with 8 fractional bits in and out
 vecRotate8Dut :: Dut (SFixed 2 8, SFixed 2 8, SFixed 3 8) (Vec 2 (SFixed 3 8, SFixed 3 8))
 vecRotate8Dut clk rst en i =
-  bundle (ternary (E.vectorRotate @5) clk rst en i :> ternary (E.vectorRotate @0) clk rst en i :> Nil)
+  bundle (ternary (E.vectorRotate @5 simFamily) clk rst en i :> ternary (E.vectorRotate @0 simFamily) clk rst en i :> Nil)
 {-# OPAQUE vecRotate8Dut #-}
 
 -- | E.vectorRotate @10 with 16 fractional bits in, 20 out
 vecRotate16x20Dut :: Dut (SFixed 2 16, SFixed 2 16, SFixed 3 16) (Vec 1 (SFixed 3 20, SFixed 3 20))
-vecRotate16x20Dut clk rst en i = bundle (ternary (E.vectorRotate @10) clk rst en i :> Nil)
+vecRotate16x20Dut clk rst en i = bundle (ternary (E.vectorRotate @10 simFamily) clk rst en i :> Nil)
 {-# OPAQUE vecRotate16x20Dut #-}
+
+-- | E.vectorRotate @3 with 8 fractional bits in, 2 out: the IP drops bits of
+-- the angle, a different number on Cyclone V
+vecRotate8x2Dut :: Dut (SFixed 2 8, SFixed 2 8, SFixed 3 8) (Vec 1 (SFixed 3 2, SFixed 3 2))
+vecRotate8x2Dut clk rst en i = bundle (ternary (E.vectorRotate @3 simFamily) clk rst en i :> Nil)
+{-# OPAQUE vecRotate8x2Dut #-}
+
+-- | E.vectorRotateCompensated @3 and @0 with 4 fractional bits in, 9 out:
+-- multiplies with tables on all families
+vecRotateComp4x9Dut :: Dut (SFixed 2 4, SFixed 2 4, SFixed 3 4) (Vec 2 (SFixed 2 9, SFixed 2 9))
+vecRotateComp4x9Dut clk rst en i =
+  bundle
+    (  ternary (E.vectorRotateCompensated @3 simFamily) clk rst en i
+    :> ternary (E.vectorRotateCompensated @0 simFamily) clk rst en i
+    :> Nil )
+{-# OPAQUE vecRotateComp4x9Dut #-}
+
+-- | E.vectorRotateCompensated @6 with 5 fractional bits in, 9 out: one more
+-- input bit than 'vecRotateComp4x9Dut', which makes the IP multiply with
+-- shifts and additions on the families with four-input LUTs
+vecRotateComp5x9Dut :: Dut (SFixed 2 5, SFixed 2 5, SFixed 3 5) (Vec 1 (SFixed 2 9, SFixed 2 9))
+vecRotateComp5x9Dut clk rst en i = bundle (ternary (E.vectorRotateCompensated @6 simFamily) clk rst en i :> Nil)
+{-# OPAQUE vecRotateComp5x9Dut #-}
+
+-- | E.vectorRotateCompensated @4 with 16 fractional bits in, 8 out:
+-- multiplies with shifts and additions on all families, and the IP drops bits
+-- of the angle, a different number on Cyclone V
+vecRotateComp16x8Dut :: Dut (SFixed 2 16, SFixed 2 16, SFixed 3 16) (Vec 1 (SFixed 2 8, SFixed 2 8))
+vecRotateComp16x8Dut clk rst en i = bundle (ternary (E.vectorRotateCompensated @4 simFamily) clk rst en i :> Nil)
+{-# OPAQUE vecRotateComp16x8Dut #-}
+
+-- | E.vectorRotateCompensated @9 with 16 fractional bits in, 20 out:
+-- multiplies with shifts and additions, with tables on Cyclone V
+vecRotateComp16x20Dut :: Dut (SFixed 2 16, SFixed 2 16, SFixed 3 16) (Vec 1 (SFixed 2 20, SFixed 2 20))
+vecRotateComp16x20Dut clk rst en i = bundle (ternary (E.vectorRotateCompensated @9 simFamily) clk rst en i :> Nil)
+{-# OPAQUE vecRotateComp16x20Dut #-}

@@ -37,8 +37,14 @@ module Clash.Cores.Intel.Cordic.Internal
     -- * Vector rotation
   , RotateWidths(..)
   , rotateWidths
+  , rotateWidthsCompensated
   , vecRotateModel
   , vecRotateMargins
+  , vecRotateUsesTables
+  , tableMultiplierCost
+  , shiftAddMultiplierCost
+  , csdPositions
+  , vecRotateGainRounded
     -- * Instantiation
   , cordicIp
   , cordicIpSinCos
@@ -102,15 +108,20 @@ points) inferred by observing the generated IP as a black box:
   inverse CORDIC gain) followed from the rare inputs whose results are close
   to a rounding boundary.
 
-The parameters did not depend on the target frequency, the latency or the
-device family (checked for MAX 10 and Cyclone V), only on the formats.
+The parameters did not depend on the target frequency or the latency, only on
+the formats and, in a few places, on the number of inputs of the device
+family's LUTs, @k@ below ('familyTableSize'): the results of Cyclone V
+differ from the ones of the other families.
 
 Sine and cosine, with @wOut@ the width of the output (@fOut + 2@ for a signed
 input, @fOut + 1@ for an unsigned input):
 
 1. The magnitude of the input angle is truncated to @fT@ fractional bits:
-   @fOut + 3 + (fOut + 1) \`div\` 4@ for a signed input and @fZ@ (below) for an
-   unsigned one. An input with fewer fractional bits is used as is.
+   @wOut + ceil(wOut \/ k)@ for a signed input and @fZ@ (below) for an
+   unsigned one. An input with fewer fractional bits is used as is. (That it
+   is @k@ and not 4 showed on Cyclone V, where 1.5 to 5% of the results of
+   three formats differed from the ones of MAX 10; unsigned inputs give the
+   same results on both.)
 
 2. For a signed input, if the magnitude is at least pi\/2, rounded to the
    nearest multiple of @2^-fT@, the IP subtracts that constant, computes the
@@ -254,11 +265,14 @@ The vector rotation (VECROTATE, signed inputs only: the generator of Quartus
 21.1 fails for unsigned ones) was inferred the same way, from exhaustive
 simulations of all bit patterns of nine small formats (input fractions 3 to
 5, output fractions 0 to 12, including inputs outside the documented ranges)
-and 25,000 to 50,000 random inputs of 17 wider formats. With @wOut = fOut +
-3@:
+and 25,000 to 50,000 random inputs of 17 wider formats. With @wOut@ the
+width of the outputs (@fOut + 3@, and @fOut + 2@ with scale factor
+compensation) and @k@ the number of inputs of the device family's LUTs
+('familyTableSize'):
 
-1. The angle is truncated to @fT = wOut + ceil(wOut / 4)@ fractional bits.
-   If its magnitude is at least pi\/2, rounded to the nearest multiple of
+1. The angle is truncated to @fT = wOut + ceil(wOut / k)@ fractional bits,
+   and to @wOut + ceil((wOut + 2) / k)@ with scale factor compensation. If
+   its magnitude is at least pi\/2, rounded to the nearest multiple of
    @2^-fT@, the IP subtracts that constant (or adds it, for a negative
    angle) and rotates the vector by 90 degrees first: @(x, y)@ becomes @(-y,
    x)@ for a positive angle and @(y, -x)@ for a negative one. The negation is
@@ -276,14 +290,70 @@ and 25,000 to 50,000 random inputs of 17 wider formats. With @wOut = fOut +
    wrap around (for vectors longer than one).
 
 4. X and Y are rounded to @fOut@ fractional bits, ties towards positive
-   infinity.
+   infinity. With scale factor compensation they are first multiplied by the
+   inverse gain, exactly. The IP has it as the double precision number
+   nearest to 0.6072529380035 (K rounded to 1.64676025, inverted, in 13
+   significant digits), rounded to @fOut + 5@ fractional bits when it
+   multiplies with shifts and additions, and to as many fractional bits as X
+   and Y have bits (@fIn + fOut + 7@) when it multiplies with tables.
 
-The model reproduces all of those results. The results didn't depend on the
-target frequency or the device family. With scale factor compensation, the
-IP multiplies X and Y by a constant close to 1\/K, with a shift-and-add or a
-table based multiplier that round differently. Which one the generator
-picks is a cost decision that couldn't be reduced to a rule, so the API
-doesn't offer it.
+The results don't depend on the target frequency. That the angle's precision
+depends on @k@ showed on Cyclone V, whose results differ from the ones of
+the other families for formats where @ceil(wOut / 4)@ and @ceil(wOut / 6)@
+differ. These rules reproduce the results of 30,000 inputs (in and outside
+the documented ranges) for each of 111 formats with scale factor
+compensation (47 on MAX 10, 12 on Cyclone IV E, 12 on Cyclone 10 LP and 40
+on Cyclone V, on both sides of the choice of
+@Note [The constant multiplier of VECROTATE]@) and of 78 formats without (66
+of them on Cyclone V), with input fractions 3 to 44 and output fractions 0
+to 48; the model of this module was run on 8,500 inputs of 49 such formats.
+For sine and cosine of signed angles on Cyclone V, it was run on 8,000
+inputs of 14 formats.
+
+Note [The constant multiplier of VECROTATE]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+With scale factor compensation, the generator of the IP multiplies X and Y by
+the inverse gain with one of two multipliers, which use the constant at
+different precisions (see above), so their results differ in the last place
+for up to 3% of the inputs. It builds the one that costs less by a count of its
+own, 'tableMultiplierCost' against 'shiftAddMultiplierCost'. Neither count is
+documented. They were recovered without looking into the generated logic:
+
+* The names of the nodes of the generated RTL tell the multipliers apart (the
+  tables are called @xv0@, @xv1@, ..., the adders @add_1@, @sub_3@, ...), and
+  give the number of tables and the adders of the shift-and-add tree in order.
+  Mapping all formats with input and output fractions 1 to 48 on MAX 10 and
+  on Cyclone V showed that the choice only depends on the width of X and Y,
+  the output fraction (so the digits of the constant) and the family's LUT
+  size, and not on the target frequency.
+
+* The generator's stand-alone constant multiplier (@FXPConstMultExpert@ of the
+  IP's backend) makes the same kind of choice for any constant, input width
+  and output precision. In 13,000 generations with constants of two to nine
+  signed digits at chosen positions, the choice for a given input width and
+  output precision always flipped at a threshold of one quantity: the sum of
+  the widths of the results of the adders of the tree that the names
+  describe. That is also the number of LUTs that the backend reports for the
+  multiplier without pipelining.
+
+* Bisecting on that quantity bracketed the cost of the table based multiplier
+  for input widths from 13 to 104 bits and output precisions up to 60 bits,
+  on LUTs of four and of six inputs: 1559 settings, 746 of them to the unit.
+  'tableMultiplierCost' lies in every bracket, with the constant's fractional
+  bits set to the guard bits plus the output bits beyond the input width.
+
+* VECROTATE uses the same two counts, with a constant of as many fractional
+  bits as X and Y have bits, at most the 53 of a double precision number.
+  This reproduces the choice of all 2256 formats with two or more fractional
+  input bits of either map, and of 820 other settings picked afterwards
+  (input fractions up to 64, output fractions up to 58, Cyclone IV E and
+  Cyclone 10 LP, other input widths). With one fractional input bit (which
+  the API doesn't offer) one format differs: there the generator factors the
+  constant.
+
+The table count is far below the number of LUTs the tables need (the backend
+itself reports three to four times as many), so the generator often picks the
+larger multiplier. The model follows the generator, not the better choice.
 -}
 
 ------------------------------------------------------------------------------
@@ -435,18 +505,21 @@ data SinCosWidths = SinCosWidths
   } deriving (Eq, Show)
 
 -- | Parameters of the datapath of sine and cosine for a signed or unsigned
--- input with @fIn@ fractional bits, and outputs with @fOut@ fractional bits
-sinCosWidths :: Bool -> Int -> Int -> SinCosWidths
-sinCosWidths signed fIn fOut = SinCosWidths
+-- input with @fIn@ fractional bits, and outputs with @fOut@ fractional bits.
+-- For a signed input, the precision of the angle depends on the number of
+-- inputs of the device family's LUTs.
+sinCosWidths :: DeviceFamily -> Bool -> Int -> Int -> SinCosWidths
+sinCosWidths fam signed fIn fOut = SinCosWidths
   { scSigned = signed
   , scFracIn = fIn
   , scFracOut = fOut
-  , scFracTrunc = if signed then fOut + 3 + (fOut + 1) `div` 4 else fZ
+  , scFracTrunc = if signed then wOut + (wOut + k - 1) `div` k else fZ
   , scFracZ = fZ
   , scFracXY = fIn + fOut + (if signed then 4 else 2)
   , scIterations = fOut + 2
   }
  where
+  k = familyTableSize fam
   wOut = fOut + (if signed then 2 else 1)
   fZ = wOut + 4 + ceilLog2 (wOut + 1)
 
@@ -521,7 +594,9 @@ data AtanFunction
 
 -- | The device families of Quartus Prime Lite. Some results of the IP depend on
 -- the family's logic: the vector translation adds up its arctangent constants
--- with tables of as many rotation directions as the family's LUTs have inputs.
+-- with tables of as many rotation directions as the family's LUTs have inputs,
+-- and the vector rotation sizes its angle and picks the constant multiplier
+-- of its scale factor compensation by that number.
 data DeviceFamily
   = CycloneIVE
   -- ^ Cyclone IV E (logic elements with four-input LUTs)
@@ -533,9 +608,10 @@ data DeviceFamily
   -- ^ MAX 10 (logic elements with four-input LUTs)
   deriving (Eq, Show, Enum, Bounded, Generic, NFDataX, Lift)
 
--- | The number of rotation directions per table of the angle of
--- @VECTRANSLATE@ (and of @ATAN2@ with LUT size optimization): the number of
--- inputs of the family's LUTs.
+-- | The number of inputs of the family's LUTs. It is the number of rotation
+-- directions per table of the angle of @VECTRANSLATE@ (and of @ATAN2@ with
+-- LUT size optimization), and the number of bits per table of the table based
+-- constant multiplier of @VECROTATE@.
 familyTableSize :: DeviceFamily -> Int
 familyTableSize CycloneV = 6
 familyTableSize CycloneIVE = 4
@@ -806,14 +882,16 @@ atanMargins widths@AtanWidths{..} fracR = \x y ->
 -- Vector rotation
 ------------------------------------------------------------------------------
 
--- | Parameters of the datapath of the vector rotation (without scale factor
--- compensation), see @Note [Inferring the datapath of ALTERA_CORDIC]@
+-- | Parameters of the datapath of the vector rotation, see
+-- @Note [Inferring the datapath of ALTERA_CORDIC]@
 data RotateWidths = RotateWidths
   { vrFracIn :: Int
   -- ^ Fractional bits of the inputs (@x@ and @y@ have @vrFracIn + 2@ bits,
   -- the angle @vrFracIn + 3@)
   , vrFracOut :: Int
   -- ^ Fractional bits of the outputs
+  , vrWidthOut :: Int
+  -- ^ Width of the outputs
   , vrFracTrunc :: Int
   -- ^ Fractional bits of the angle that the IP uses
   , vrFracZ :: Int
@@ -821,34 +899,139 @@ data RotateWidths = RotateWidths
   , vrIterations :: Int
   -- ^ Number of iterations, with shifts @0 .. vrIterations - 1@; also the
   -- fractional bits that X and Y have beyond the inputs
+  , vrFracGain :: Maybe Int
+  -- ^ With scale factor compensation: the fractional bits of the inverse gain
+  -- that X and Y are multiplied by
   } deriving (Eq, Show)
 
--- | Parameters of the vector rotation for inputs with @fIn@ and outputs with
--- @fOut@ fractional bits
-rotateWidths :: Int -> Int -> RotateWidths
-rotateWidths fIn fOut = RotateWidths
+-- | Parameters of the vector rotation without scale factor compensation, for
+-- inputs with @fIn@ and outputs with @fOut@ fractional bits. The precision of
+-- the angle depends on the number of inputs of the device family's LUTs.
+rotateWidths :: DeviceFamily -> Int -> Int -> RotateWidths
+rotateWidths fam fIn fOut = RotateWidths
   { vrFracIn = fIn
   , vrFracOut = fOut
-  , vrFracTrunc = wOut + (wOut + 3) `div` 4
+  , vrWidthOut = wOut
+  , vrFracTrunc = wOut + (wOut + k - 1) `div` k
   , vrFracZ = wOut + 4 + ceilLog2 (wOut + 1)
   , vrIterations = fOut + 4
+  , vrFracGain = Nothing
   }
  where
   wOut = fOut + 3
+  k = familyTableSize fam
+
+-- | Parameters of the vector rotation with scale factor compensation, for
+-- inputs with @fIn@ and outputs with @fOut@ fractional bits. The device
+-- family also decides which constant multiplier the IP builds
+-- ('vecRotateUsesTables'), and with that the precision of the constant.
+rotateWidthsCompensated :: DeviceFamily -> Int -> Int -> RotateWidths
+rotateWidthsCompensated fam fIn fOut = RotateWidths
+  { vrFracIn = fIn
+  , vrFracOut = fOut
+  , vrWidthOut = wOut
+  , vrFracTrunc = wOut + (wOut + 2 + k - 1) `div` k
+  , vrFracZ = wOut + 4 + ceilLog2 (wOut + 1)
+  , vrIterations = fOut + 4
+  , vrFracGain = Just (if vecRotateUsesTables fam fIn fOut then fIn + fOut + 7 else fOut + 5)
+  }
+ where
+  wOut = fOut + 2
+  k = familyTableSize fam
+
+-- | Whether the vector rotation with scale factor compensation multiplies X
+-- and Y by the inverse gain with tables (@True@) or with shifts and additions
+-- (@False@), for inputs with @fIn@ and outputs with @fOut@ fractional bits.
+-- The generator builds the tables if they cost less by its own count, see
+-- 'tableMultiplierCost' and 'shiftAddMultiplierCost'.
+vecRotateUsesTables :: DeviceFamily -> Int -> Int -> Bool
+vecRotateUsesTables fam fIn fOut =
+  tableMultiplierCost (familyTableSize fam) w
+    < shiftAddMultiplierCost w (csdPositions (vecRotateGainRounded (fOut + 5)))
+ where
+  -- X and Y: three integer bits, and @fOut + 4@ fractional bits beyond the inputs
+  w = fIn + fOut + 7
+
+-- | What the generator counts for a table based multiplier of a @w@ bit
+-- number and a constant, on LUTs with @k@ inputs: one table for every @k@
+-- bits of the number, the table of bits @k * i@ and up being @1 + k * i + b@
+-- bits wide for a constant with @b@ fractional bits (as many as the number
+-- has bits, at most the 53 of a double precision number); for each of the
+-- @ceil(log2(t + 1))@ levels of the adder tree of the @t@ tables the width of
+-- the product; and @k - 1@. All of that halved.
+tableMultiplierCost :: Int -> Int -> Int
+tableMultiplierCost k w =
+  (sum [1 + k * i + b | i <- [0 .. t - 1]] + levels * (w + b) + k - 1) `div` 2
+ where
+  t = tables k w
+  levels = ceilLog2 (t + 1)
+  b = min w 53
+
+-- | What the generator counts for a shift-and-add multiplier of a @w@ bit
+-- signed number and a constant with nonzero signed digits at the given
+-- positions (in increasing order): the sum of the widths of the results of
+-- its adders. The adders form a tree over the shifted copies of the number,
+-- in order of their shifts, that splits @n@ of them into the lowest @2^j@ and
+-- the rest, with @2^j@ the largest power of two below @n@. A result starts at
+-- the lowest shift below it and ends one bit above the highest end of its two
+-- operands.
+shiftAddMultiplierCost :: Int -> [Int] -> Int
+shiftAddMultiplierCost w = snd . go
+ where
+  go [] = ((0, 0), 0)
+  go [p] = ((p, p + w - 1), 0)
+  go ps =
+    let n = length ps
+        (lows, highs) = splitAt (last (takeWhile (< n) (iterate (* 2) 1))) ps
+        ((l1, m1), c1) = go lows
+        ((l2, m2), c2) = go highs
+        l = min l1 l2
+        m = max m1 m2 + 1
+    in ((l, m), c1 + c2 + m - l + 1)
+
+-- | Positions of the nonzero digits of the canonical signed digit form of a
+-- positive number (digits -1, 0 and 1, no two adjacent ones nonzero), in
+-- increasing order
+csdPositions :: Integer -> [Int]
+csdPositions = go 0
+ where
+  go _ 0 = []
+  go i n
+    | even n = go (i + 1) (n `shiftR` 1)
+    -- n = 1 (mod 4): digit 1; n = 3 (mod 4): digit -1
+    | otherwise = i : go (i + 1) ((n - (2 - n `mod` 4)) `shiftR` 1)
+
+-- | The inverse of the CORDIC gain that the vector rotation compensates
+-- with, rounded to the nearest multiple of @2^-k@: the double precision
+-- number nearest to 0.6072529380035, which is 1 \/ 1.64676025 in 13
+-- significant digits.
+vecRotateGainRounded :: Int -> Integer
+vecRotateGainRounded k = floor (c * 2 ^^ k + 1 % 2)
+ where
+  -- The constant lies in [1/2, 1): 53 fractional bits
+  c = round (6072529380035 % 10 ^ (13 :: Int) * 2 ^ (53 :: Int) :: Rational) % 2 ^ (53 :: Int) :: Rational
 
 -- | Model of the vector rotation. The inputs are the raw integer values of
 -- @x@, @y@ (with 'vrFracIn' fractional bits, @vrFracIn + 2@ bits wide) and
 -- the angle (@vrFracIn + 3@ bits wide); the results are the raw values of the
--- rotated @x@ and @y@, with 'vrFracOut' fractional bits, @vrFracOut + 3@ bits
+-- rotated @x@ and @y@, with 'vrFracOut' fractional bits, 'vrWidthOut' bits
 -- wide. Inputs outside the documented ranges ([-1, 1] and [-pi, pi]) wrap
 -- around like they do in the IP.
 vecRotateModel :: RotateWidths -> Integer -> Integer -> Integer -> (Integer, Integer)
 vecRotateModel widths@RotateWidths{..} = \x y a ->
   let (xF, yF, _) = vecRotateCore widths x y a
-  in (wrap (vrFracOut + 3) (rnd xF), wrap (vrFracOut + 3) (rnd yF))
+  in (wrap vrWidthOut (rnd xF), wrap vrWidthOut (rnd yF))
  where
-  sh = vrFracIn + vrIterations - vrFracOut
-  rnd v = (v + 1 `shiftL` (sh - 1)) `shiftR` sh
+  (gain, sh) = vecRotateScaling widths
+  rnd v = (v * gain + 1 `shiftL` (sh - 1)) `shiftR` sh
+
+-- | What the X and Y of the iterations are multiplied by (1 without scale
+-- factor compensation), and the number of bits that the rounding of the
+-- outputs drops from the product
+vecRotateScaling :: RotateWidths -> (Integer, Int)
+vecRotateScaling RotateWidths{..} = case vrFracGain of
+  Nothing -> (1, vrFracIn + vrIterations - vrFracOut)
+  Just k -> (vecRotateGainRounded k, vrFracIn + vrIterations + k - vrFracOut)
 
 -- | The iterations of 'vecRotateModel': the final X and Y (with @vrFracIn +
 -- vrIterations@ fractional bits), and the smallest magnitude of the angle at
@@ -885,15 +1068,16 @@ vecRotateCore RotateWidths{..} = \x y a ->
 -- | How close inputs of 'vecRotateModel' are to changing the result when a
 -- detail of the datapath changes: the smallest magnitude of the angle at a
 -- rotation (in units of its last place), and the smallest distance of X or Y
--- to a rounding boundary of the outputs (in units of the last place of X and
--- Y). Used to find test inputs that tell such details apart.
+-- (times the inverse gain, with scale factor compensation) to a rounding
+-- boundary of the outputs (in units of its last place). Used to find test
+-- inputs that tell such details apart.
 vecRotateMargins :: RotateWidths -> Integer -> Integer -> Integer -> (Integer, Integer)
-vecRotateMargins widths@RotateWidths{..} = \x y a ->
+vecRotateMargins widths = \x y a ->
   let (xF, yF, zMin) = vecRotateCore widths x y a
   in (zMin, min (dist xF) (dist yF))
  where
-  sh = vrFracIn + vrIterations - vrFracOut
-  dist v = abs ((v `mod` (1 `shiftL` sh)) - (1 `shiftL` (sh - 1)))
+  (gain, sh) = vecRotateScaling widths
+  dist v = abs (((v * gain) `mod` (1 `shiftL` sh)) - (1 `shiftL` (sh - 1)))
 
 -- | Two's complement wrap-around of an integer to @w@ bits
 wrap :: Int -> Integer -> Integer
@@ -986,22 +1170,23 @@ cordicIpAtan fun signed w fIn fOut sfc latency =
     | otherwise = ("SFCompensation", BoolParam (fun == VecTranslateFunction && sfc))
 {-# INLINE cordicIpAtan #-}
 
--- | The ALTERA_CORDIC IP rotating a vector (@VECROTATE@), without scale
--- factor compensation
+-- | The ALTERA_CORDIC IP rotating a vector (@VECROTATE@)
 cordicIpVecRotate ::
   -- | Fractional bits of the inputs
   Integer ->
   -- | Fractional bits of the outputs
   Integer ->
+  -- | Scale factor compensation
+  Bool ->
   -- | Latency
   Integer ->
   IntelIp 9
-cordicIpVecRotate fIn fOut latency =
+cordicIpVecRotate fIn fOut sfc latency =
   cordicIp "VECROTATE" latency
     (  ("fxpt_in_fraction", IntegerParam fIn)
     :> ("fxpt_in_sign", StrParam "1")
     :> ("fxpt_out_fraction", IntegerParam fOut)
-    :> ("SFCompensation", BoolParam False)
+    :> ("SFCompensation", BoolParam sfc)
     :> Nil )
 {-# INLINE cordicIpVecRotate #-}
 
