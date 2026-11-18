@@ -14,9 +14,10 @@ instantiate the IP, how the IP is reset and enabled and how it treats
 subnormal numbers. "Clash.Cores.Intel.Floating.Half" has the same functions
 with a hidden clock, reset and enable.
 
-The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'asin' and 'asinPi'. In half precision the IP computes them
+The supported functions are 'sqrt', 'recip', 'rsqrt', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10', 'log1p', 'cbrt', 'hypot', 'sinPi', 'cosPi', 'tanPi', 'asin', 'asinPi', 'acos' and 'acosPi'. In half precision the IP computes them
 with the same algorithms as in single precision, scaled down (polynomials of
-degree one instead of two, except for the arcsine of numbers up to one half). Clash simulation gives the IP's results bit for
+degree one instead of two, except for the arcsine of numbers up to one half
+and the arccosine of numbers of at least one half). Clash simulation gives the IP's results bit for
 bit: the models ('sqrtModel' etc.) were obtained by black-box testing of the
 IP, see Note [Bit-exact half precision models] in
 "Clash.Cores.Intel.Floating.Internal.BitExactHalf", and were verified against
@@ -34,8 +35,8 @@ in the last place for some inputs, see their models. The reciprocal is
 correctly rounded.
 
 Of the trigonometric functions, the sine, cosine and tangent of pi times the
-argument and the arcsine, in radians and as a multiple of pi ('asin' and
-'asinPi'), are supported.
+argument and the arcsine and arccosine, in radians and as a multiple of pi
+('asin', 'asinPi', 'acos' and 'acosPi'), are supported.
 
 The arithmetic functions, comparisons and conversions of the IP are not
 supported in half precision: their models would be the ones of single
@@ -98,6 +99,12 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , asinPiWith
   , asinPi
   , AsinPiDefDelay
+  , acosWith
+  , acos
+  , AcosDefDelay
+  , acosPiWith
+  , acosPi
+  , AcosPiDefDelay
     -- * Customizing IP
   , Config(..)
   , defConfig
@@ -120,9 +127,11 @@ module Clash.Cores.Intel.Floating.Half.Explicit
   , tanPiModel
   , asinModel
   , asinPiModel
+  , acosModel
+  , acosPiModel
   ) where
 
-import Clash.Explicit.Prelude hiding (sqrt, recip, exp, log, asin)
+import Clash.Explicit.Prelude hiding (sqrt, recip, exp, log, asin, acos)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -997,3 +1006,107 @@ asinPi = withFrozenCallStack $ asinPiWith defConfig
 -- for a target frequency of 200 MHz, on the device family where this is the
 -- largest.
 type AsinPiDefDelay = 25
+
+-- | Customizable floating point arccosine, @acos x@, in radians, in half precision, see
+-- 'acosModel'. The IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (11
+-- cycles).
+acosWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+acosWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en ((acosModel fam) <$> x)
+  | otherwise = unaryInst "fp_acos_half" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of acos"
+  ip = fpFunctionsHalf cfg "TRIG" "ARCCOS" (natToNum @d) Nil
+{-# INLINE acosWith #-}
+
+-- | Floating point arccosine, @acos x@, in radians, in half precision, with the default configuration
+-- and delay. See 'acosWith'.
+acos
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + AcosDefDelay) Half
+acos = withFrozenCallStack $ acosWith defConfig
+{-# INLINE acos #-}
+
+-- | The default delay of 'acos': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type AcosDefDelay = 32
+
+-- | Customizable floating point arccosine divided by pi, @acos x / pi@, in half precision, see
+-- 'acosPiModel'. The IP's result is bit-exactly modelled.
+--
+-- The 'DeviceFamily' has to be the family of the Quartus project: the IP
+-- computes slightly differently on families with different multipliers, see
+-- 'DeviceFamily'.
+--
+-- The latency @d@ is set by the type. Quartus fails to generate the IP if the
+-- latency is lower than the IP can achieve on the target device family (13
+-- cycles).
+acosPiWith
+  :: forall d dom n
+   . ( KnownDomain dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => Config
+  -> DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+acosPiWith cfg fam clk rst en x
+  | clashSimulation = pipeline und clk rst en ((acosPiModel fam) <$> x)
+  | otherwise = unaryInst "fp_acosPi_half" ip clk rst en x
+ where
+  und = withFrozenCallStack $ deepErrorX "Undefined output of acosPi"
+  ip = fpFunctionsHalf cfg "TRIG" "ARCCOS" (natToNum @d) (scaleByPi :> Nil)
+{-# INLINE acosPiWith #-}
+
+-- | Floating point arccosine divided by pi, @acos x / pi@, in half precision, with the default configuration
+-- and delay. See 'acosPiWith'.
+acosPi
+  :: forall dom n
+   . ( KnownDomain dom
+     , HasCallStack
+     )
+  => DeviceFamily
+  -> Clock dom
+  -> Reset dom
+  -> Enable dom
+  -> DSignal dom n Half
+  -> DSignal dom (n + AcosPiDefDelay) Half
+acosPi = withFrozenCallStack $ acosPiWith defConfig
+{-# INLINE acosPi #-}
+
+-- | The default delay of 'acosPi': the latency Quartus Prime Lite 21.1 picks
+-- for a target frequency of 200 MHz, on the device family where this is the
+-- largest.
+type AcosPiDefDelay = 37

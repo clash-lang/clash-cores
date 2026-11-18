@@ -6,8 +6,8 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in half precision: square root, cube root, hypotenuse, reciprocal square
 root, reciprocal, exponentials, logarithms, the sine, cosine and tangent
-of pi times x and the arcsine (in radians and divided by pi), see
-Note [Bit-exact half precision models].
+of pi times x and the arcsine and arccosine (in radians and divided by pi),
+see Note [Bit-exact half precision models].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -30,6 +30,8 @@ module Clash.Cores.Intel.Floating.Internal.BitExactHalf
   , tanPiHalf
   , asinHalf
   , asinPiHalf
+  , acosHalf
+  , acosPiHalf
   ) where
 
 import Prelude
@@ -45,7 +47,7 @@ import Clash.Cores.Intel.Floating.Internal.CoefficientsHalf
   ( cbrtHalfCoefficients, exp10HalfCoefficients, exp2HalfCoefficients, expHalfCoefficients
   , log10HalfCoefficients, log2HalfCoefficients, logHalfCoefficients, rsqrtHalfCoefficients
   , sinPiHalfCoefficients, sqrtHalfCoefficients, tanPiRecipHalfCoefficients
-  , asinHalfCoefficients, asinLargeHalfCoefficients )
+  , asinHalfCoefficients, asinLargeHalfCoefficients, acosHalfCoefficients )
 
 {- Note [Bit-exact half precision models]
 The IP supports half precision as a custom format with 5 exponent and 10
@@ -869,6 +871,147 @@ asinPiHalf mults w
  where
   a = asinHalf mults w
   sign = a .&. bit 15
+  (_, ea, fa) = fields a
+  p = (bit 10 .|. fa) * 0x518
+  sh = if p >= bit 21 then 11 else 10
+  q0 = (p + bit (sh - 1)) `shiftR` sh
+  (q, carry) = if q0 == bit 11 then (q0 `shiftR` 1, 1) else (q0, 0)
+  be = ea - 2 + (sh - 10) + carry
+
+-- * Arccosine
+
+{- Note [Bit-exact half precision arccosine]
+The arccosine ('acosHalf', the \"ARCCOS\" function) has the paths of the
+single precision arccosine (Note [Bit-exact arccosine] in
+"Clash.Cores.Intel.Floating.Internal.BitExact"), scaled down.
+
+For |x| < 1/2 the polynomial of @acos r@ has degree one. X =
+floor (|x| * 2^10), so the bits of x below 2^-10 are ignored; the top 5 bits
+of X (32 segments of [0, 1/2)) select the coefficients (on the grid 2^-15,
+'acosHalfCoefficients') and its 4 low bits are y:
+
+  T1 = floor (C1 * y / 2^2)            (at 2^-17)
+  A  = floor ((4 C0 + 16 + T1) / 2^4)  (acos |x| at 2^-13)
+
+On the families with 18x18 multipliers T1 is rounded to nearest (ties up)
+instead of down. The result is A for x >= 0 and pi rounded to nearest at
+2^-13 (25736) minus A for x < 0, truncated to half precision.
+
+For 1/2 <= |x| < 1 it uses @acos x = 2 asin z@ with
+@z = sqrt ((1 - x) / 2)@: s = 2 z is the correctly rounded half precision
+square root of @2 (1 - |x|)@ and @Z = floor (s * 2^9)@ (z truncated to
+2^-10). @asin z / z@ comes from the table of the arcsine of numbers up to
+one half ('asinHalfCoefficients', 16 segments of [0, 1), segment 8 for
+z = 1/2); its 6 low bits are y:
+
+  T1 = floor (C2 * y / 2^5)            (at 2^-16)
+  S1 = 2 C1 + T1
+  T2 = floor (S1 * y / 2^6)            (at 2^-16)
+  Y  = floor ((2 C0 + 8 + T2) / 2^6)   (asin z / z at 2^-10)
+
+and the result is the product s * Y, rounded to nearest with ties away from
+zero. On the families with 18x18 multipliers T1 and T2 are rounded to nearest
+(ties up) instead of down (the rounding of T1 changes no result). For
+x <= -1/2 the result is pi rounded to nearest at 2^-10 (3217) minus this
+value truncated to 2^-10, truncated to 2^-9. @acos 1@ is zero and
+@acos (-1)@ is 0x4248; NaN, the infinities and |x| > 1 give NaN.
+
+How this was found. The synthesis report shows a 64-entry table whose
+polynomial has one 5 by 11 bit multiplier (a 4 bit y and an 11 bit C1), a
+second polynomial with two multipliers whose widths fit a 6 bit y and the
+arcsine's table, and the product. For |x| < 1/2 the outputs for x and -x
+together determine the fixed point arccosine at 2^-13 up to a few units, and
+they are only consistent with pi rounded to nearest (not down, which single
+precision cannot tell apart). The coefficient formats, the segment counts
+and the rounding constants are the ones for which the coefficients computed
+from first principles reproduce the IP's outputs on all inputs.
+
+The arccosine divided by pi ('acosPiHalf') multiplies the arccosine, rounded
+to half precision, by 1 / pi rounded to half precision (0x3518), rounding to
+nearest with ties away from zero, like 'asinPiHalf'.
+-}
+
+acosHalfTable :: Table1
+acosHalfTable = mkTable1 acosHalfCoefficients
+{-# NOINLINE acosHalfTable #-}
+
+-- | The IP's arccosine in half precision, on bit patterns, see
+-- Note [Bit-exact half precision arccosine]
+acosHalf :: Multipliers -> Word16 -> Word16
+acosHalf mults w
+  | e == 31 || e > 15 || (e == 15 && f /= 0) = nanHalf
+  | e < 14 =
+      let -- |x| at 2^-10: the low bits of small numbers are ignored
+          xx | e == 0 = 0
+             | otherwise = (bit 10 .|. f) `shiftR` (15 - e)
+          a = acosSmallHalf mults xx
+          r = if neg then piAt13 - a else a
+      in  if r >= bit 14
+            then 0x4000 .|. fromIntegral ((r `shiftR` 4) .&. 0x3FF)
+            else 0x3C00 .|. fromIntegral ((r `shiftR` 3) .&. 0x3FF)
+  | not neg = v
+  -- pi - acos |x|: acos |x| truncated to 2^-10, the difference truncated to
+  -- 2^-9
+  | otherwise =
+      let (_, ev, fv) = fields v
+          v10 | ev == 0 = 0
+              | otherwise = (bit 10 .|. fv) `shiftR` (15 - ev)
+      in  0x4000 .|. fromIntegral (((piAt10 - v10) `shiftR` 1) .&. 0x3FF)
+ where
+  (neg, e, f) = fields w
+  -- 2^11 (1 - |x|) = 2^10 - f
+  v | e == 15 = 0
+    | otherwise = acosLargeHalf mults (bit 10 - f)
+  piAt13 = 25736 -- pi * 2^13, rounded to nearest
+  piAt10 = 3217  -- pi * 2^10, rounded to nearest
+
+-- | @acos x@ at 2^-13 for @x = X * 2^-10@ in [0, 1/2): 32 segments, y the low
+-- 4 bits of X
+acosSmallHalf :: Multipliers -> Int64 -> Int64
+acosSmallHalf mults xx = (4 * c0 + 16 + t1) `shiftR` 4
+ where
+  (c1, c0) = coefs1 acosHalfTable (fromIntegral (xx `shiftR` 4))
+  y = xx .&. 0xF
+  t1 = case mults of
+    FullMultipliers -> (c1 * y) `shiftR` 2
+    TruncatedMultipliers -> (c1 * y + 2) `shiftR` 2
+
+-- | @acos x@ for x in [1/2, 1), given @k = 2^11 (1 - x)@: the product of the
+-- correctly rounded @s = sqrt (2 (1 - x))@ and @asin (s / 2) / (s / 2)@ at
+-- 2^-10, rounded to nearest, ties away from zero
+acosLargeHalf :: Multipliers -> Int64 -> Word16
+acosLargeHalf mults k =
+  fromIntegral (15 + sh + se) `shiftL` 10 .|. fromIntegral (q .&. 0x3FF)
+ where
+  -- s = sqrt (2 (1 - x)) = sqrt (k * 2^-10), correctly rounded: sm * 2^se
+  (sm, se) = crSqrtHalf k (-10)
+  -- z = s / 2 at 2^-10
+  zz = sm `shiftR` negate (se + 9)
+  (c2, c1, c0) = coefs2 asinHalfTable (fromIntegral (zz `shiftR` 6))
+  y = zz .&. 0x3F
+  t2 = case mults of
+    FullMultipliers ->
+      let s1 = 2 * c1 + ((c2 * y) `shiftR` 5)
+      in  (s1 * y) `shiftR` 6
+    TruncatedMultipliers ->
+      let s1 = 2 * c1 + ((c2 * y + bit 4) `shiftR` 5)
+      in  (s1 * y + bit 5) `shiftR` 6
+  -- asin z / z at 2^-10, in [2^10, 2^11)
+  p = sm * ((2 * c0 + 8 + t2) `shiftR` 6)
+  sh0 = if p >= bit 21 then 11 else 10
+  q0 = (p + bit (sh0 - 1)) `shiftR` sh0
+  (q, sh) = if q0 == bit 11 then (q0 `shiftR` 1, sh0 + 1) else (q0, sh0)
+
+-- | The IP's arccosine divided by pi in half precision, on bit patterns:
+-- 'acosHalf' times 1 / pi rounded to half precision (0x3518), rounded to
+-- nearest, ties away from zero
+acosPiHalf :: Multipliers -> Word16 -> Word16
+acosPiHalf mults w
+  | ea == 31 = a
+  | ea == 0 || be <= 0 = 0
+  | otherwise = (fromIntegral be `shiftL` 10) .|. fromIntegral (q .&. 0x3FF)
+ where
+  a = acosHalf mults w
   (_, ea, fa) = fields a
   p = (bit 10 .|. fa) * 0x518
   sh = if p >= bit 21 then 11 else 10

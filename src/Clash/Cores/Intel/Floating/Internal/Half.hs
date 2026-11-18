@@ -29,6 +29,8 @@ module Clash.Cores.Intel.Floating.Internal.Half
   , tanPiModel
   , asinModel
   , asinPiModel
+  , acosModel
+  , acosPiModel
     -- * Instantiation
   , fpFunctionsHalf
   ) where
@@ -260,6 +262,37 @@ asinModel fam = onBits (asinHalf (familyMultipliers fam))
 -- on Cyclone V).
 asinPiModel :: DeviceFamily -> Half -> Half
 asinPiModel fam = onBits (asinPiHalf (familyMultipliers fam))
+
+-- | Model of the IP's arccosine in half precision (the \"ARCCOS\" function), in
+-- radians, see 'sqrtModel'. For @|x| < 1/2@ the IP evaluates a polynomial
+-- approximation of degree one of @acos x@ at @|x|@ truncated to @2^-10@ (the
+-- input's lower bits are ignored), in fixed point; for negative @x@ it
+-- subtracts that from pi. For @1/2 <= |x| < 1@ it computes @2 asin z@ with
+-- @z = sqrt ((1 - |x|) / 2)@ as the product of the correctly rounded @2 z@
+-- and a polynomial approximation of @asin z / z@, rounded to nearest with
+-- ties away from zero; for negative @x@ it subtracts that from pi in fixed
+-- point, truncating. The result can be off by up to 2.6 units in the last
+-- place. @acos 1@ is zero and @acos (-1)@ pi rounded down; NaN, the
+-- infinities and @|x| > 1@ give 'intelNaN'. See
+-- Note [Bit-exact half precision arccosine].
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at a latency of 11 cycles.
+acosModel :: DeviceFamily -> Half -> Half
+acosModel fam = onBits (acosHalf (familyMultipliers fam))
+
+-- | Model of the IP's arccosine divided by pi in half precision (the
+-- \"ARCCOS\" function with the angle represented as a multiple of pi), see
+-- 'sqrtModel': the IP multiplies its arccosine ('acosModel'), rounded to half
+-- precision, by 1 \/ pi rounded to half precision (@0x3518@), rounding to
+-- nearest with ties away from zero, so the result can be off by up to 2.7
+-- units in the last place. NaN, the infinities and @|x| > 1@ give
+-- 'intelNaN'.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) on all 2^16
+-- inputs, for all four families at 200 MHz and at a latency of 13 cycles.
+acosPiModel :: DeviceFamily -> Half -> Half
+acosPiModel fam = onBits (acosPiHalf (familyMultipliers fam))
 
 -- | Parameters of an @altera_fp_functions@ IP in half precision, see
 -- 'fpFunctionsFormat'

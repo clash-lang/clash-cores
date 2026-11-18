@@ -68,6 +68,12 @@ module Clash.Cores.Intel.Floating.Half
   , asinPiWith
   , asinPi
   , E.AsinPiDefDelay
+  , acosWith
+  , acos
+  , E.AcosDefDelay
+  , acosPiWith
+  , acosPi
+  , E.AcosPiDefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -90,9 +96,11 @@ module Clash.Cores.Intel.Floating.Half
   , E.tanPiModel
   , E.asinModel
   , E.asinPiModel
+  , E.acosModel
+  , E.acosPiModel
   ) where
 
-import Clash.Prelude hiding (sqrt, recip, exp, log, asin)
+import Clash.Prelude hiding (sqrt, recip, exp, log, asin, acos)
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Numeric.Half (Half)
@@ -542,3 +550,55 @@ asinPi
   -> DSignal dom (n + E.AsinPiDefDelay) Half
 asinPi fam = withFrozenCallStack $ hideClockResetEnable (E.asinPi fam)
 {-# INLINE asinPi #-}
+
+-- | Customizable floating point arccosine, @acos x@, in radians, in half precision. See
+-- 'E.acosWith'.
+acosWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+acosWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.acosWith cfg fam)
+{-# INLINE acosWith #-}
+
+-- | Floating point arccosine, @acos x@, in radians, in half precision, with the default configuration
+-- and delay. See 'E.acos'.
+acos
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AcosDefDelay) Half
+acos fam = withFrozenCallStack $ hideClockResetEnable (E.acos fam)
+{-# INLINE acos #-}
+
+-- | Customizable floating point arccosine divided by pi, @acos x / pi@, in half precision. See
+-- 'E.acosPiWith'.
+acosPiWith
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + d) Half
+acosPiWith cfg fam = withFrozenCallStack $ hideClockResetEnable (E.acosPiWith cfg fam)
+{-# INLINE acosPiWith #-}
+
+-- | Floating point arccosine divided by pi, @acos x / pi@, in half precision, with the default configuration
+-- and delay. See 'E.acosPi'.
+acosPi
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Half
+  -> DSignal dom (n + E.AcosPiDefDelay) Half
+acosPi fam = withFrozenCallStack $ hideClockResetEnable (E.acosPi fam)
+{-# INLINE acosPi #-}
