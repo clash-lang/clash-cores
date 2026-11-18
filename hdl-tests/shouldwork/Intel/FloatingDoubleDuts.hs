@@ -17,6 +17,18 @@ import GHC.Float (castWord64ToDouble)
 import FloatingDuts (simFamily)
 import IpTestCommon
 
+-- | 'trace' for the functions whose models don't cover Cyclone V: for that
+-- family the trace has no expected outputs, so the test bench runs the IP but
+-- checks nothing
+traceNoCycloneV ::
+  (NFDataX i, NFDataX o, BitPack o, KnownNat k) =>
+  Dut i (Vec k o) ->
+  [Cycle i] ->
+  [Entry i k (BitSize o)]
+traceNoCycloneV dut cs
+  | simFamily == E.CycloneV = [(cycleInput c, cycleReset c, cycleEnable c, repeat Nothing) | c <- cs]
+  | otherwise = trace dut cs
+
 -- | E.add, E.addWith @4
 addDut :: Dut (Double, Double) (Vec 2 Double)
 addDut clk rst en i = bundle (binary E.add clk rst en i :> binary (E.addWith @4 E.defConfig) clk rst en i :> Nil)
@@ -299,3 +311,31 @@ hypotDatapathWords =
   , (0xe30c0e36a4188aae, 0x630318b551f220e9, 0xe30fecfc8143a321)
   , (0x42e5df5d15e0a626, 0x42dc912a5ef289bb, 0x42bc479cdb43bc9b) ]
 
+-- | E.log10, E.log10With @13
+log10Dut :: Dut Double (Vec 2 Double)
+log10Dut clk rst en i = bundle (unary (E.log10 simFamily) clk rst en i :> unary (E.log10With @13 E.defConfig simFamily) clk rst en i :> Nil)
+{-# OPAQUE log10Dut #-}
+
+-- | Inputs of the base 10 logarithm: inputs whose results depend on how the
+-- IP truncates its products, and 'doublesIn' (special values, all bit
+-- patterns, and many inputs in [0.5, 2), where the polynomial is used on its
+-- own)
+log10DoublesIn :: Int -> Word64 -> [Double]
+log10DoublesIn n seed = P.map castWord64ToDouble log10DatapathWords <> doublesIn 1 2046 n seed
+
+-- | Inputs for which the base 10 logarithm of MAX 10 differs from the one the
+-- IP would compute with full multipliers
+log10DatapathWords :: [Word64]
+log10DatapathWords =
+  [ 0x3fe62fd9328612bb, 0x0ff81c4c7900f237, 0x56ba844c07b8f93a, 0x3ffe370d6717269d
+  , 0x3fd0e51fab98cef7, 0x3fec12eba4727386, 0x20df2f12f60f6dd1, 0x3ff70f8f8f2485a1
+  , 0x40018f638119af7c, 0x3f8e19d3668e3009, 0x400a838d5418495e, 0x3fed7edd6598cd46
+  , 0x40015d2387a640a6, 0x40032620fac67252, 0x3fae0a86dace5408, 0x5e84f2c0d998a68c
+  , 0x3fe5c1ffa748709a, 0x3fd038b66fe50096, 0x3fdcaba47af2ddd2, 0x380dcfee6aebaccb
+  , 0x36dfd87a9f4cb518, 0x3fe1b813ef7138ae, 0x3f90b32cf0608bb2, 0x3feb4ddfea5b17d4
+  , 0x3ffc43bbb1703fdd, 0x71495f50e578c9c1, 0x3fff1373dd407edb, 0x3ffa56f7f26c159e
+  , 0x0c0a624f9ff9498b, 0x3fe83278b53728b8, 0x404dd967acfd0c28, 0x4005df33c566bf1b
+  , 0x3ff15cfb1905e4d8, 0x3ff6d4f7938ecdbb, 0x3feb1c4fd4b39524, 0x3ff07d6fe0ce565c
+  , 0x3ffd22e46f700049, 0x3fe983db71d042c5, 0x3f8746d130e84b81, 0x3fbfc99be98b824f
+  , 0x403bfaa644e5b9e0, 0x3feaa66c88c5d33a, 0x6baff2c8744a0c7c, 0x5a11c328a2dddec2
+  , 0x3ff4f4a9447bf361, 0x3fe2f6630b690ef4, 0x0b2f6f693275e87a, 0x404cc10958fb5f9c ]

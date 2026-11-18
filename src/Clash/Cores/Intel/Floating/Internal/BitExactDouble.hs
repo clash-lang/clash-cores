@@ -5,10 +5,11 @@ Maintainer :  QBayLogic B.V. <devops@qbaylogic.com>
 
 Bit-exact models of Intel's Floating Point Functions IP (@altera_fp_functions@)
 in double precision: square root, reciprocal square root, reciprocal,
-exponential, the hypotenuse and the arithmetic, see Note [Bit-exact double
-precision models], Note [Bit-exact double precision hypotenuse],
-Note [Bit-exact double precision reciprocal square root] and Note [Bit-exact
-double precision exponential].
+exponential, base 10 logarithm, the hypotenuse and the arithmetic, see Note
+[Bit-exact double precision models], Note [Bit-exact double precision
+hypotenuse], Note [Bit-exact double precision reciprocal square root],
+Note [Bit-exact double precision exponential] and Note [Bit-exact double
+precision base 10 logarithm].
 -}
 
 {-# OPTIONS_HADDOCK hide #-}
@@ -19,6 +20,7 @@ module Clash.Cores.Intel.Floating.Internal.BitExactDouble
   , expDouble
   , rsqrtDouble
   , hypotDouble
+  , log10Double
   , addDouble
   , subDouble
   , mulDouble
@@ -34,7 +36,7 @@ import Data.Word (Word64)
 
 import Clash.Cores.Intel.Floating.Internal.BitExact (Multipliers(..))
 import Clash.Cores.Intel.Floating.Internal.CoefficientsDouble
-  (expDoubleCoefficients, rsqrtDoubleCoefficients, sqrtDoubleCoefficients)
+  (expDoubleCoefficients, log10DoubleCoefficients, rsqrtDoubleCoefficients, sqrtDoubleCoefficients)
 
 {- Note [Bit-exact double precision models]
 In double precision, the IP computes its functions with the algorithms of
@@ -765,3 +767,144 @@ hypotDouble mults a b c
   k = et `shiftR` 1
   o0 = (sqrtA mults p (q - bit 52) + bit (sqrtShift mults - 1)) `shiftR` sqrtShift mults
   (o, be) = if o0 >= bit 53 then (o0 `shiftR` 1, k + 1024) else (o0, k + 1023)
+
+{- Note [Bit-exact double precision base 10 logarithm]
+The base 10 logarithm uses the scheme of the single precision one (see Note
+[Bit-exact models] in "Clash.Cores.Intel.Floating.Internal.BitExact"), scaled
+up. For x = m * 2^E with m = 1.f in [1, 2):
+
+  * x in [0.5, 2) (E = 0 or E = -1): log10 x = z * P, with z = x - 1 (exact)
+    and P approximating log10 (1 + z) / z. The table has 2048 segments in four
+    regions of 512: z in [0, 0.5) and [0.5, 1) for E = 0 (segments of 2^-10,
+    index f[50:42]) and z in [-0.5, -0.25) and [-0.25, 0) for E = -1
+    (segments of 2^-11). y = f[41:0], t = y * 2^-42.
+  * P is a polynomial of degree four in t, evaluated in Horner form:
+
+      S1 = C3 + T1,  T1 = C4 * (y >> 25)
+      S2 = C2 + T2,  T2 = S1 * (y >> 14)
+      S3 = C1 + T3,  T3 = S2 * (y >> 4)
+      A  = C0 + T4 + rc,  T4 = S3 * y
+
+    and P truncated (Aq) to 2^-55 for E = 0 and 2^-54 for E = -1. The
+    coefficients are on the grid 2^-58 (C3: 2^-59) in t in all regions; as in
+    single precision, the datapath runs on four times the coefficients for
+    E = 0 and on twice them for E = -1 (the same integers then give P at
+    2^-55 and 2^-54), with the rounding constant rc = 2^-56 (E = 0) or 2^-57
+    (E = -1). On MAX 10, Cyclone IV E and Cyclone 10 LP the products are
+    truncated multipliers (see Note [Bit-exact double precision models] and
+    'log10Cuts'), each rounded to nearest (half up): T1 at 2^-61, T2 and T3 at
+    2^-60, T4 at 2^-61.
+    The result is z * Aq rounded to nearest, ties away from zero.
+  * Otherwise log10 x = E * K + z * Aq with z = f * 2^-52 (the tables of
+    E = 0), K = log10 2 rounded to nearest at 2^-57, the sum exact and rounded
+    to nearest, ties away from zero.
+  * Zero and subnormal inputs give -inf, negative numbers (and -inf) and NaN
+    give NaN, +inf gives +inf and 1 gives +0.
+
+How the structure was inferred:
+
+  * The RAM sizes in the synthesis report give the table size and the
+    coefficient widths. With Intel's generator option for full multipliers,
+    the single precision scheme with its widths scaled up matched: the
+    position where P is truncated was the only one for which the outputs of a
+    segment are consistent with a truncated polynomial at all, the
+    coefficients come from the recipe in
+    "Clash.Cores.Intel.Floating.Internal.CoefficientsDouble", and a coordinate
+    descent over the truncation of each product gave the rest. Inputs whose
+    exact sum E * K + z * Aq is a tie for some precision of K (crafted from
+    the model) gave the precision of K and the tie rule.
+  * The truncated multipliers: T4 is the truncated multiplier that the IP's
+    generator builds standalone for its operand and output widths (50 by 42
+    bits to 51 bits), simulated on random operands. The standalone
+    multipliers of the other products' widths don't match the IP. Their
+    staircases were found by a descent over the cut of each row (each bit of
+    y), on inputs for which z * P is close to a rounding boundary, starting
+    from the standalone ones: it converged to a 17-bit tiling for T2 and, for
+    T3, to a staircase of small corners (4 or 5 bits wide) along a diagonal.
+
+Cyclone V is not modelled. There the products are rounded down, T1 is an
+exact product and T3 and T4 are the staircases of the generator's standalone
+multipliers, but no staircase for T2 reproduces the IP: with the best one,
+about 150 of 2.5 million inputs differ, nearly all of them exactly on a
+rounding boundary of P.
+-}
+
+-- | Negative infinity
+negInfDouble :: Word64
+negInfDouble = 0xFFF0000000000000
+
+-- | log10 2 at 2^-57, rounded to nearest
+log10Of2 :: Integer
+log10Of2 = 0x9A209A84FBCFF8
+
+-- | Round @v * 2^-sc@ (@v > 0@) to a double, to nearest with ties away from
+-- zero, with the given sign
+roundAway :: Bool -> Integer -> Int -> Word64
+roundAway neg v sc = sign .|. (fromIntegral (ex + 1023) `shiftL` 52) .|. fromInteger (m .&. (bit 52 - 1))
+ where
+  sign = if neg then bit 63 else 0
+  n = bitLength v
+  s = n - 53
+  m0 = if s > 0 then (v + bit (s - 1)) `shiftR` s else v `shiftL` negate s
+  (m, ex) = if m0 >= bit 53 then (m0 `shiftR` 1, n - sc) else (m0, n - 1 - sc)
+
+-- | Truncated products of the base 10 logarithm on MAX 10, Cyclone IV E and
+-- Cyclone 10 LP, as cut lists for 'truncMul'
+log10Cuts :: ([Int], [Int], [Int], [Int])
+log10Cuts =
+  ( -- T1 = C4 * (y >> 25) [17 bits]
+    runs [(1, 14), (16, 0)]
+    -- T2 = S1 * (y >> 14) [28 bits]
+  , runs [(12, 13), (16, 0)]
+    -- T3 = S2 * (y >> 4) [38 bits]
+  , runs [(1, 32), (4, 28), (5, 23), (4, 19), (4, 15), (4, 11), (5, 6), (4, 2), (7, 0)]
+    -- T4 = S3 * y [42 bits]
+  , runs [(4, 33), (5, 28), (12, 16), (5, 11), (16, 0)]
+  )
+
+-- | The table of 'log10Double'
+log10Table :: Array Int (Integer, Integer, Integer, Integer, Integer)
+log10Table = listArray (0, 2047) log10DoubleCoefficients
+{-# NOINLINE log10Table #-}
+
+-- * Base 10 logarithm
+
+-- | The IP's base 10 logarithm in double precision on MAX 10, Cyclone IV E
+-- and Cyclone 10 LP, on bit patterns
+log10Double :: Word64 -> Word64
+log10Double w
+  | e == 2047 = if f /= 0 || neg then nanDouble else infDouble
+  | e == 0 = negInfDouble
+  | neg = nanDouble
+  | e == 1023 && f == 0 = 0
+  -- x in [1, 2): z = x - 1 = f * 2^-52, Aq at 2^-55
+  | e == 1023 = roundAway False (f * aq) (52 + 55)
+  -- x in [0.5, 1): z = (f - 2^52) * 2^-53, Aq at 2^-54
+  | e == 1022 = roundAway True ((bit 52 - f) * aq) (53 + 54)
+  | otherwise =
+      let s = (toInteger (e - 1023) * log10Of2) `shiftL` 50 + f * aq
+      in  roundAway (s < 0) (abs s) 107
+ where
+  (neg, e, f) = fields w
+  r | e == 1022 = 2 + fromInteger (f `shiftR` 51)
+    | otherwise = fromInteger (f `shiftR` 51)
+  aq = log10Aq r (fromInteger ((f `shiftR` 42) .&. 511)) (f .&. (bit 42 - 1))
+
+-- | P truncated: at 2^-55 in regions 0 and 1, at 2^-54 in 2 and 3
+log10Aq :: Int -> Int -> Integer -> Integer
+log10Aq r j y = a `shiftR` 6
+ where
+  (c0, c1, c2, c3, c4) = log10Table ! (r * 512 + j)
+  (cut1, cut2, cut3, cut4) = log10Cuts
+  -- Four times the coefficients in regions 0 and 1, twice in 2 and 3
+  sc = if r < 2 then 2 else 1
+  rc = if r < 2 then 16 else 8
+  y1 = y `shiftR` 25
+  y2 = y `shiftR` 14
+  y3 = y `shiftR` 4
+  -- Rounded half up
+  s1 = (c3 `shiftL` sc) + (truncMul cut1 (c4 `shiftL` sc) y1 + bit 15) `shiftR` 16   -- 2^-61
+  s2 = (c2 `shiftL` sc) + (truncMul cut2 s1 y2 + bit 28) `shiftR` 29                 -- 2^-60
+  s3 = (c1 `shiftL` sc) + (truncMul cut3 s2 y3 + bit 37) `shiftR` 38                 -- 2^-60
+  -- At 2^-61
+  a = 2 * ((c0 `shiftL` sc) + rc) + (truncMul cut4 s3 y + bit 40) `shiftR` 41

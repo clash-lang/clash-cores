@@ -54,3 +54,6 @@ hypotTB :: Signal Dom Bool
 hypotTB = romTB simLibraries hypotDut $(memBlobTH (Just 0) (trace hypotDut (cycles (hypotDoublesIn 1000 75))))
 {-# ANN hypotTB (Synthesize "hypotTB" [] (PortName "done")) #-}
 
+log10TB :: Signal Dom Bool
+log10TB = romTB simLibraries log10Dut $(memBlobTH (Just 0) (traceNoCycloneV log10Dut (cycles (log10DoublesIn 2000 74))))
+{-# ANN log10TB (Synthesize "log10TB" [] (PortName "done")) #-}

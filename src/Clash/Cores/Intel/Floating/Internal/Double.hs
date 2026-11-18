@@ -21,6 +21,7 @@ module Clash.Cores.Intel.Floating.Internal.Double
   , recipModel
   , expModel
   , hypotModel
+  , log10Model
     -- * Instantiation
   , fpFunctionsDouble
   ) where
@@ -31,7 +32,7 @@ import Data.Word (Word64)
 import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 
 import Clash.Cores.Intel.Floating.Internal
-  (Config, DeviceFamily, familyMultipliers, fpFunctionsFormat)
+  (Config, DeviceFamily(..), familyMultipliers, fpFunctionsFormat)
 import Clash.Cores.Intel.Floating.Internal.BitExactDouble
 import Clash.Cores.Intel.Internal (IntelIp, IpParam(..))
 
@@ -200,3 +201,36 @@ hypotModel fam x y z =
   castWord64ToDouble
     (hypotDouble (familyMultipliers fam) (castDoubleToWord64 x) (castDoubleToWord64 y) (castDoubleToWord64 z))
 
+-- | The error of the models that don't cover Cyclone V
+noCycloneV :: String -> a
+noCycloneV name = error $
+  "Clash.Cores.Intel.Floating.Double." <> name <> ": the simulation model doesn't cover Cyclone V. "
+    <> "On that family the IP computes its results differently, and not all of them are known. "
+    <> "Only simulation in Clash is affected: the generated HDL instantiates the IP as on the other families."
+
+-- | Model of the base 10 logarithm of the IP in double precision, for MAX 10,
+-- Cyclone IV E and Cyclone 10 LP. It gives the IP's results bit for bit, see
+-- Note [Bit-exact double precision base 10 logarithm] in
+-- "Clash.Cores.Intel.Floating.Internal.BitExactDouble": for x in @[0.5, 2)@
+-- the result is @(x - 1) * P@ with @P@ a polynomial of degree four truncated
+-- to about 54 bits, else @E * log10 2 + z * P@ for @x = (1 + z) * 2^E@; it is
+-- rounded to nearest with ties away from zero. The result is not always
+-- faithful: for @x@ in @[0.5, 1)@ it is up to 1.36 units in the last place
+-- above the exact result (elsewhere it stays within 0.92 units). Zero and
+-- subnormal inputs give -inf, negative inputs and NaN give 'intelNaN', +inf
+-- gives +inf and @log10 1 = 0@.
+--
+-- For Cyclone V there is no model: the IP's results differ there, and this
+-- function raises an error.
+--
+-- Verified against the simulated IP (Quartus Prime Lite 21.1) for MAX 10,
+-- Cyclone IV E and Cyclone 10 LP, at 200 MHz and at the minimum latency (13
+-- cycles), and for MAX 10 also at 100 MHz and at latencies of 14, 16 and 20
+-- cycles, on 3.1 million inputs each: special values at every exponent,
+-- random inputs of several kinds, inputs in every segment of its table,
+-- inputs near one, inputs whose exact result is close to a rounding boundary
+-- and inputs for which the IP's sum is a tie.
+log10Model :: DeviceFamily -> Double -> Double
+log10Model fam = case fam of
+  CycloneV -> noCycloneV "log10Model"
+  _ -> onBits log10Double

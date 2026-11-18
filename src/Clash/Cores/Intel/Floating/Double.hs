@@ -45,6 +45,9 @@ module Clash.Cores.Intel.Floating.Double
   , hypotWith
   , hypot
   , E.HypotDefDelay
+  , log10With
+  , log10
+  , E.Log10DefDelay
     -- * Customizing IP
   , E.Config(..)
   , E.defConfig
@@ -59,6 +62,7 @@ module Clash.Cores.Intel.Floating.Double
   , E.recipModel
   , E.expModel
   , E.hypotModel
+  , E.log10Model
   ) where
 
 import Clash.Prelude hiding (add, sub, mul, div, sqrt, recip, exp)
@@ -303,3 +307,28 @@ hypot
 hypot fam = withFrozenCallStack $ hideClockResetEnable (E.hypot fam)
 {-# INLINE hypot #-}
 
+-- | Customizable floating point base 10 logarithm, @log10 x@, in double
+-- precision. See 'E.log10With'.
+log10With
+  :: ( HiddenClockResetEnable dom
+     , KnownNat d
+     , HasCallStack
+     )
+  => E.Config
+  -> E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + d) Double
+log10With cfg fam = withFrozenCallStack $ hideClockResetEnable (E.log10With cfg fam)
+{-# INLINE log10With #-}
+
+-- | Floating point base 10 logarithm, @log10 x@, in double precision, with the
+-- default configuration and delay. See 'E.log10'.
+log10
+  :: ( HiddenClockResetEnable dom
+     , HasCallStack
+     )
+  => E.DeviceFamily
+  -> DSignal dom n Double
+  -> DSignal dom (n + E.Log10DefDelay) Double
+log10 fam = withFrozenCallStack $ hideClockResetEnable (E.log10 fam)
+{-# INLINE log10 #-}

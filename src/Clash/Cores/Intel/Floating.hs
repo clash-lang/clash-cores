@@ -43,7 +43,11 @@ models document the details.
   about one in 35 multiples of ln 2, where it returns the power of two above
   (all four families; 2.7 million inputs per family), and the hypotenuse
   ('Clash.Cores.Intel.Floating.Double.Explicit.hypotModel') by up to 1.25
-  units (all four families; 400,000 input triples per family).
+  units (all four families; 400,000 input triples per family), and the base
+  10 logarithm ('Clash.Cores.Intel.Floating.Double.Explicit.log10Model') by up
+  to 1.36 units for inputs in @[0.5, 1)@ (MAX 10, Cyclone IV E and Cyclone 10
+  LP; found with the model on 300 million random inputs, the model verified
+  on 3.1 million inputs per family).
 
 * /Power of one./ IEEE 754's @powr@, which the IP's POWR follows otherwise,
   gives one for @1 ** y@ with a finite @y@. The IP gives @+inf@ or @+0@ for
