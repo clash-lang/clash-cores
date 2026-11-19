@@ -502,6 +502,18 @@ vector differs on 82) and holds on MAX 10 for 78,394 inputs (the next best
 vector differs on 533 of them). It is the generator's vector plus one and
 minus another vector of the reduced basis; it is not the exact closest vector.
 
+It is what Babai's algorithm gives when one of its rounding steps goes the
+other way, and that step is the one closest to a tie of all steps in all 64
+segments: the coordinate it rounds is 0.49979 from an integer (the next
+closest, 0.49891 in segment 20, has the generator's coefficients). So Intel's
+own computation of that coordinate differs from the exact one by at least
+0.0002. Evaluating the function at the nodes to 70 or 71 significant bits,
+rounded down, instead of exactly gives the IP's coefficients in all 64
+segments; the same change does not reproduce the two segments of the base 2
+logarithm, though, so it is not known to be what the IP does and the model
+does not use it. Sollya's @fpminimax@ (version 8.0, with Kannan's embedding)
+gives the IP's vector in this segment but other vectors in 14 segments.
+
 The IP's coefficients minus the generator's, in units of their least
 significant bits (C0 to C5):
 
@@ -1338,6 +1350,13 @@ The vector of segment 43 is the exact closest vector at the nodes, the one of
 segment 205 is not; closest vectors, other working precisions, nodes,
 parameters of LLL, orders of the basis, relative error and fplll's embedding
 technique don't reproduce both while keeping the other 510 segments.
+
+Each of the two is what Babai's algorithm gives when one of its rounding
+steps goes the other way, and those steps are the third and fourth closest
+to a tie of all steps in all 512 segments: the coordinates they round are
+0.49972 and 0.49967 from an integer. The two closer ones (in segments 122 and
+147, 0.499999 and 0.49983) have the generator's coefficients, so the IP does
+not simply compute the coordinates less precisely.
 
 The IP's coefficients minus the generator's, in units of their least
 significant bits (C0 to C5):
