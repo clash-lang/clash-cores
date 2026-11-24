@@ -156,6 +156,12 @@ spiCommon mode ssI msI sckI dinI =
 
     dataOutD
       | ss || (sampleOnTrailing mode && sampleSck && cntQ == maxBound) = unpack din
+      -- Modes 0 and 2: the shift edge after the last sample of a word is where
+      -- the first bit of the next word must appear when slave select stays
+      -- asserted, so load it here. In these modes the first edge after slave
+      -- select asserts is a sample edge, so this only happens at a word
+      -- boundary.
+      | sampleOnLeading mode && shiftSck && cntQ == 0 = unpack din
       | shiftSck  = if sampleOnTrailing mode && cntQ == 0
                     then dataOutQ
                     else tail @(n-1) dataOutQ :< unpack undefined#
@@ -195,9 +201,12 @@ spiSlave
   -> Signal dom Bool
   -- ^ Slave select (SS)
   -> Signal dom (BitVector n)
-  -- ^ Data to send from master to slave
+  -- ^ Data to send from slave to master
   --
-  -- Input is latched the moment slave select goes low
+  -- The first word is latched the moment slave select goes low. When slave
+  -- select stays low for multiple words, each following word is latched at
+  -- the start of its transfer. Present the next word after the acknowledgement
+  -- output is asserted.
   -> ( BiSignalOut ds dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -205,7 +214,10 @@ spiSlave
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. (Maybe) the word send by the master
+  -- 2. Acknowledgement: the current word is being transmitted, so the next
+  --    word can be presented on the data input.
+  --
+  -- 3. (Maybe) the word send by the master
 spiSlave (SpiSlaveConfig mode latch buf) sclk mosi bin ss din =
   let ssL   = if latch then delay undefined ss   else ss
       mosiL = if latch then delay undefined mosi else mosi
@@ -352,7 +364,10 @@ spiSlaveLatticeSBIO
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- Input is latched the moment slave select goes low
+  -- The first word is latched the moment slave select goes low. When slave
+  -- select stays low for multiple words, each following word is latched at
+  -- the start of its transfer. Present the next word after the acknowledgement
+  -- output is asserted.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -360,7 +375,10 @@ spiSlaveLatticeSBIO
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. (Maybe) the word send by the master
+  -- 2. Acknowledgement: the current word is being transmitted, so the next
+  --    word can be presented on the data input.
+  --
+  -- 3. (Maybe) the word send by the master
 spiSlaveLatticeSBIO mode latchSpi =
   spiSlave (SpiSlaveConfig mode latchSpi sbioX)
  where
@@ -398,7 +416,10 @@ spiSlaveLatticeBB
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- Input is latched the moment slave select goes low
+  -- The first word is latched the moment slave select goes low. When slave
+  -- select stays low for multiple words, each following word is latched at
+  -- the start of its transfer. Present the next word after the acknowledgement
+  -- output is asserted.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -406,7 +427,10 @@ spiSlaveLatticeBB
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. (Maybe) the word send by the master
+  -- 2. Acknowledgement: the current word is being transmitted, so the next
+  --    word can be presented on the data input.
+  --
+  -- 3. (Maybe) the word send by the master
 spiSlaveLatticeBB mode latchSpi =
   spiSlave (SpiSlaveConfig mode latchSpi bbX)
  where
