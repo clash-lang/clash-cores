@@ -119,6 +119,40 @@ burstSelectRepeats divHalf wait mVals sVals mode latch duration =
     (sampleCyclingBurstSelect d3 masterLawfulSignal slaveLawfulSignal)
     divHalf wait mVals sVals mode latch (2 * duration)
 
+-- | Test that the SPI master keeps slave select asserted after the first word
+-- when the hold input is True. The lawfulness of a device is irrelevant here.
+--
+transactionHoldsSelect
+  :: (1 <= halfPeriod, 1 <= waitTime)
+  => CyclingTest halfPeriod waitTime 8 8 Bool
+transactionHoldsSelect divHalf wait mVals sVals mode latch duration =
+  not (or (List.dropWhile id (ssSlaveSelect spis)))
+ where
+  spis = sampleCyclingTransaction masterLawfulSignal slaveLawfulSignal
+           divHalf wait mVals sVals mode latch duration
+
+-- | Test that the SPI slave can send a response to a word in the next word of
+-- the same transaction. The slave sends each received word back in the next
+-- word. Thus, the master receives the first slave value, and then its own
+-- words. This only works for lawful devices.
+--
+-- The test fails when the sample duration contains fewer than two words.
+--
+echoResponds
+  :: (1 <= halfPeriod, 1 <= waitTime)
+  => CyclingTest halfPeriod waitTime 8 8 (Device -> Bool)
+echoResponds divHalf wait mVals sVals mode latch duration dev =
+  case dev of
+    Master -> checkWith ssMasterOut (NE.head sVals :| NE.toList (NE.cycle mVals))
+    Slave  -> checkWith ssSlaveOut  (NE.cycle mVals)
+ where
+  spis = sampleEchoTransaction masterLawfulSignal
+           divHalf wait mVals sVals mode latch duration
+
+  checkWith outs vals =
+    let outs' = catMaybes $ outs spis
+     in List.length outs' >= 2 && NE.isPrefixOf outs' vals
+
 tests :: TestTree
 tests = testGroup "SPI"
   [ testGroup "Repeating messages"
@@ -141,6 +175,20 @@ tests = testGroup "SPI"
 
     , QC.testProperty "Multiple word messages repeat in bursts of three words"
         $ burstSelectRepeats d2 d1 mCycling sCycling
+    ]
+
+  , testGroup "Transactions of more than one word"
+    -- With a half period of 2, the minimum sample duration contains two words.
+    [ QC.testProperty "Slave select stays asserted"
+        $ transactionHoldsSelect d2 d1 mCycling sCycling
+
+    , QC.testProperty "Multiple word messages repeat indefinitely"
+        $ cyclingRepeatsWith 2
+            (sampleCyclingTransaction masterLawfulSignal slaveLawfulSignal)
+            d2 d1 mCycling sCycling
+
+    , QC.testProperty "Slave sends a response in the next word"
+        $ echoResponds d2 d1 mCycling sCycling
     ]
 
   , testGroup "Words of 1 bit"

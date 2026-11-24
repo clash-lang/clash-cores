@@ -9,11 +9,14 @@ module Test.Cores.Internal.SampleSpi
   , sampleCycling
   , sampleCyclingHeldSelect
   , sampleCyclingBurstSelect
+  , sampleCyclingTransaction
+  , sampleEchoTransaction
   , sampleSimple
   ) where
 
-import qualified Data.List as List (unzip4)
+import qualified Data.List as List (unzip5)
 import           Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import           Test.QuickCheck (Arbitrary(..), suchThat)
 
 import qualified Clash.Explicit.Prelude as E
@@ -31,6 +34,8 @@ data SpiSamples master slave = SpiSamples
   , ssMasterAck :: [Bool]
   , ssSlaveOut  :: [Maybe (BitVector slave)]
   , ssSlaveAck  :: [Bool]
+  , ssSlaveSelect :: [Bool]
+  -- ^ Slave select at the SPI slave (active low)
   } deriving (Eq, Show)
 
 newtype Duration = Duration { getDuration :: Int }
@@ -69,7 +74,8 @@ sampleCycling
   => GenMaster master
   -> GenSlave slave
   -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
-sampleCycling = sampleCyclingWith (\_ _ ss -> ss)
+sampleCycling genM genS =
+  sampleCyclingWith (\_ _ ss -> ss) (pure False) genM (fromGenSlave genS)
 
 -- | Same as 'sampleCycling', but slave select of the SPI slave stays asserted
 -- after the first word. The SPI master de-asserts slave select after each
@@ -83,7 +89,8 @@ sampleCyclingHeldSelect
   => GenMaster master
   -> GenSlave slave
   -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
-sampleCyclingHeldSelect = sampleCyclingWith holdSelect
+sampleCyclingHeldSelect genM genS =
+  sampleCyclingWith holdSelect (pure False) genM (fromGenSlave genS)
  where
   holdSelect clk rst ss = ssHeld
    where
@@ -104,7 +111,8 @@ sampleCyclingBurstSelect
   -> GenMaster master
   -> GenSlave slave
   -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
-sampleCyclingBurstSelect burst = sampleCyclingWith burstSelect
+sampleCyclingBurstSelect burst genM genS =
+  sampleCyclingWith burstSelect (pure False) genM (fromGenSlave genS)
  where
   burstSelect clk rst ss =
     E.mealy clk rst enableGen go (True, 0 `asIndexOf` burst) ss
@@ -120,6 +128,51 @@ sampleCyclingBurstSelect burst = sampleCyclingWith burstSelect
   asIndexOf :: Index n -> SNat n -> Index n
   asIndexOf i SNat = i
 
+-- | Same as 'sampleCycling', but the SPI master keeps slave select asserted
+-- for all words. Thus, all words are in one transaction.
+--
+sampleCyclingTransaction
+  :: ( KnownNat master, KnownNat slave
+     , 1 <= halfPeriod, 1 <= waitTime, 1 <= master, 1 <= slave
+     )
+  => GenMaster master
+  -> GenSlave slave
+  -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
+sampleCyclingTransaction genM genS =
+  sampleCyclingWith (\_ _ ss -> ss) (pure True) genM (fromGenSlave genS)
+
+-- | Same as 'sampleCyclingTransaction', but the SPI slave sends each
+-- received word back in the next word. The first word of the slave is the
+-- first value of the slave values. This sampler shows a read that depends on
+-- the previous write in the same transaction.
+--
+sampleEchoTransaction
+  :: ( KnownNat n
+     , 1 <= halfPeriod, 1 <= waitTime, 1 <= n
+     )
+  => GenMaster n
+  -> CyclingTest halfPeriod waitTime n n (SpiSamples n n)
+sampleEchoTransaction genM =
+  sampleCyclingWith (\_ _ ss -> ss) (pure True) genM echo
+ where
+  echo clk rst sVals _ received =
+    E.regMaybe clk rst enableGen (NE.head sVals) received
+
+-- | Function to make the data input of the SPI slave. The arguments are the
+-- slave values, the acknowledgement of the slave and the received words of
+-- the slave.
+--
+type SlaveData slave =
+     Clock System
+  -> Reset System
+  -> NonEmpty (BitVector slave)
+  -> Signal System Bool
+  -> Signal System (Maybe (BitVector slave))
+  -> Signal System (BitVector slave)
+
+fromGenSlave :: KnownNat slave => GenSlave slave -> SlaveData slave
+fromGenSlave genS clk rst sVals ack _ = genS clk rst sVals ack
+
 sampleCyclingWith
   :: ( KnownNat master, KnownNat slave
      , 1 <= halfPeriod, 1 <= waitTime, 1 <= master, 1 <= slave
@@ -130,15 +183,18 @@ sampleCyclingWith
      -> Signal System Bool )
   -- ^ Function to make slave select of the SPI slave from slave select of
   -- the SPI master
+  -> Signal System Bool
+  -- ^ Hold input of the SPI master
   -> GenMaster master
-  -> GenSlave slave
+  -> SlaveData slave
   -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
-sampleCyclingWith slaveSelect genM genS divHalf wait mVals sVals mode latch
-                  duration =
-  (\(mO, mA, sO, sA) -> SpiSamples mO mA sO sA) $ List.unzip4 samples
+sampleCyclingWith slaveSelect hold genM slaveData divHalf wait mVals sVals
+                  mode latch duration =
+  (\(mO, mA, sO, sA, sS) -> SpiSamples mO mA sO sA sS) $ List.unzip5 samples
  where
-  samples = sampleN (getDuration duration) $ bundle (mOut, mAck, sOut, sAck)
-  slaveIn = genS clk rst sVals sAck
+  samples =
+    sampleN (getDuration duration) $ bundle (mOut, mAck, sOut, sAck, ssSlave)
+  slaveIn = slaveData clk rst sVals sAck sOut
 
   (misoZ, sAck, sOut) =
     withClockResetEnable clk rst enableGen
@@ -151,7 +207,8 @@ sampleCyclingWith slaveSelect genM genS divHalf wait mVals sVals mode latch
 
   (sclk, mosi, ss, bp, mAck, mOut) =
     withClockResetEnable clk rst enableGen
-      (spiMaster mode divHalf wait masterIn (readFromBiSignal miso))
+      (spiMasterTransaction mode divHalf wait hold masterIn
+        (readFromBiSignal miso))
 
   clk = systemClockGen
   rst = systemResetGen
