@@ -38,28 +38,32 @@ data SpiMode
   -- Clock is idle low, so the leading edge is rising.
   -- Phase is low, so data is sampled on the leading edge.
   --
-  -- TL;DR Data is shifted on the rising edge of SCK.
+  -- Summary: the receiver samples data on the rising edge of SCK. The
+  -- transmitter shifts data on the falling edge of SCK.
   | SpiMode1
   -- ^ CPOL = 0, CPHA = 1
   --
   -- Clock is idle low, so the leading edge is rising.
   -- Phase is high, so data is sampled on the trailing edge.
   --
-  -- TL;DR Data is shifted on the falling edge of SCK.
+  -- Summary: the receiver samples data on the falling edge of SCK. The
+  -- transmitter shifts data on the rising edge of SCK.
   | SpiMode2
   -- ^ CPOL = 1, CPHA = 0
   --
   -- Clock is idle high, so the leading edge is falling.
   -- Phase is low, so data is sampled on the leading edge.
   --
-  -- TL;DR Data is shifted on the falling edge of SCK.
+  -- Summary: the receiver samples data on the falling edge of SCK. The
+  -- transmitter shifts data on the rising edge of SCK.
   | SpiMode3
   -- ^ CPOL = 1, CPHA = 1
   --
   -- Clock is idle high, so the leading edge is falling.
   -- Phase is high, so data is sampled on the trailing edge.
   --
-  -- TL;DR Data is shifted on the rising edge of SCK.
+  -- Summary: the receiver samples data on the rising edge of SCK. The
+  -- transmitter shifts data on the falling edge of SCK.
   deriving (Eq, Show)
 
 instance Arbitrary SpiMode where
@@ -124,7 +128,6 @@ spiCommon
      )
 spiCommon mode ssI msI sckI dinI =
   mooreB go cvt ( 0 :: Index n      -- cntR
-                , False             -- cntOldR
                 , undefined         -- sckOldR
                 , deepErrorX "no initial dataInR"
                 , deepErrorX "no initial dataOutR"
@@ -133,7 +136,7 @@ spiCommon mode ssI msI sckI dinI =
                 )
                 (ssI,msI,sckI,dinI)
  where
-  cvt (_,_,_,dataInQ,dataOutQ,ackQ,doneQ) =
+  cvt (_,_,dataInQ,dataOutQ,ackQ,doneQ) =
     ( head dataOutQ
     , ackQ
     , if doneQ
@@ -141,8 +144,8 @@ spiCommon mode ssI msI sckI dinI =
          else Nothing
     )
 
-  go (cntQ,cntOldQ,sckOldQ,dataInQ,dataOutQ,_,_) (ss,ms,sck,din) =
-    (cntD,cntOldD,sck,dataInD,dataOutD,ackD,doneD)
+  go (cntQ,sckOldQ,dataInQ,dataOutQ,_,_) (ss,ms,sck,din) =
+    (cntD,sck,dataInD,dataOutD,ackD,doneD)
    where
     cntD
       | ss        = 0
@@ -156,19 +159,27 @@ spiCommon mode ssI msI sckI dinI =
 
     dataOutD
       | ss || (sampleOnTrailing mode && sampleSck && cntQ == maxBound) = unpack din
+      -- Modes 0 and 2: load the next word on the shift edge after the last
+      -- sample of a word. At this edge, the first bit of the next word must
+      -- be on the output. This load is necessary when slave select stays
+      -- asserted between words. In these modes, the first edge after slave
+      -- select asserts is a sample edge. Thus, this condition is true only at
+      -- a word boundary.
+      | sampleOnLeading mode && shiftSck && cntQ == 0 = unpack din
       | shiftSck  = if sampleOnTrailing mode && cntQ == 0
                     then dataOutQ
                     else tail @(n-1) dataOutQ :< unpack undefined#
       | otherwise = dataOutQ
 
-    -- The counter is updated during the capture moment
-    -- But we need to know during the shift moment whether the counter
-    -- overflowed to determine whether we need to load new data or shift
-    -- the existing data. That's why we capture it here.
-    cntOldD | not ss && shiftSck = cntQ == maxBound
-            | otherwise          = cntOldQ
+    ackD
+      -- Words of 1 bit (the counter has only the value 0): the next load
+      -- occurs on the next shift edge in modes 0 and 2, and on the next
+      -- sample edge in modes 1 and 3. The acknowledgement must occur before
+      -- that load. Thus, use the edge before the load.
+      | maxBound == (0 :: Index n) =
+          not ss && (if sampleOnLeading mode then sampleSck else shiftSck)
+      | otherwise = not ss && shiftSck && cntQ == 1
 
-    ackD  = not ss && shiftSck && cntQ == 1
     doneD = not ss && sampleSck && cntQ == maxBound
 
     (sampleSck, shiftSck)
@@ -195,9 +206,16 @@ spiSlave
   -> Signal dom Bool
   -- ^ Slave select (SS)
   -> Signal dom (BitVector n)
-  -- ^ Data to send from master to slave
+  -- ^ Data to send from slave to master
   --
-  -- Input is latched the moment slave select goes low
+  -- The slave latches the first word when slave select goes low. When slave
+  -- select stays low for more than one word, the slave latches the next word
+  -- at the end of the current word. Put the next word on this input after the
+  -- slave asserts the acknowledgement output. Keep the next word stable until
+  -- the current word ends. For words of 1 bit in modes 0 and 2, the slave
+  -- loads the next word half a period of SCK after the sample edge. Thus, put
+  -- the next word on this input in less than half a period of SCK after the
+  -- acknowledgement.
   -> ( BiSignalOut ds dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -205,7 +223,11 @@ spiSlave
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. (Maybe) the word send by the master
+  -- 2. Acknowledgement. This output is True for one clock cycle when the
+  --    slave starts to send the current word. Then, put the next word on the
+  --    data input.
+  --
+  -- 3. (Maybe) the word from the master
 spiSlave (SpiSlaveConfig mode latch buf) sclk mosi bin ss din =
   let ssL   = if latch then delay undefined ss   else ss
       mosiL = if latch then delay undefined mosi else mosi
@@ -253,7 +275,10 @@ spiMaster
   -- 3. Slave select (SS)
   -- 4. Busy signal indicating that a transmission is in progress, new words on
   --    the data line will be ignored when /True/
-  -- 5. (Maybe) the word send from the slave to the master
+  -- 5. Acknowledgement. This output is True for one clock cycle when the
+  --    master starts to send the current word. Then, put the next word on the
+  --    data input.
+  -- 6. (Maybe) the word from the slave
 spiMaster mode fN fW din miso =
   let (mosi, ack, dout)   = spiCommon mode ssL misoL sclkL
                         (fromMaybe undefined# <$> din)
@@ -352,7 +377,14 @@ spiSlaveLatticeSBIO
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- Input is latched the moment slave select goes low
+  -- The slave latches the first word when slave select goes low. When slave
+  -- select stays low for more than one word, the slave latches the next word
+  -- at the end of the current word. Put the next word on this input after the
+  -- slave asserts the acknowledgement output. Keep the next word stable until
+  -- the current word ends. For words of 1 bit in modes 0 and 2, the slave
+  -- loads the next word half a period of SCK after the sample edge. Thus, put
+  -- the next word on this input in less than half a period of SCK after the
+  -- acknowledgement.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -360,7 +392,11 @@ spiSlaveLatticeSBIO
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. (Maybe) the word send by the master
+  -- 2. Acknowledgement. This output is True for one clock cycle when the
+  --    slave starts to send the current word. Then, put the next word on the
+  --    data input.
+  --
+  -- 3. (Maybe) the word from the master
 spiSlaveLatticeSBIO mode latchSpi =
   spiSlave (SpiSlaveConfig mode latchSpi sbioX)
  where
@@ -398,7 +434,14 @@ spiSlaveLatticeBB
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- Input is latched the moment slave select goes low
+  -- The slave latches the first word when slave select goes low. When slave
+  -- select stays low for more than one word, the slave latches the next word
+  -- at the end of the current word. Put the next word on this input after the
+  -- slave asserts the acknowledgement output. Keep the next word stable until
+  -- the current word ends. For words of 1 bit in modes 0 and 2, the slave
+  -- loads the next word half a period of SCK after the sample edge. Thus, put
+  -- the next word on this input in less than half a period of SCK after the
+  -- acknowledgement.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -406,7 +449,11 @@ spiSlaveLatticeBB
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. (Maybe) the word send by the master
+  -- 2. Acknowledgement. This output is True for one clock cycle when the
+  --    slave starts to send the current word. Then, put the next word on the
+  --    data input.
+  --
+  -- 3. (Maybe) the word from the master
 spiSlaveLatticeBB mode latchSpi =
   spiSlave (SpiSlaveConfig mode latchSpi bbX)
  where

@@ -42,16 +42,28 @@ simpleRepeats divHalf wait mVal sVal mode latch duration dev =
 cyclingRepeats
   :: (1 <= halfPeriod, 1 <= waitTime)
   => CyclingTest halfPeriod waitTime 8 8 (Device -> Bool)
-cyclingRepeats divHalf wait mVals sVals mode latch duration dev =
+cyclingRepeats =
+  cyclingRepeatsWith 0 (sampleCycling masterLawfulSignal slaveLawfulSignal)
+
+-- | Same as 'cyclingRepeats', with a different sample function. The test
+-- fails when the sample duration contains fewer words than the given minimum.
+--
+cyclingRepeatsWith
+  :: KnownNat n
+  => Int
+  -- ^ Minimum number of words in the sample duration
+  -> CyclingTest halfPeriod waitTime n n (SpiSamples n n)
+  -> CyclingTest halfPeriod waitTime n n (Device -> Bool)
+cyclingRepeatsWith minWords sampleSpi divHalf wait mVals sVals mode latch
+                   duration dev =
   case dev of
     Master -> checkWith ssMasterOut sVals
     Slave  -> checkWith ssSlaveOut  mVals
  where
-  sampleSpi = sampleCycling masterLawfulSignal slaveLawfulSignal
-
   checkWith outs vals =
-    let spis = sampleSpi divHalf wait mVals sVals mode latch duration
-     in NE.isPrefixOf (catMaybes $ outs spis) (NE.cycle vals)
+    let spis  = sampleSpi divHalf wait mVals sVals mode latch duration
+        outs' = catMaybes $ outs spis
+     in List.length outs' >= minWords && NE.isPrefixOf outs' (NE.cycle vals)
 
 -- | Test that acknowledgement signals and done signals are interleaved.
 -- As acknowledgement signals a transfer has started and done signals a
@@ -59,8 +71,8 @@ cyclingRepeats divHalf wait mVals sVals mode latch duration dev =
 -- The lawfulness of a device is irrelevant here.
 --
 ackDoneInterleaved
-  :: (1 <= halfPeriod, 1 <= waitTime)
-  => SimpleTest halfPeriod waitTime 8 8 (Device -> Bool)
+  :: (1 <= halfPeriod, 1 <= waitTime, KnownNat n, 1 <= n)
+  => SimpleTest halfPeriod waitTime n n (Device -> Bool)
 ackDoneInterleaved divHalf wait mVal sVal mode latch duration dev =
   case dev of
     Master -> checkWith ssMasterOut ssMasterAck
@@ -77,6 +89,36 @@ ackDoneInterleaved divHalf wait mVal sVal mode latch duration dev =
         ackIxs = List.elemIndices True $ acks spis
      in interleave ackIxs outIxs == List.sort (ackIxs <> outIxs)
 
+-- | Test that sending multiple words repeats those words in a cycle when
+-- slave select of the slave stays asserted between words. Most SPI masters
+-- operate in this manner. This only works for lawful devices.
+--
+-- The slave loads a new word only from the second word. Thus, the test fails
+-- when the sample duration contains fewer than two words.
+--
+heldSelectRepeats
+  :: (1 <= halfPeriod, 1 <= waitTime)
+  => CyclingTest halfPeriod waitTime 8 8 (Device -> Bool)
+heldSelectRepeats =
+  cyclingRepeatsWith 2
+    (sampleCyclingHeldSelect masterLawfulSignal slaveLawfulSignal)
+
+-- | Test that sending multiple words repeats those words in a cycle when
+-- slave select of the slave stays asserted for bursts of three words. This
+-- only works for lawful devices.
+--
+-- The test doubles the sample duration, and fails when the sample duration
+-- contains fewer than four words. Thus, the test always checks a word after
+-- the first burst.
+--
+burstSelectRepeats
+  :: (1 <= halfPeriod, 1 <= waitTime)
+  => CyclingTest halfPeriod waitTime 8 8 (Device -> Bool)
+burstSelectRepeats divHalf wait mVals sVals mode latch duration =
+  cyclingRepeatsWith 4
+    (sampleCyclingBurstSelect d3 masterLawfulSignal slaveLawfulSignal)
+    divHalf wait mVals sVals mode latch (2 * duration)
+
 tests :: TestTree
 tests = testGroup "SPI"
   [ testGroup "Repeating messages"
@@ -91,6 +133,35 @@ tests = testGroup "SPI"
     [ QC.testProperty "Acknowledgement interleaves with Done"
         $ ackDoneInterleaved d4 d1 mSimple sSimple
     ]
+
+  , testGroup "Slave select held between words"
+    -- With a half period of 2, the minimum sample duration contains two words.
+    [ QC.testProperty "Multiple word messages repeat indefinitely"
+        $ heldSelectRepeats d2 d1 mCycling sCycling
+
+    , QC.testProperty "Multiple word messages repeat in bursts of three words"
+        $ burstSelectRepeats d2 d1 mCycling sCycling
+    ]
+
+  , testGroup "Words of 1 bit"
+    [ QC.testProperty "Multiple word messages repeat indefinitely"
+        $ cyclingRepeatsWith 2
+            (sampleCycling masterLawfulSignal slaveLawfulSignal)
+            d4 d1 mCycling1 sCycling1
+
+    , QC.testProperty "Slave select held between words"
+        $ cyclingRepeatsWith 2
+            (sampleCyclingHeldSelect masterLawfulSignal slaveLawfulSignal)
+            d4 d1 mCycling1 sCycling1
+
+    , QC.testProperty "Slave select held for bursts of three words"
+        $ cyclingRepeatsWith 4
+            (sampleCyclingBurstSelect d3 masterLawfulSignal slaveLawfulSignal)
+            d4 d1 mCycling1 sCycling1
+
+    , QC.testProperty "Acknowledgement interleaves with Done"
+        $ ackDoneInterleaved d4 d1 mSimple1 sSimple1
+    ]
   ]
  where
   mSimple  = 0b10101010
@@ -98,3 +169,15 @@ tests = testGroup "SPI"
 
   sSimple  = 0b00010011
   sCycling = 0b11111111 :| [0b00100010]
+
+  -- With words of 1 bit, a word that the slave sends two times changes the
+  -- sequence. Thus, the sequences contain the two values in an irregular
+  -- order.
+  mSimple1, sSimple1 :: BitVector 1
+  mSimple1 = 0b1
+  sSimple1 = 0b0
+
+  mCycling1, sCycling1 :: NonEmpty (BitVector 1)
+  mCycling1 = 0b1 :| [0b0, 0b0]
+  sCycling1 = 0b0 :| [0b1, 0b1]
+
