@@ -205,9 +205,10 @@ spiSlave
   -- ^ Data to send from slave to master
   --
   -- The slave latches the first word when slave select goes low. When slave
-  -- select stays low for more than one word, the slave latches each word
-  -- after the first word at the start of that word. Put the next word on this
-  -- input after the slave asserts the acknowledgement output.
+  -- select stays low for more than one word, the slave latches the next word
+  -- at the end of the current word. Put the next word on this input after the
+  -- slave asserts the acknowledgement output. Keep the next word stable until
+  -- the current word ends.
   -> ( BiSignalOut ds dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -215,8 +216,9 @@ spiSlave
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. Acknowledgement. When this output is True, the slave started to send
-  --    the current word. Then, put the next word on the data input.
+  -- 2. Acknowledgement. This output is True for one clock cycle when the
+  --    slave starts to send the current word. Then, put the next word on the
+  --    data input.
   --
   -- 3. (Maybe) the word from the master
 spiSlave (SpiSlaveConfig mode latch buf) sclk mosi bin ss din =
@@ -366,9 +368,10 @@ spiSlaveLatticeSBIO
   -- ^ Data to send from slave to master
   --
   -- The slave latches the first word when slave select goes low. When slave
-  -- select stays low for more than one word, the slave latches each word
-  -- after the first word at the start of that word. Put the next word on this
-  -- input after the slave asserts the acknowledgement output.
+  -- select stays low for more than one word, the slave latches the next word
+  -- at the end of the current word. Put the next word on this input after the
+  -- slave asserts the acknowledgement output. Keep the next word stable until
+  -- the current word ends.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -376,8 +379,9 @@ spiSlaveLatticeSBIO
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. Acknowledgement. When this output is True, the slave started to send
-  --    the current word. Then, put the next word on the data input.
+  -- 2. Acknowledgement. This output is True for one clock cycle when the
+  --    slave starts to send the current word. Then, put the next word on the
+  --    data input.
   --
   -- 3. (Maybe) the word from the master
 spiSlaveLatticeSBIO mode latchSpi =
@@ -418,9 +422,10 @@ spiSlaveLatticeBB
   -- ^ Data to send from slave to master
   --
   -- The slave latches the first word when slave select goes low. When slave
-  -- select stays low for more than one word, the slave latches each word
-  -- after the first word at the start of that word. Put the next word on this
-  -- input after the slave asserts the acknowledgement output.
+  -- select stays low for more than one word, the slave latches the next word
+  -- at the end of the current word. Put the next word on this input after the
+  -- slave asserts the acknowledgement output. Keep the next word stable until
+  -- the current word ends.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -428,8 +433,9 @@ spiSlaveLatticeBB
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. Acknowledgement. When this output is True, the slave started to send
-  --    the current word. Then, put the next word on the data input.
+  -- 2. Acknowledgement. This output is True for one clock cycle when the
+  --    slave starts to send the current word. Then, put the next word on the
+  --    data input.
   --
   -- 3. (Maybe) the word from the master
 spiSlaveLatticeBB mode latchSpi =

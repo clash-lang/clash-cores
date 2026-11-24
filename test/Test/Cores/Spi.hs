@@ -81,6 +81,9 @@ ackDoneInterleaved divHalf wait mVal sVal mode latch duration dev =
 -- slave select of the slave stays asserted between words. Most SPI masters
 -- operate in this manner. This only works for lawful devices.
 --
+-- The slave loads a new word only from the second word. Thus, the test fails
+-- when the sample duration contains fewer than two words.
+--
 heldSelectRepeats
   :: (1 <= halfPeriod, 1 <= waitTime)
   => CyclingTest halfPeriod waitTime 8 8 (Device -> Bool)
@@ -93,7 +96,8 @@ heldSelectRepeats divHalf wait mVals sVals mode latch duration dev =
 
   checkWith outs vals =
     let spis = sampleSpi divHalf wait mVals sVals mode latch duration
-     in NE.isPrefixOf (catMaybes $ outs spis) (NE.cycle vals)
+        outs' = catMaybes $ outs spis
+     in List.length outs' >= 2 && NE.isPrefixOf outs' (NE.cycle vals)
 
 tests :: TestTree
 tests = testGroup "SPI"
@@ -111,6 +115,7 @@ tests = testGroup "SPI"
     ]
 
   , testGroup "Slave select held between words"
+    -- With a half period of 2, the minimum sample duration contains two words.
     [ QC.testProperty "Multiple word messages repeat indefinitely"
         $ heldSelectRepeats d2 d1 mCycling sCycling
     ]
