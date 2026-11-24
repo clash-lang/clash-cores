@@ -156,11 +156,12 @@ spiCommon mode ssI msI sckI dinI =
 
     dataOutD
       | ss || (sampleOnTrailing mode && sampleSck && cntQ == maxBound) = unpack din
-      -- Modes 0 and 2: the shift edge after the last sample of a word is where
-      -- the first bit of the next word must appear when slave select stays
-      -- asserted, so load it here. In these modes the first edge after slave
-      -- select asserts is a sample edge, so this only happens at a word
-      -- boundary.
+      -- Modes 0 and 2: load the next word on the shift edge after the last
+      -- sample of a word. At this edge, the first bit of the next word must
+      -- be on the output. This load is necessary when slave select stays
+      -- asserted between words. In these modes, the first edge after slave
+      -- select asserts is a sample edge. Thus, this condition is true only at
+      -- a word boundary.
       | sampleOnLeading mode && shiftSck && cntQ == 0 = unpack din
       | shiftSck  = if sampleOnTrailing mode && cntQ == 0
                     then dataOutQ
@@ -203,10 +204,10 @@ spiSlave
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- The first word is latched the moment slave select goes low. When slave
-  -- select stays low for multiple words, each following word is latched at
-  -- the start of its transfer. Present the next word after the acknowledgement
-  -- output is asserted.
+  -- The slave latches the first word when slave select goes low. When slave
+  -- select stays low for more than one word, the slave latches each word
+  -- after the first word at the start of that word. Put the next word on this
+  -- input after the slave asserts the acknowledgement output.
   -> ( BiSignalOut ds dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -214,10 +215,10 @@ spiSlave
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. Acknowledgement: the current word is being transmitted, so the next
-  --    word can be presented on the data input.
+  -- 2. Acknowledgement. When this output is True, the slave started to send
+  --    the current word. Then, put the next word on the data input.
   --
-  -- 3. (Maybe) the word send by the master
+  -- 3. (Maybe) the word from the master
 spiSlave (SpiSlaveConfig mode latch buf) sclk mosi bin ss din =
   let ssL   = if latch then delay undefined ss   else ss
       mosiL = if latch then delay undefined mosi else mosi
@@ -364,10 +365,10 @@ spiSlaveLatticeSBIO
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- The first word is latched the moment slave select goes low. When slave
-  -- select stays low for multiple words, each following word is latched at
-  -- the start of its transfer. Present the next word after the acknowledgement
-  -- output is asserted.
+  -- The slave latches the first word when slave select goes low. When slave
+  -- select stays low for more than one word, the slave latches each word
+  -- after the first word at the start of that word. Put the next word on this
+  -- input after the slave asserts the acknowledgement output.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -375,10 +376,10 @@ spiSlaveLatticeSBIO
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. Acknowledgement: the current word is being transmitted, so the next
-  --    word can be presented on the data input.
+  -- 2. Acknowledgement. When this output is True, the slave started to send
+  --    the current word. Then, put the next word on the data input.
   --
-  -- 3. (Maybe) the word send by the master
+  -- 3. (Maybe) the word from the master
 spiSlaveLatticeSBIO mode latchSpi =
   spiSlave (SpiSlaveConfig mode latchSpi sbioX)
  where
@@ -416,10 +417,10 @@ spiSlaveLatticeBB
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- The first word is latched the moment slave select goes low. When slave
-  -- select stays low for multiple words, each following word is latched at
-  -- the start of its transfer. Present the next word after the acknowledgement
-  -- output is asserted.
+  -- The slave latches the first word when slave select goes low. When slave
+  -- select stays low for more than one word, the slave latches each word
+  -- after the first word at the start of that word. Put the next word on this
+  -- input after the slave asserts the acknowledgement output.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -427,10 +428,10 @@ spiSlaveLatticeBB
   --
   -- 1. The "out" part of the inout port of the MISO; used only for simulation.
   --
-  -- 2. Acknowledgement: the current word is being transmitted, so the next
-  --    word can be presented on the data input.
+  -- 2. Acknowledgement. When this output is True, the slave started to send
+  --    the current word. Then, put the next word on the data input.
   --
-  -- 3. (Maybe) the word send by the master
+  -- 3. (Maybe) the word from the master
 spiSlaveLatticeBB mode latchSpi =
   spiSlave (SpiSlaveConfig mode latchSpi bbX)
  where

@@ -7,6 +7,7 @@ module Test.Cores.Internal.SampleSpi
   , CyclingTest
   , SimpleTest
   , sampleCycling
+  , sampleCyclingHeldSelect
   , sampleSimple
   ) where
 
@@ -14,6 +15,7 @@ import qualified Data.List as List (unzip4)
 import           Data.List.NonEmpty (NonEmpty)
 import           Test.QuickCheck (Arbitrary(..), suchThat)
 
+import qualified Clash.Explicit.Prelude as E
 import           Clash.Prelude
 import           Clash.Cores.Spi
 
@@ -66,7 +68,42 @@ sampleCycling
   => GenMaster master
   -> GenSlave slave
   -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
-sampleCycling genM genS divHalf wait mVals sVals mode latch duration =
+sampleCycling = sampleCyclingWith (\_ _ ss -> ss)
+
+-- | Same as 'sampleCycling', but slave select of the SPI slave stays asserted
+-- after the first word. The SPI master de-asserts slave select after each
+-- word. Thus, this test uses a different slave select signal for the slave.
+-- This signal goes low with slave select of the master, and then stays low.
+--
+sampleCyclingHeldSelect
+  :: ( KnownNat master, KnownNat slave
+     , 1 <= halfPeriod, 1 <= waitTime, 1 <= master, 1 <= slave
+     )
+  => GenMaster master
+  -> GenSlave slave
+  -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
+sampleCyclingHeldSelect = sampleCyclingWith holdSelect
+ where
+  holdSelect clk rst ss = ssHeld
+   where
+    ssHeld = ss .&&. beforeFirst
+    beforeFirst = E.register clk rst enableGen True ssHeld
+
+sampleCyclingWith
+  :: ( KnownNat master, KnownNat slave
+     , 1 <= halfPeriod, 1 <= waitTime, 1 <= master, 1 <= slave
+     )
+  => (  Clock System
+     -> Reset System
+     -> Signal System Bool
+     -> Signal System Bool )
+  -- ^ Function to make slave select of the SPI slave from slave select of
+  -- the SPI master
+  -> GenMaster master
+  -> GenSlave slave
+  -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
+sampleCyclingWith slaveSelect genM genS divHalf wait mVals sVals mode latch
+                  duration =
   (\(mO, mA, sO, sA) -> SpiSamples mO mA sO sA) $ List.unzip4 samples
  where
   samples = sampleN (getDuration duration) $ bundle (mOut, mAck, sOut, sAck)
@@ -74,7 +111,9 @@ sampleCycling genM genS divHalf wait mVals sVals mode latch duration =
 
   (misoZ, sAck, sOut) =
     withClockResetEnable clk rst enableGen
-      (spiSlaveLatticeSBIO mode latch sclk mosi miso ss slaveIn)
+      (spiSlaveLatticeSBIO mode latch sclk mosi miso ssSlave slaveIn)
+
+  ssSlave = slaveSelect clk rst ss
 
   miso = veryUnsafeToBiSignalIn misoZ
   masterIn = genM clk rst mVals mAck bp

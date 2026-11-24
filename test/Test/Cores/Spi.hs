@@ -8,7 +8,6 @@ import           Test.Tasty
 import           Test.Tasty.QuickCheck as QC
 
 import           Clash.Prelude hiding (interleave)
-import           Clash.Cores.Spi
 
 import           Test.Cores.Internal.SampleSpi
 import           Test.Cores.Internal.Signals
@@ -78,111 +77,23 @@ ackDoneInterleaved divHalf wait mVal sVal mode latch duration dev =
         ackIxs = List.elemIndices True $ acks spis
      in interleave ackIxs outIxs == List.sort (ackIxs <> outIxs)
 
--- | Simulate an SPI slave driven by a master that keeps slave select asserted
--- for all words of a single transfer. Unlike 'spiMaster', which de-asserts
--- slave select after every word, this exercises loading new words while slave
--- select stays low.
+-- | Test that sending multiple words repeats those words in a cycle when
+-- slave select of the slave stays asserted between words. Most SPI masters
+-- operate in this manner. This only works for lawful devices.
 --
--- Returns the words the master read from MISO and the words the slave
--- received from MOSI. Words containing undefined bits are 'Nothing'.
---
-sampleHeldSelect
-  :: SpiMode
-  -> Bool
-  -- ^ Whether the SPI slave should latch signals
-  -> [BitVector 8]
-  -- ^ Values master sends to slave
-  -> NonEmpty (BitVector 8)
-  -- ^ Values slave sends to master
-  -> ([Maybe (BitVector 8)], [Maybe (BitVector 8)])
-sampleHeldSelect mode latch mWords sWords = (masterGot, slaveGot)
+heldSelectRepeats
+  :: (1 <= halfPeriod, 1 <= waitTime)
+  => CyclingTest halfPeriod waitTime 8 8 (Device -> Bool)
+heldSelectRepeats divHalf wait mVals sVals mode latch duration dev =
+  case dev of
+    Master -> checkWith ssMasterOut sVals
+    Slave  -> checkWith ssSlaveOut  mVals
  where
-  -- Half an SCK period in clock cycles
-  halfPeriod = 4
-  idleSck = mode == SpiMode2 || mode == SpiMode3
-  -- CPHA = 0: sample on the leading edge, CPHA = 1: on the trailing edge
-  cpha0 = mode == SpiMode0 || mode == SpiMode2
+  sampleSpi = sampleCyclingHeldSelect masterLawfulSignal slaveLawfulSignal
 
-  -- (SS, SCK, MOSI) per clock cycle. Each MOSI bit is held for a full SCK
-  -- period, which is arranged such that its sample edge falls in the middle.
-  stimulus =
-       List.replicate 8 (True, idleSck, 0)
-    <> List.replicate 4 (False, idleSck, 0)
-    <> List.concatMap oneBit (List.concatMap msbFirst mWords)
-    <> List.replicate 4 (False, idleSck, 0)
-    <> List.replicate 8 (True, idleSck, 0)
-
-  oneBit b
-    | cpha0     = half idleSck <> half (not idleSck)
-    | otherwise = half (not idleSck) <> half idleSck
-   where
-    half sck = List.replicate halfPeriod (False, sck, b)
-
-  msbFirst :: BitVector 8 -> [Bit]
-  msbFirst w = [w ! i | i <- [7, 6 .. 0 :: Int]]
-
-  nCycles = List.length stimulus
-  stimSs   = [ss | (ss, _, _) <- stimulus]
-  stimSck  = [sck | (_, sck, _) <- stimulus]
-  stimMosi = [m | (_, _, m) <- stimulus]
-
-  clk = systemClockGen
-  rst = systemResetGen
-
-  ssS   = fromList (stimSs <> List.repeat True)
-  sckS  = fromList (stimSck <> List.repeat idleSck)
-  mosiS = fromList (stimMosi <> List.repeat 0)
-
-  config :: SpiSlaveConfig 'Floating System
-  config = SpiSlaveConfig mode latch buffer
-  buffer bin oe out = writeToBiSignal bin (mux oe (Just <$> out) (pure Nothing))
-
-  (misoOut, ack, dout) =
-    withClockResetEnable clk rst enableGen
-      (spiSlave config sckS mosiS misoIn ssS din)
-  misoIn = veryUnsafeToBiSignalIn misoOut
-  din = slaveLawfulSignal clk rst sWords ack
-
-  misoSamples = sampleN nCycles (readFromBiSignal misoIn :: Signal System Bit)
-  doutSamples = sampleN nCycles dout
-
-  -- MISO as the master sees it on each of its sample edges
-  masterBits =
-    [ m
-    | (sckPrev, sckNow, ssNow, m) <-
-        List.zip4 stimSck (List.drop 1 stimSck) (List.drop 1 stimSs)
-          (List.drop 1 misoSamples)
-    , not ssNow
-    , sckPrev /= sckNow
-    , if cpha0 then sckPrev == idleSck else sckNow == idleSck
-    ]
-
-  masterGot = fmap toWord (chunksOf8 masterBits)
-  slaveGot  = fmap defined (catMaybes doutSamples)
-
-  toWord bits
-    | List.any hasUndefined bits = Nothing
-    | otherwise = Just (List.foldl (\acc b -> shiftL acc 1 .|. zeroExtend (pack b)) 0 bits)
-
-  defined w = if hasUndefined w then Nothing else Just w
-
-  chunksOf8 [] = []
-  chunksOf8 xs = List.take 8 xs : chunksOf8 (List.drop 8 xs)
-
--- | Test that a slave sends and receives every word correctly when the master
--- keeps slave select asserted for multiple words.
---
-heldSelectTransfers
-  :: SpiMode
-  -> Bool
-  -> QC.NonEmptyList (BitVector 8, BitVector 8)
-  -> QC.Property
-heldSelectTransfers mode latch (QC.NonEmpty pairs0) =
-  sampleHeldSelect mode latch mWords (NE.fromList sWords)
-    === (fmap Just sWords, fmap Just mWords)
- where
-  pairs = List.take 5 pairs0
-  (mWords, sWords) = List.unzip pairs
+  checkWith outs vals =
+    let spis = sampleSpi divHalf wait mVals sVals mode latch duration
+     in NE.isPrefixOf (catMaybes $ outs spis) (NE.cycle vals)
 
 tests :: TestTree
 tests = testGroup "SPI"
@@ -199,9 +110,9 @@ tests = testGroup "SPI"
         $ ackDoneInterleaved d4 d1 mSimple sSimple
     ]
 
-  , testGroup "Slave select held across words"
-    [ QC.testProperty "Slave sends and receives every word"
-        heldSelectTransfers
+  , testGroup "Slave select held between words"
+    [ QC.testProperty "Multiple word messages repeat indefinitely"
+        $ heldSelectRepeats d2 d1 mCycling sCycling
     ]
   ]
  where
