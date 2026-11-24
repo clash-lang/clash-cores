@@ -49,10 +49,11 @@ cyclingRepeats =
 -- fails when the sample duration contains fewer words than the given minimum.
 --
 cyclingRepeatsWith
-  :: Int
+  :: KnownNat n
+  => Int
   -- ^ Minimum number of words in the sample duration
-  -> CyclingTest halfPeriod waitTime 8 8 (SpiSamples 8 8)
-  -> CyclingTest halfPeriod waitTime 8 8 (Device -> Bool)
+  -> CyclingTest halfPeriod waitTime n n (SpiSamples n n)
+  -> CyclingTest halfPeriod waitTime n n (Device -> Bool)
 cyclingRepeatsWith minWords sampleSpi divHalf wait mVals sVals mode latch
                    duration dev =
   case dev of
@@ -70,8 +71,8 @@ cyclingRepeatsWith minWords sampleSpi divHalf wait mVals sVals mode latch
 -- The lawfulness of a device is irrelevant here.
 --
 ackDoneInterleaved
-  :: (1 <= halfPeriod, 1 <= waitTime)
-  => SimpleTest halfPeriod waitTime 8 8 (Device -> Bool)
+  :: (1 <= halfPeriod, 1 <= waitTime, KnownNat n, 1 <= n)
+  => SimpleTest halfPeriod waitTime n n (Device -> Bool)
 ackDoneInterleaved divHalf wait mVal sVal mode latch duration dev =
   case dev of
     Master -> checkWith ssMasterOut ssMasterAck
@@ -141,6 +142,26 @@ tests = testGroup "SPI"
     , QC.testProperty "Multiple word messages repeat in bursts of three words"
         $ burstSelectRepeats d2 d1 mCycling sCycling
     ]
+
+  , testGroup "Words of 1 bit"
+    [ QC.testProperty "Multiple word messages repeat indefinitely"
+        $ cyclingRepeatsWith 2
+            (sampleCycling masterLawfulSignal slaveLawfulSignal)
+            d4 d1 mCycling1 sCycling1
+
+    , QC.testProperty "Slave select held between words"
+        $ cyclingRepeatsWith 2
+            (sampleCyclingHeldSelect masterLawfulSignal slaveLawfulSignal)
+            d4 d1 mCycling1 sCycling1
+
+    , QC.testProperty "Slave select held for bursts of three words"
+        $ cyclingRepeatsWith 4
+            (sampleCyclingBurstSelect d3 masterLawfulSignal slaveLawfulSignal)
+            d4 d1 mCycling1 sCycling1
+
+    , QC.testProperty "Acknowledgement interleaves with Done"
+        $ ackDoneInterleaved d4 d1 mSimple1 sSimple1
+    ]
   ]
  where
   mSimple  = 0b10101010
@@ -148,3 +169,15 @@ tests = testGroup "SPI"
 
   sSimple  = 0b00010011
   sCycling = 0b11111111 :| [0b00100010]
+
+  -- With words of 1 bit, a word that the slave sends two times changes the
+  -- sequence. Thus, the sequences contain the two values in an irregular
+  -- order.
+  mSimple1, sSimple1 :: BitVector 1
+  mSimple1 = 0b1
+  sSimple1 = 0b0
+
+  mCycling1, sCycling1 :: NonEmpty (BitVector 1)
+  mCycling1 = 0b1 :| [0b0, 0b0]
+  sCycling1 = 0b0 :| [0b1, 0b1]
+

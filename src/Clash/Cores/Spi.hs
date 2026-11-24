@@ -171,7 +171,15 @@ spiCommon mode ssI msI sckI dinI =
                     else tail @(n-1) dataOutQ :< unpack undefined#
       | otherwise = dataOutQ
 
-    ackD  = not ss && shiftSck && cntQ == 1
+    ackD
+      -- Words of 1 bit (the counter has only the value 0): the next load
+      -- occurs on the next shift edge in modes 0 and 2, and on the next
+      -- sample edge in modes 1 and 3. The acknowledgement must occur before
+      -- that load. Thus, use the edge before the load.
+      | maxBound == (0 :: Index n) =
+          not ss && (if sampleOnLeading mode then sampleSck else shiftSck)
+      | otherwise = not ss && shiftSck && cntQ == 1
+
     doneD = not ss && sampleSck && cntQ == maxBound
 
     (sampleSck, shiftSck)
@@ -204,7 +212,10 @@ spiSlave
   -- select stays low for more than one word, the slave latches the next word
   -- at the end of the current word. Put the next word on this input after the
   -- slave asserts the acknowledgement output. Keep the next word stable until
-  -- the current word ends.
+  -- the current word ends. For words of 1 bit in modes 0 and 2, the slave
+  -- loads the next word half a period of SCK after the sample edge. Thus, put
+  -- the next word on this input in less than half a period of SCK after the
+  -- acknowledgement.
   -> ( BiSignalOut ds dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -370,7 +381,10 @@ spiSlaveLatticeSBIO
   -- select stays low for more than one word, the slave latches the next word
   -- at the end of the current word. Put the next word on this input after the
   -- slave asserts the acknowledgement output. Keep the next word stable until
-  -- the current word ends.
+  -- the current word ends. For words of 1 bit in modes 0 and 2, the slave
+  -- loads the next word half a period of SCK after the sample edge. Thus, put
+  -- the next word on this input in less than half a period of SCK after the
+  -- acknowledgement.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
@@ -424,7 +438,10 @@ spiSlaveLatticeBB
   -- select stays low for more than one word, the slave latches the next word
   -- at the end of the current word. Put the next word on this input after the
   -- slave asserts the acknowledgement output. Keep the next word stable until
-  -- the current word ends.
+  -- the current word ends. For words of 1 bit in modes 0 and 2, the slave
+  -- loads the next word half a period of SCK after the sample edge. Thus, put
+  -- the next word on this input in less than half a period of SCK after the
+  -- acknowledgement.
   -> ( BiSignalOut 'Floating dom 1
      , Signal dom Bool
      , Signal dom (Maybe (BitVector n)))
