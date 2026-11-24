@@ -8,6 +8,7 @@ module Test.Cores.Internal.SampleSpi
   , SimpleTest
   , sampleCycling
   , sampleCyclingHeldSelect
+  , sampleCyclingBurstSelect
   , sampleSimple
   ) where
 
@@ -88,6 +89,36 @@ sampleCyclingHeldSelect = sampleCyclingWith holdSelect
    where
     ssHeld = ss .&&. beforeFirst
     beforeFirst = E.register clk rst enableGen True ssHeld
+
+-- | Same as 'sampleCycling', but slave select of the SPI slave stays asserted
+-- for a burst of words. After each burst, slave select of the slave goes high
+-- with slave select of the master. Then, the next burst starts.
+--
+sampleCyclingBurstSelect
+  :: ( KnownNat master, KnownNat slave
+     , 1 <= halfPeriod, 1 <= waitTime, 1 <= master, 1 <= slave
+     , KnownNat burst, 1 <= burst
+     )
+  => SNat burst
+  -- ^ Number of words in a burst
+  -> GenMaster master
+  -> GenSlave slave
+  -> CyclingTest halfPeriod waitTime master slave (SpiSamples master slave)
+sampleCyclingBurstSelect burst = sampleCyclingWith burstSelect
+ where
+  burstSelect clk rst ss =
+    E.mealy clk rst enableGen go (True, 0 `asIndexOf` burst) ss
+
+  -- Count the words of the master. A word ends when slave select of the
+  -- master goes high.
+  go (ssOld, cnt) ssNow = ((ssNow, cntNext), ssNow && cntNext == 0)
+   where
+    cntNext
+      | ssNow && not ssOld = if cnt == maxBound then 0 else cnt + 1
+      | otherwise          = cnt
+
+  asIndexOf :: Index n -> SNat n -> Index n
+  asIndexOf i SNat = i
 
 sampleCyclingWith
   :: ( KnownNat master, KnownNat slave

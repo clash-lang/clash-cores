@@ -38,28 +38,32 @@ data SpiMode
   -- Clock is idle low, so the leading edge is rising.
   -- Phase is low, so data is sampled on the leading edge.
   --
-  -- TL;DR Data is shifted on the rising edge of SCK.
+  -- Summary: the receiver samples data on the rising edge of SCK. The
+  -- transmitter shifts data on the falling edge of SCK.
   | SpiMode1
   -- ^ CPOL = 0, CPHA = 1
   --
   -- Clock is idle low, so the leading edge is rising.
   -- Phase is high, so data is sampled on the trailing edge.
   --
-  -- TL;DR Data is shifted on the falling edge of SCK.
+  -- Summary: the receiver samples data on the falling edge of SCK. The
+  -- transmitter shifts data on the rising edge of SCK.
   | SpiMode2
   -- ^ CPOL = 1, CPHA = 0
   --
   -- Clock is idle high, so the leading edge is falling.
   -- Phase is low, so data is sampled on the leading edge.
   --
-  -- TL;DR Data is shifted on the falling edge of SCK.
+  -- Summary: the receiver samples data on the falling edge of SCK. The
+  -- transmitter shifts data on the rising edge of SCK.
   | SpiMode3
   -- ^ CPOL = 1, CPHA = 1
   --
   -- Clock is idle high, so the leading edge is falling.
   -- Phase is high, so data is sampled on the trailing edge.
   --
-  -- TL;DR Data is shifted on the rising edge of SCK.
+  -- Summary: the receiver samples data on the rising edge of SCK. The
+  -- transmitter shifts data on the falling edge of SCK.
   deriving (Eq, Show)
 
 instance Arbitrary SpiMode where
@@ -124,7 +128,6 @@ spiCommon
      )
 spiCommon mode ssI msI sckI dinI =
   mooreB go cvt ( 0 :: Index n      -- cntR
-                , False             -- cntOldR
                 , undefined         -- sckOldR
                 , deepErrorX "no initial dataInR"
                 , deepErrorX "no initial dataOutR"
@@ -133,7 +136,7 @@ spiCommon mode ssI msI sckI dinI =
                 )
                 (ssI,msI,sckI,dinI)
  where
-  cvt (_,_,_,dataInQ,dataOutQ,ackQ,doneQ) =
+  cvt (_,_,dataInQ,dataOutQ,ackQ,doneQ) =
     ( head dataOutQ
     , ackQ
     , if doneQ
@@ -141,8 +144,8 @@ spiCommon mode ssI msI sckI dinI =
          else Nothing
     )
 
-  go (cntQ,cntOldQ,sckOldQ,dataInQ,dataOutQ,_,_) (ss,ms,sck,din) =
-    (cntD,cntOldD,sck,dataInD,dataOutD,ackD,doneD)
+  go (cntQ,sckOldQ,dataInQ,dataOutQ,_,_) (ss,ms,sck,din) =
+    (cntD,sck,dataInD,dataOutD,ackD,doneD)
    where
     cntD
       | ss        = 0
@@ -167,13 +170,6 @@ spiCommon mode ssI msI sckI dinI =
                     then dataOutQ
                     else tail @(n-1) dataOutQ :< unpack undefined#
       | otherwise = dataOutQ
-
-    -- The counter is updated during the capture moment
-    -- But we need to know during the shift moment whether the counter
-    -- overflowed to determine whether we need to load new data or shift
-    -- the existing data. That's why we capture it here.
-    cntOldD | not ss && shiftSck = cntQ == maxBound
-            | otherwise          = cntOldQ
 
     ackD  = not ss && shiftSck && cntQ == 1
     doneD = not ss && sampleSck && cntQ == maxBound
@@ -268,7 +264,10 @@ spiMaster
   -- 3. Slave select (SS)
   -- 4. Busy signal indicating that a transmission is in progress, new words on
   --    the data line will be ignored when /True/
-  -- 5. (Maybe) the word send from the slave to the master
+  -- 5. Acknowledgement. This output is True for one clock cycle when the
+  --    master starts to send the current word. Then, put the next word on the
+  --    data input.
+  -- 6. (Maybe) the word from the slave
 spiMaster mode fN fW din miso =
   let (mosi, ack, dout)   = spiCommon mode ssL misoL sclkL
                         (fromMaybe undefined# <$> din)
