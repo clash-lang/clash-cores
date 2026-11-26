@@ -225,11 +225,18 @@ spiSlave
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- The slave latches the first word when slave select goes low. When slave
-  -- select stays low for more than one word, the slave latches each next
-  -- word on the shift edge where its first bit must be on MISO. Put the next
-  -- word on this input after the slave asserts the acknowledgement output.
-  -- Keep the next word stable until the slave latches it.
+  -- The slave latches each word at the moment its first bit must be on MISO:
+  --
+  -- * Modes 0 and 2: the first word in the last clock cycle before slave
+  --   select goes low, and each next word on the shift edge after the last
+  --   sample of the previous word.
+  -- * Modes 1 and 3: each word on the first shift edge of the word. This is
+  --   also true for the first word, so the slave latches it after slave
+  --   select goes low.
+  --
+  -- Keep each word stable on this input until the slave latches it. When
+  -- slave select stays low for more than one word, put the next word on this
+  -- input after the slave asserts the acknowledgement output.
   --
   -- To send a response to a received word in the next word, put the response
   -- on this input before the slave latches it. The slave latches the next
@@ -479,11 +486,18 @@ spiSlaveLatticeSBIO
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- The slave latches the first word when slave select goes low. When slave
-  -- select stays low for more than one word, the slave latches each next
-  -- word on the shift edge where its first bit must be on MISO. Put the next
-  -- word on this input after the slave asserts the acknowledgement output.
-  -- Keep the next word stable until the slave latches it.
+  -- The slave latches each word at the moment its first bit must be on MISO:
+  --
+  -- * Modes 0 and 2: the first word in the last clock cycle before slave
+  --   select goes low, and each next word on the shift edge after the last
+  --   sample of the previous word.
+  -- * Modes 1 and 3: each word on the first shift edge of the word. This is
+  --   also true for the first word, so the slave latches it after slave
+  --   select goes low.
+  --
+  -- Keep each word stable on this input until the slave latches it. When
+  -- slave select stays low for more than one word, put the next word on this
+  -- input after the slave asserts the acknowledgement output.
   --
   -- To send a response to a received word in the next word, put the response
   -- on this input before the slave latches it. The slave latches the next
@@ -540,11 +554,18 @@ spiSlaveLatticeBB
   -> Signal dom (BitVector n)
   -- ^ Data to send from slave to master
   --
-  -- The slave latches the first word when slave select goes low. When slave
-  -- select stays low for more than one word, the slave latches each next
-  -- word on the shift edge where its first bit must be on MISO. Put the next
-  -- word on this input after the slave asserts the acknowledgement output.
-  -- Keep the next word stable until the slave latches it.
+  -- The slave latches each word at the moment its first bit must be on MISO:
+  --
+  -- * Modes 0 and 2: the first word in the last clock cycle before slave
+  --   select goes low, and each next word on the shift edge after the last
+  --   sample of the previous word.
+  -- * Modes 1 and 3: each word on the first shift edge of the word. This is
+  --   also true for the first word, so the slave latches it after slave
+  --   select goes low.
+  --
+  -- Keep each word stable on this input until the slave latches it. When
+  -- slave select stays low for more than one word, put the next word on this
+  -- input after the slave asserts the acknowledgement output.
   --
   -- To send a response to a received word in the next word, put the response
   -- on this input before the slave latches it. The slave latches the next
